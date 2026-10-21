@@ -1,0 +1,4 @@
+mcp==2.3.0
+garminconnect==0.3.17
+uvicorn==0.54.0
+tzdata==2026.5

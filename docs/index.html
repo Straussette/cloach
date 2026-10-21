@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f6b63">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cloach">
+<meta name="app-version" content="2026-10-21.1">
+<title>Cloach</title>
+<style>
+  /* ---------- Couleurs (clair / sombre) ---------- */
+  :root {
+    --bg:#f3f6f5; --surface:#ffffff; --text:#14211f; --muted:#62716e; --border:#dfe7e5;
+    --accent:#0f6b63; --on-accent:#ffffff; --accent-doux:#e1f0ee; --vif:#e8692c;
+    --ok:#2f7d4f; --alerte:#b42a2a;
+    --i-repos:#8a9593; --i-facile:#2f9e5b; --i-modere:#2a7fb8; --i-soutenu:#e8862c; --i-tres-soutenu:#c9372c;
+    --shadow:0 1px 3px rgba(20,33,31,.08), 0 4px 14px rgba(20,33,31,.06);
+    --voile-clair:rgba(255,255,255,.16); --voile:rgba(0,0,0,.45);
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
+      --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
+      --ok:#4fb378; --alerte:#e0605a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
+    --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
+    --ok:#4fb378; --alerte:#e0605a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
+  }
+
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  html, body { overscroll-behavior-y:none; }
+  body {
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size:16px;
+    -webkit-font-smoothing:antialiased; padding-bottom:calc(84px + env(safe-area-inset-bottom));
+  }
+  .wrap { max-width:720px; margin:0 auto; }
+  h1, h2, h3 { font-weight:700; letter-spacing:-.01em; }
+  h2 { font-size:1.3rem; margin:0 0 10px; }
+  h3 { font-size:1.05rem; margin:0; }
+  p { line-height:1.5; }
+  a { color:var(--accent); }
+
+  /* ---------- En-tête ---------- */
+  .top { background:var(--accent); color:var(--on-accent); padding:calc(16px + env(safe-area-inset-top)) 16px 16px; }
+  .top .wrap { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  .top h1 { margin:0; font-size:1.7rem; }
+  .top h1 span { color:var(--vif); }
+  .top .sous-titre { margin:2px 0 0; opacity:.85; font-size:.9rem; }
+  .pastille {
+    flex:none; background:var(--voile-clair); color:var(--on-accent); border:0; border-radius:999px;
+    padding:7px 12px; font:inherit; font-size:.85rem; cursor:pointer; max-width:46vw;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  main { padding:16px; }
+
+  /* ---------- Éléments communs ---------- */
+  .carte { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; box-shadow:var(--shadow); margin-bottom:14px; }
+  .carte > :first-child { margin-top:0; }
+  .carte > :last-child { margin-bottom:0; }
+  .muted { color:var(--muted); }
+  .petit { font-size:.88rem; }
+  input, select, textarea {
+    font:inherit; color:inherit; background:var(--surface);
+    border:1px solid var(--border); border-radius:10px; padding:10px 12px; width:100%;
+  }
+  textarea { resize:vertical; min-height:70px; }
+  input:focus, select:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  label { display:grid; gap:5px; font-size:.9rem; color:var(--muted); }
+  .champs { display:grid; gap:12px; }
+  .deux { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .btn {
+    border:0; border-radius:10px; padding:11px 16px; font:inherit; font-weight:600; cursor:pointer; text-decoration:none;
+    background:var(--accent); color:var(--on-accent); display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  }
+  .btn.secondaire { background:var(--accent-doux); color:var(--text); }
+  .btn.discret { background:transparent; color:var(--accent); padding:8px 4px; }
+  .btn.danger { background:transparent; color:var(--alerte); padding:8px 4px; }
+  .btn:disabled { opacity:.55; cursor:default; }
+  .btn.large { width:100%; }
+  .rangee { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .pile { display:grid; gap:8px; }
+  .cases { display:flex; flex-wrap:wrap; gap:6px; }
+  .cases label { display:inline-flex; align-items:center; gap:6px; color:var(--text); border:1px solid var(--border); border-radius:999px; padding:6px 12px; cursor:pointer; font-size:.9rem; }
+  .cases input { width:auto; margin:0; }
+  .cases label:has(input:checked) { background:var(--accent-doux); border-color:var(--accent); }
+  .statut { font-size:.9rem; min-height:1.2em; margin:0; }
+  .statut.erreur { color:var(--alerte); }
+  .vide { text-align:center; color:var(--muted); padding:24px 8px; }
+  .adresse { display:grid; grid-template-columns:1fr auto; gap:8px; }
+  .adresse input { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem; }
+  ol.etapes { margin:8px 0; padding-left:20px; line-height:1.55; }
+
+  /* ---------- Séances ---------- */
+  .seance { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:start; padding:12px 0; border-top:1px solid var(--border); }
+  .seance:first-child { border-top:0; padding-top:0; }
+  .seance .icone { font-size:1.5rem; line-height:1; width:2rem; text-align:center; }
+  .seance .titre { font-weight:600; }
+  .seance .meta { font-size:.85rem; color:var(--muted); margin-top:2px; }
+  .seance .details { font-size:.9rem; margin-top:6px; line-height:1.45; white-space:pre-line; }
+  .seance.fait .titre { text-decoration:line-through; text-decoration-color:var(--ok); }
+  .seance.saute { opacity:.55; }
+  .intensite { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:middle; background:var(--i-modere); }
+  .intensite.repos { background:var(--i-repos); }
+  .intensite.facile { background:var(--i-facile); }
+  .intensite.modere { background:var(--i-modere); }
+  .intensite.soutenu { background:var(--i-soutenu); }
+  .intensite.tres-soutenu { background:var(--i-tres-soutenu); }
+  .etat-seance { border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:999px; padding:5px 10px; font:inherit; font-size:.8rem; cursor:pointer; white-space:nowrap; }
+  .etat-seance.fait { background:var(--ok); border-color:var(--ok); color:var(--on-accent); }
+  .semaine-h { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin:0 0 6px; }
+  .semaine-h span { font-size:.85rem; color:var(--muted); }
+
+  /* ---------- Aujourd'hui ---------- */
+  .bandeau { display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; }
+  .bandeau div { text-align:center; padding:8px 0; border-radius:10px; background:var(--accent-doux); font-size:.75rem; color:var(--muted); }
+  .bandeau div b { display:block; font-size:1.15rem; margin-top:2px; }
+  .bandeau div.ajd { outline:2px solid var(--accent); color:var(--text); }
+
+  /* ---------- Onglets ---------- */
+  .onglets {
+    position:fixed; left:0; right:0; bottom:0; z-index:5; background:var(--surface); border-top:1px solid var(--border);
+    display:grid; grid-template-columns:repeat(4, 1fr); padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+  }
+  .onglets button { background:none; border:0; font:inherit; font-size:.72rem; color:var(--muted); display:grid; justify-items:center; gap:2px; padding:4px 0; cursor:pointer; }
+  .onglets button span { font-size:1.35rem; line-height:1.1; }
+  .onglets button.actif { color:var(--accent); font-weight:600; }
+
+  /* ---------- Fenêtres ---------- */
+  dialog { border:0; border-radius:16px; padding:0; width:min(440px, calc(100% - 32px)); background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
+  dialog::backdrop { background:var(--voile); }
+  .dlg { padding:20px; display:grid; gap:12px; }
+  .dlg h2 { margin:0; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div>
+      <h1>Clo<span>a</span>ch</h1>
+      <p class="sous-titre">le coaching by Claude</p>
+    </div>
+    <button class="pastille" id="btnCompte" type="button">Se connecter</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- Aujourd'hui -->
+  <section data-vue="jour">
+    <div class="carte">
+      <div class="semaine-h"><h2 id="dateJour">Aujourd'hui</h2><span id="sourceDonnees"></span></div>
+      <div class="bandeau" id="bandeau"></div>
+    </div>
+    <div class="carte" id="cartePrevue"></div>
+    <div class="carte">
+      <h2>Demander au coach</h2>
+      <p class="muted petit">Ouvre ton Claude avec la question déjà écrite. Le connecteur Cloach doit être branché (onglet Profil).</p>
+      <div class="pile">
+        <a class="btn large" target="_blank" rel="noopener" data-question="jour">☀️ Que faire aujourd'hui ?</a>
+        <a class="btn secondaire large" target="_blank" rel="noopener" data-question="bilan">📊 Bilan de ma semaine</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Plan -->
+  <section data-vue="plan" hidden>
+    <div class="carte" id="enTetePlan"></div>
+    <div id="semaines"></div>
+    <div class="carte">
+      <h3 id="titreDemandePlan">Créer mon plan avec Claude</h3>
+      <p class="muted petit">Claude construit 3 semaines d'après ton profil, ce que tu as fait et ta forme, puis les enregistre : elles apparaissent ici.</p>
+      <div class="champs">
+        <textarea id="demandePlan" placeholder="Facultatif : « j'ai une gêne au mollet », « je pars en vacances la semaine prochaine », « plus de vélo »…"></textarea>
+        <a class="btn large" target="_blank" rel="noopener" data-question="plan" id="btnPlan">🗓️ Demander mon plan à Claude</a>
+        <button class="btn discret" type="button" id="btnRafraichir">↻ Rafraîchir</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Journal -->
+  <section data-vue="journal" hidden>
+    <div class="carte">
+      <h2>Noter une séance</h2>
+      <p class="muted petit" id="noteJournal"></p>
+      <form class="champs" id="formJournal">
+        <div class="deux">
+          <label>Date<input type="date" id="j-date" required></label>
+          <label>Sport<select id="j-sport"></select></label>
+        </div>
+        <div class="deux">
+          <label>Durée (min)<input type="number" id="j-duree" min="1" max="900" inputmode="numeric" required></label>
+          <label>Distance (km)<input type="number" id="j-distance" min="0" step="0.1" inputmode="decimal"></label>
+        </div>
+        <label>Ressenti
+          <select id="j-ressenti">
+            <option value="">—</option>
+            <option value="1">1 · très dur, épuisé</option>
+            <option value="2">2 · dur</option>
+            <option value="3">3 · correct</option>
+            <option value="4">4 · bien</option>
+            <option value="5">5 · excellent, plein d'énergie</option>
+          </select>
+        </label>
+        <label>Notes<textarea id="j-notes" placeholder="Douleurs, sensations, météo, allures…"></textarea></label>
+        <button class="btn large" type="submit">Ajouter au journal</button>
+      </form>
+    </div>
+    <div class="carte">
+      <h2>Mes séances</h2>
+      <div id="listeJournal"></div>
+    </div>
+  </section>
+
+  <!-- Profil -->
+  <section data-vue="profil" hidden>
+    <div class="carte">
+      <h2>Compte</h2>
+      <div id="blocCompte"></div>
+    </div>
+
+    <div class="carte">
+      <h2>Mon profil sportif</h2>
+      <form class="champs" id="formProfil">
+        <div class="deux">
+          <label>Prénom<input id="p-prenom" autocomplete="given-name"></label>
+          <label>Âge<input type="number" id="p-age" min="10" max="99" inputmode="numeric"></label>
+        </div>
+        <label>Niveau
+          <select id="p-niveau">
+            <option value="">—</option>
+            <option>Débutant</option>
+            <option>Intermédiaire</option>
+            <option>Confirmé</option>
+            <option>Compétiteur</option>
+          </select>
+        </label>
+        <div><p class="muted petit" style="margin:0 0 6px">Sports pratiqués</p><div class="cases" id="p-sports"></div></div>
+        <label>Objectif<textarea id="p-objectif" placeholder="Ex. trail de 40 km et 2 000 m D+ ; semi-marathon en moins de 1 h 45 ; reprendre la forme…"></textarea></label>
+        <div class="deux">
+          <label>Date de l'objectif<input type="date" id="p-dateObjectif"></label>
+          <label>Séances par semaine<input type="number" id="p-seancesSemaine" min="1" max="14" inputmode="numeric"></label>
+        </div>
+        <div><p class="muted petit" style="margin:0 0 6px">Jours disponibles</p><div class="cases" id="p-jours"></div></div>
+        <label>Contraintes, blessures, matériel<textarea id="p-contraintes" placeholder="Ex. genou fragile, home trainer avec capteur de puissance, piscine le mardi…"></textarea></label>
+        <p class="statut" id="statutProfil"></p>
+        <button class="btn large" type="submit">Enregistrer</button>
+      </form>
+    </div>
+
+    <div class="carte">
+      <h2>Brancher Claude</h2>
+      <p class="petit">Le coaching se passe dans <b>ton</b> Claude (claude.ai, appli mobile ou de bureau), sur ton propre abonnement. Ajoute Cloach comme connecteur, une seule fois :</p>
+      <ol class="etapes petit">
+        <li>Ouvre <a href="https://claude.ai/customize/connectors" target="_blank" rel="noopener">claude.ai → Paramètres → Connecteurs</a>, puis « Ajouter un connecteur personnalisé ».</li>
+        <li>Nom : <b>Cloach</b>. URL :</li>
+      </ol>
+      <div class="adresse">
+        <input id="adresseConnecteur" readonly>
+        <button class="btn secondaire" type="button" id="btnCopier">Copier</button>
+      </div>
+      <ol class="etapes petit" start="3">
+        <li>Clique sur « Se connecter » et entre ton e-mail et ton mot de passe <b>Cloach</b>.</li>
+        <li>Dans une conversation, active le connecteur Cloach (menu « + » ou icône des outils), puis parle à ton coach.</li>
+      </ol>
+      <p class="muted petit">Les boutons « Demander » de l'app ouvrent Claude avec la question déjà écrite.</p>
+    </div>
+
+    <div class="carte">
+      <h2>Garmin</h2>
+      <div id="blocGarmin"></div>
+    </div>
+  </section>
+</main>
+
+<nav class="onglets" id="onglets">
+  <button type="button" data-onglet="jour" class="actif"><span>☀️</span>Aujourd'hui</button>
+  <button type="button" data-onglet="plan"><span>🗓️</span>Plan</button>
+  <button type="button" data-onglet="journal"><span>📒</span>Journal</button>
+  <button type="button" data-onglet="profil"><span>👤</span>Profil</button>
+</nav>
+
+<!-- Connexion à Garmin -->
+<dialog id="dlgGarmin">
+  <form class="dlg" id="formGarmin">
+    <h2>Brancher Garmin</h2>
+    <p class="muted petit" style="margin:0">Claude pourra lire tes activités, ton sommeil, ta VFC, ta Body Battery et ton statut d'entraînement. Ton mot de passe sert une seule fois à te connecter : il n'est conservé nulle part, seuls les jetons d'accès Garmin le sont, chiffrés.</p>
+    <div class="champs" id="etapeIdentifiants">
+      <label>E-mail Garmin<input type="email" id="g-email" autocomplete="username"></label>
+      <label>Mot de passe Garmin<input type="password" id="g-mdp" autocomplete="current-password"></label>
+    </div>
+    <div class="champs" id="etapeCode" hidden>
+      <label>Code reçu par e-mail ou SMS<input id="g-code" inputmode="numeric" autocomplete="one-time-code"></label>
+    </div>
+    <p class="statut" id="statutGarmin"></p>
+    <div class="rangee">
+      <button class="btn" type="submit" id="btnGarminValider">Se connecter</button>
+      <button class="btn discret" type="button" id="btnGarminAnnuler">Annuler</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+/* ---------- Constantes ---------- */
+const SB_URL = 'https://linwjectmrqqdzcjtgeb.supabase.co';
+const SB_CLE = 'sb_publishable_pQWy8E2hky_HyhwNebDhCg_3Pjkrf7P'; // clé publique (sans danger dans la page)
+const SERVEUR = 'https://cloach.onrender.com'; // serveur MCP de Cloach (dossier serveur/)
+const CLE_SESSION = 'cloach-session';
+const CLE_ETAT = 'cloach-etat';
+
+const SPORTS = {
+  course: { nom: 'Course à pied', icone: '🏃' },
+  trail: { nom: 'Trail', icone: '⛰️' },
+  velo: { nom: 'Vélo', icone: '🚴' },
+  renfo: { nom: 'Renforcement', icone: '💪' },
+  natation: { nom: 'Natation', icone: '🏊' },
+  autre: { nom: 'Autre', icone: '✨' },
+};
+const INTENSITES = { repos: 'repos', facile: 'facile', modere: 'modéré', soutenu: 'soutenu', 'tres-soutenu': 'très soutenu' };
+const JOURS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+
+/* ---------- Utilitaires ---------- */
+const $ = (s) => document.querySelector(s);
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function lireLocal(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } }
+function ecrireLocal(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+const idNeuf = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// Dates locales au format AAAA-MM-JJ
+function jourISO(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function versDate(iso) { const [a, m, j] = iso.split('-').map(Number); return new Date(a, m - 1, j); }
+function decaler(iso, jours) { const d = versDate(iso); d.setDate(d.getDate() + jours); return jourISO(d); }
+function dateLisible(iso, avecJour = true) {
+  return versDate(iso).toLocaleDateString('fr-FR', avecJour ? { weekday: 'long', day: 'numeric', month: 'long' } : { day: 'numeric', month: 'short' });
+}
+function dureeLisible(min) {
+  min = Number(min) || 0;
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h${min % 60 ? String(min % 60).padStart(2, '0') : ''}`;
+}
+function statut(el, texte, erreur = false) {
+  if (!el) return;
+  el.textContent = texte || '';
+  el.classList.toggle('erreur', !!erreur);
+}
+
+/* ---------- État de l'app ---------- */
+// { maj, profil, plan: { cree, resume, conseils, semaines: [{ debut, theme, seances: [...] }] }, journal: [...], garmin: { connecte, nom } }
+// Il est partagé avec le serveur MCP : Claude y écrit le plan, le journal et le profil.
+const ETAT_VIDE = () => ({ maj: 0, profil: {}, plan: null, journal: [], garmin: { connecte: false } });
+let etat = Object.assign(ETAT_VIDE(), lireLocal(CLE_ETAT) || {});
+
+const toutesSeances = () => (etat.plan?.semaines || []).flatMap((w) => w.seances);
+
+/* ---------- Compte (projet Supabase « cloach ») ---------- */
+const session = () => lireLocal(CLE_SESSION);
+const adresseApp = () => location.origin + location.pathname;
+
+async function jeton() {
+  const s = session();
+  if (!s) return null;
+  if (s.expires_at * 1000 - Date.now() > 60_000) return s.access_token;
+  const r = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST',
+    headers: { apikey: SB_CLE, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: s.refresh_token }),
+  }).catch(() => null);
+  if (!r) return s.access_token; // hors ligne : on réessaiera plus tard
+  if (!r.ok) {
+    ecrireLocal(CLE_SESSION, null);
+    afficherCompte('Ta session a expiré, reconnecte-toi.');
+    return null;
+  }
+  ouvrirSession(await r.json());
+  return session().access_token;
+}
+
+function ouvrirSession(s) {
+  ecrireLocal(CLE_SESSION, {
+    access_token: s.access_token,
+    refresh_token: s.refresh_token,
+    expires_at: s.expires_at || Math.floor(Date.now() / 1000) + (s.expires_in || 3600),
+    user: { id: s.user.id, email: s.user.email },
+  });
+}
+
+async function sbFetch(chemin, options = {}) {
+  const entetes = { apikey: SB_CLE, ...(options.headers || {}) };
+  const tok = await jeton();
+  if (tok) entetes.Authorization = 'Bearer ' + tok;
+  const r = await fetch(SB_URL + chemin, { ...options, headers: entetes });
+  const f = r.status === 204 ? null : await r.json().catch(() => null);
+  if (!r.ok) {
+    const err = new Error(f?.msg || f?.error_description || f?.message || `Erreur ${r.status}`);
+    err.status = r.status;
+    err.code = f?.error_code || f?.code;
+    throw err;
+  }
+  return f;
+}
+
+function messageAuth(e) {
+  const messages = {
+    invalid_credentials: 'E-mail ou mot de passe incorrect.',
+    email_not_confirmed: 'Confirme d\'abord ton adresse grâce à l\'e-mail reçu.',
+    user_already_exists: 'Un compte existe déjà avec cet e-mail : connecte-toi.',
+    weak_password: 'Mot de passe trop faible (8 caractères minimum).',
+    over_email_send_rate_limit: 'Trop d\'e-mails envoyés : réessaie dans une heure.',
+  };
+  return messages[e.code] || e.message;
+}
+
+let modeCompte = 'connexion'; // connexion | inscription | oubli | nouveau
+function afficherCompte(message = '', erreur = true) {
+  const s = session();
+  $('#btnCompte').textContent = s ? s.user.email : 'Se connecter';
+  const bloc = $('#blocCompte');
+  if (s && modeCompte !== 'nouveau') {
+    bloc.innerHTML = `<p>Connecté en tant que <b>${esc(s.user.email)}</b>. Ton profil, ton plan et ton journal suivent ce compte d'un appareil à l'autre, et Claude y accède quand tu branches le connecteur.</p>
+      <p class="statut" id="statutCompte"></p>
+      <button class="btn danger" type="button" id="btnDeconnexion">Se déconnecter</button>`;
+    $('#btnDeconnexion').onclick = seDeconnecter;
+    statut($('#statutCompte'), message, erreur);
+    return;
+  }
+  const titres = { connexion: 'Se connecter', inscription: 'Créer mon compte', oubli: 'Recevoir un lien', nouveau: 'Changer de mot de passe' };
+  bloc.innerHTML = `<form class="champs" id="formCompte">
+      ${modeCompte === 'nouveau' ? '' : '<label>E-mail<input type="email" id="c-email" autocomplete="username" required></label>'}
+      ${modeCompte === 'oubli' ? '' : `<label>${modeCompte === 'nouveau' ? 'Nouveau mot de passe' : 'Mot de passe'}<input type="password" id="c-mdp" minlength="8" autocomplete="${modeCompte === 'connexion' ? 'current-password' : 'new-password'}" required></label>`}
+      <p class="statut" id="statutCompte"></p>
+      <button class="btn large" type="submit">${titres[modeCompte]}</button>
+      <div class="rangee" style="justify-content:space-between">
+        ${modeCompte === 'connexion'
+          ? '<button class="btn discret" type="button" data-mode="inscription">Créer un compte</button><button class="btn discret" type="button" data-mode="oubli">Mot de passe oublié</button>'
+          : '<button class="btn discret" type="button" data-mode="connexion">J\'ai déjà un compte</button>'}
+      </div>
+    </form>`;
+  statut($('#statutCompte'), message, erreur);
+  for (const b of bloc.querySelectorAll('[data-mode]')) b.onclick = () => { modeCompte = b.dataset.mode; afficherCompte(); };
+  $('#formCompte').onsubmit = async (e) => {
+    e.preventDefault();
+    const email = $('#c-email')?.value.trim();
+    const mdp = $('#c-mdp')?.value;
+    const json = (corps) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+    statut($('#statutCompte'), '…', false);
+    try {
+      if (modeCompte === 'connexion') {
+        ouvrirSession(await sbFetch('/auth/v1/token?grant_type=password', json({ email, password: mdp })));
+        await apresConnexion();
+      } else if (modeCompte === 'inscription') {
+        const r = await sbFetch('/auth/v1/signup?redirect_to=' + encodeURIComponent(adresseApp()), json({ email, password: mdp }));
+        modeCompte = 'connexion';
+        if (r?.access_token) { ouvrirSession(r); await apresConnexion(); return; }
+        afficherCompte('✓ Compte créé. Ouvre le lien reçu par e-mail pour le confirmer, puis connecte-toi.', false);
+      } else if (modeCompte === 'oubli') {
+        await sbFetch('/auth/v1/recover?redirect_to=' + encodeURIComponent(adresseApp()), json({ email }));
+        modeCompte = 'connexion';
+        afficherCompte('✓ Si un compte existe, un lien pour changer de mot de passe vient d\'être envoyé.', false);
+      } else {
+        await sbFetch('/auth/v1/user', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: mdp }) });
+        modeCompte = 'connexion';
+        afficherCompte('✓ Mot de passe changé.', false);
+      }
+    } catch (err) { statut($('#statutCompte'), messageAuth(err), true); }
+  };
+}
+$('#btnCompte').onclick = () => { allerA('profil'); $('#blocCompte').scrollIntoView({ behavior: 'smooth' }); };
+
+function seDeconnecter() {
+  const tok = session()?.access_token;
+  if (tok) fetch(SB_URL + '/auth/v1/logout', { method: 'POST', headers: { apikey: SB_CLE, Authorization: 'Bearer ' + tok } }).catch(() => {});
+  ecrireLocal(CLE_SESSION, null);
+  // Les données de ce compte ne restent pas sur l'appareil
+  etat = ETAT_VIDE();
+  ecrireLocal(CLE_ETAT, null);
+  afficherCompte();
+  toutAfficher();
+}
+
+async function apresConnexion() {
+  afficherCompte();
+  await synchroniser();
+  toutAfficher();
+  verifierGarmin();
+}
+
+// Retour d'un lien reçu par e-mail (confirmation d'inscription ou mot de passe oublié)
+async function traiterLienEmail() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  history.replaceState(null, '', location.pathname);
+  allerA('profil');
+  if (h.get('error_code')) {
+    afficherCompte(h.get('error_code') === 'otp_expired' ? 'Ce lien a expiré : demandes-en un nouveau.' : 'Lien invalide.');
+    return;
+  }
+  const tok = h.get('access_token');
+  try {
+    const user = await fetch(SB_URL + '/auth/v1/user', { headers: { apikey: SB_CLE, Authorization: 'Bearer ' + tok } }).then((r) => r.json());
+    if (!user?.id) throw new Error('lien');
+    ouvrirSession({ access_token: tok, refresh_token: h.get('refresh_token'), expires_in: Number(h.get('expires_in')) || 3600, user });
+    if (h.get('type') === 'recovery') modeCompte = 'nouveau';
+    await apresConnexion();
+    if (h.get('type') === 'signup') afficherCompte('✓ Adresse confirmée, bienvenue !', false);
+  } catch { afficherCompte('Lien invalide.'); }
+}
+
+/* ---------- Synchronisation (table donnees) ---------- */
+// Une ligne par compte : { user_id, data, maj }. La version la plus récente l'emporte.
+// Claude écrit aussi dans cette ligne (plan, journal, profil) : on relit avant chaque modification.
+async function synchroniser() {
+  if (!session()) return;
+  try {
+    const lignes = await sbFetch(`/rest/v1/donnees?select=data&user_id=eq.${session().user.id}`);
+    const distant = lignes?.[0]?.data;
+    if (distant && (distant.maj || 0) > (etat.maj || 0)) {
+      etat = Object.assign(ETAT_VIDE(), distant);
+      ecrireLocal(CLE_ETAT, etat);
+    } else if (etat.maj && (distant?.maj || 0) < etat.maj) {
+      await envoyerEtat();
+    }
+  } catch (e) { console.warn('Sync', e); }
+}
+
+async function envoyerEtat() {
+  await sbFetch('/rest/v1/donnees', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ user_id: session().user.id, data: etat, maj: new Date(etat.maj).toISOString() }),
+  });
+}
+
+// Relit la dernière version, applique la modification, enregistre et envoie
+async function modifier(changer) {
+  await synchroniser();
+  changer();
+  etat.maj = Date.now();
+  ecrireLocal(CLE_ETAT, etat);
+  toutAfficher();
+  if (session()) await envoyerEtat().catch((e) => console.warn('Sync', e));
+}
+
+/* ---------- Questions à Claude ---------- */
+// Ouvre Claude avec la question déjà écrite ; le connecteur Cloach fait le reste
+function lienClaude(question) {
+  return 'https://claude.ai/new?q=' + encodeURIComponent(question + ' (Utilise le connecteur Cloach.)');
+}
+const QUESTIONS = {
+  jour: () => 'Que dois-je faire aujourd\'hui ? Regarde mon contexte du jour et ma forme, dis-moi si je garde, allège ou décale la séance prévue, puis détaille la séance.',
+  bilan: () => 'Fais le bilan de ma semaine : séances prévues et faites, charge, forme, points positifs, points d\'attention, et ce que je dois ajuster.',
+  plan: () => (etat.plan ? 'Réajuste mon plan d\'entraînement' : 'Construis mon plan d\'entraînement')
+    + ' des 3 prochaines semaines d\'après mon profil, ce que j\'ai fait récemment et ma forme, puis enregistre-le.'
+    + ($('#demandePlan').value.trim() ? ' Ma demande : ' + $('#demandePlan').value.trim() : ''),
+};
+function majLiensClaude() {
+  for (const a of document.querySelectorAll('[data-question]')) a.href = lienClaude(QUESTIONS[a.dataset.question]());
+}
+$('#demandePlan').addEventListener('input', majLiensClaude);
+
+/* ---------- Affichage d'une séance ---------- */
+function htmlSeance(s, { avecDate = false } = {}) {
+  const sport = SPORTS[s.sport] || SPORTS.autre;
+  const meta = [
+    avecDate ? esc(dateLisible(s.jour)) : '',
+    s.duree ? dureeLisible(s.duree) : '',
+    `<span class="intensite ${esc(s.intensite)}"></span>${esc(INTENSITES[s.intensite] || s.intensite || '')}`,
+  ].filter(Boolean).join(' · ');
+  return `<div class="seance ${s.etat === 'fait' ? 'fait' : s.etat === 'saute' ? 'saute' : ''}">
+    <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
+    <div>
+      <div class="titre">${esc(s.titre || sport.nom)}</div>
+      <div class="meta">${meta}</div>
+      ${s.details ? `<div class="details">${esc(s.details)}</div>` : ''}
+    </div>
+    <div><button class="etat-seance ${s.etat === 'fait' ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'fait' ? '✓ Fait' : s.etat === 'saute' ? 'Sauté' : 'À faire'}</button></div>
+  </div>`;
+}
+
+// À faire → fait → sauté → à faire
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-seance]');
+  if (!b) return;
+  const id = b.dataset.seance;
+  modifier(() => {
+    const s = toutesSeances().find((x) => x.id === id);
+    if (s) s.etat = !s.etat ? 'fait' : s.etat === 'fait' ? 'saute' : '';
+  });
+});
+
+/* ---------- Onglet Aujourd'hui ---------- */
+function afficherJour() {
+  const ajd = jourISO();
+  $('#dateJour').textContent = dateLisible(ajd).replace(/^./, (c) => c.toUpperCase());
+  $('#sourceDonnees').textContent = etat.garmin.connecte ? '⌚ Garmin branché' : '';
+
+  // Bandeau de la semaine en cours (lundi → dimanche)
+  const lundi = decaler(ajd, -((versDate(ajd).getDay() + 6) % 7));
+  const seances = toutesSeances();
+  $('#bandeau').innerHTML = JOURS.map((j, i) => {
+    const jour = decaler(lundi, i);
+    const icones = seances.filter((s) => s.jour === jour).map((s) => (SPORTS[s.sport] || SPORTS.autre).icone).join('') || '·';
+    return `<div class="${jour === ajd ? 'ajd' : ''}">${j.slice(0, 3)}<b>${icones}</b></div>`;
+  }).join('');
+
+  const prevues = seances.filter((s) => s.jour === ajd);
+  $('#cartePrevue').innerHTML = '<h2>Au programme</h2>' + (prevues.length
+    ? prevues.map((s) => htmlSeance(s)).join('')
+    : `<p class="muted">${etat.plan ? 'Rien de prévu aujourd\'hui : repos ou séance libre.' : 'Pas encore de plan : remplis ton profil, branche Claude, puis demande ton plan dans l\'onglet Plan.'}</p>`);
+}
+
+/* ---------- Onglet Plan ---------- */
+function afficherPlan() {
+  const p = etat.plan;
+  $('#titreDemandePlan').textContent = p ? 'Réajuster mon plan avec Claude' : 'Créer mon plan avec Claude';
+  $('#btnPlan').textContent = p ? '🗓️ Demander à Claude de réajuster' : '🗓️ Demander mon plan à Claude';
+  if (!p) {
+    $('#enTetePlan').innerHTML = '<h2>Mon plan</h2><p class="muted">Pas encore de plan. Remplis ton profil, branche Claude (onglet Profil), puis demande-lui ton plan ci-dessous. Il apparaîtra ici dès ton retour dans l\'app.</p>';
+    $('#semaines').innerHTML = '';
+    return;
+  }
+  const seances = toutesSeances();
+  const faites = seances.filter((s) => s.etat === 'fait').length;
+  $('#enTetePlan').innerHTML = `<div class="semaine-h"><h2>Mon plan</h2><span>créé le ${esc(dateLisible(p.cree, false))}</span></div>
+    ${p.resume ? `<p>${esc(p.resume)}</p>` : ''}
+    <p class="muted petit">${faites} séance${faites > 1 ? 's' : ''} faite${faites > 1 ? 's' : ''} sur ${seances.length}. Touche « À faire » pour cocher une séance (un second appui la marque comme sautée).</p>
+    ${(p.conseils || []).length ? `<ul class="petit">${p.conseils.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}`;
+  $('#semaines').innerHTML = p.semaines.map((w, i) => {
+    const total = w.seances.reduce((n, s) => n + (Number(s.duree) || 0), 0);
+    return `<div class="carte">
+      <div class="semaine-h"><h3>Semaine ${i + 1}${w.theme ? ' · ' + esc(w.theme) : ''}</h3><span>${dureeLisible(total)}</span></div>
+      ${w.seances.map((s) => htmlSeance(s, { avecDate: true })).join('')}
+    </div>`;
+  }).join('');
+}
+
+$('#btnRafraichir').onclick = async () => { await synchroniser(); toutAfficher(); };
+
+/* ---------- Onglet Journal ---------- */
+$('#j-sport').innerHTML = Object.entries(SPORTS).map(([k, s]) => `<option value="${k}">${s.icone} ${esc(s.nom)}</option>`).join('');
+
+function afficherJournal() {
+  $('#noteJournal').textContent = etat.garmin.connecte
+    ? 'Claude lit tes activités Garmin tout seul. Note ici ton ressenti ou ce que la montre n\'a pas enregistré.'
+    : 'Note tes séances et ton ressenti : Claude s\'en sert pour adapter le plan. Tu peux aussi les lui raconter, il les notera.';
+  const liste = [...etat.journal].sort((a, b) => b.date.localeCompare(a.date));
+  $('#listeJournal').innerHTML = liste.length ? liste.map((s) => {
+    const sport = SPORTS[s.sport] || SPORTS.autre;
+    const meta = [dateLisible(s.date), dureeLisible(s.duree), s.distance ? `${String(s.distance).replace('.', ',')} km` : '', s.ressenti ? `ressenti ${s.ressenti}/5` : '']
+      .filter(Boolean).map(esc).join(' · ');
+    return `<div class="seance">
+      <div class="icone">${sport.icone}</div>
+      <div><div class="titre">${esc(sport.nom)}</div><div class="meta">${meta}</div>${s.notes ? `<div class="details">${esc(s.notes)}</div>` : ''}</div>
+      <div><button class="btn danger" type="button" data-supprimer="${esc(s.id)}" aria-label="Supprimer">✕</button></div>
+    </div>`;
+  }).join('') : '<div class="vide">Aucune séance notée pour l\'instant.</div>';
+}
+
+$('#listeJournal').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-supprimer]');
+  if (!b || !confirm('Supprimer cette séance du journal ?')) return;
+  const id = b.dataset.supprimer;
+  modifier(() => { etat.journal = etat.journal.filter((s) => s.id !== id); });
+});
+
+$('#formJournal').onsubmit = (e) => {
+  e.preventDefault();
+  const s = {
+    id: idNeuf(),
+    date: $('#j-date').value,
+    sport: $('#j-sport').value,
+    duree: Number($('#j-duree').value) || 0,
+    distance: Number($('#j-distance').value) || null,
+    ressenti: Number($('#j-ressenti').value) || null,
+    notes: $('#j-notes').value.trim(),
+  };
+  e.target.reset();
+  $('#j-date').value = jourISO();
+  modifier(() => {
+    etat.journal.push(s);
+    // Coche la séance du plan prévue ce jour-là pour ce sport
+    const prevue = toutesSeances().find((x) => x.jour === s.date && x.sport === s.sport && !x.etat);
+    if (prevue) prevue.etat = 'fait';
+  });
+};
+
+/* ---------- Onglet Profil ---------- */
+$('#p-sports').innerHTML = Object.entries(SPORTS).filter(([k]) => k !== 'autre')
+  .map(([k, s]) => `<label><input type="checkbox" value="${k}">${s.icone} ${esc(s.nom)}</label>`).join('');
+$('#p-jours').innerHTML = JOURS.map((j) => `<label><input type="checkbox" value="${j}">${j.slice(0, 3)}</label>`).join('');
+$('#adresseConnecteur').value = SERVEUR + '/mcp';
+$('#btnCopier').onclick = async () => {
+  try { await navigator.clipboard.writeText($('#adresseConnecteur').value); $('#btnCopier').textContent = '✓ Copié'; }
+  catch { $('#adresseConnecteur').select(); }
+  setTimeout(() => { $('#btnCopier').textContent = 'Copier'; }, 2000);
+};
+
+const CHAMPS_PROFIL = ['prenom', 'age', 'niveau', 'objectif', 'dateObjectif', 'seancesSemaine', 'contraintes'];
+function afficherProfil() {
+  // On ne réécrit pas le formulaire pendant qu'on le remplit
+  if ($('#formProfil').contains(document.activeElement)) return;
+  const p = etat.profil;
+  for (const k of CHAMPS_PROFIL) $('#p-' + k).value = p[k] ?? '';
+  for (const c of document.querySelectorAll('#p-sports input')) c.checked = (p.sports || []).includes(c.value);
+  for (const c of document.querySelectorAll('#p-jours input')) c.checked = (p.jours || []).includes(c.value);
+}
+
+$('#formProfil').onsubmit = async (e) => {
+  e.preventDefault();
+  const p = {};
+  for (const k of CHAMPS_PROFIL) p[k] = $('#p-' + k).value.trim();
+  p.sports = [...document.querySelectorAll('#p-sports input:checked')].map((c) => c.value);
+  p.jours = [...document.querySelectorAll('#p-jours input:checked')].map((c) => c.value);
+  document.activeElement?.blur();
+  await modifier(() => { etat.profil = p; });
+  statut($('#statutProfil'), '✓ Profil enregistré.');
+  setTimeout(() => statut($('#statutProfil'), ''), 2500);
+};
+
+/* ---------- Garmin (serveur Cloach) ---------- */
+let attenteGarmin = '';
+
+async function appelerGarmin(action, corps = {}) {
+  const tok = await jeton();
+  if (!tok) throw new Error('connecte-toi d\'abord à Cloach.');
+  let r;
+  try {
+    r = await fetch(`${SERVEUR}/garmin/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok },
+      body: JSON.stringify(corps),
+    });
+  } catch {
+    throw new Error('le serveur ne répond pas (il se réveille peut-être : réessaie dans 30 secondes).');
+  }
+  const f = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(f.erreur || `Erreur ${r.status}`);
+  return f;
+}
+
+function afficherGarmin() {
+  const bloc = $('#blocGarmin');
+  if (etat.garmin.connecte) {
+    bloc.innerHTML = `<p>⌚ Compte Garmin branché${etat.garmin.nom ? ` (<b>${esc(etat.garmin.nom)}</b>)` : ''}. Claude lit tes activités, ton sommeil, ta VFC, ta Body Battery et ton statut d'entraînement.</p>
+      <button class="btn danger" type="button" id="btnGarminDebrancher">Débrancher Garmin</button>`;
+    $('#btnGarminDebrancher').onclick = async () => {
+      if (!confirm('Débrancher ton compte Garmin ? Les jetons d\'accès seront supprimés du serveur.')) return;
+      try { await appelerGarmin('deconnexion'); } catch (e) { alert('Échec : ' + e.message); return; }
+      modifier(() => { etat.garmin = { connecte: false }; });
+    };
+  } else {
+    bloc.innerHTML = `<p class="muted">Branche ta montre pour que Claude s'appuie sur tes vraies données : activités, sommeil, VFC, Body Battery, charge d'entraînement.</p>
+      <button class="btn" type="button" id="btnGarminBrancher">Brancher mon compte Garmin</button>`;
+    $('#btnGarminBrancher').onclick = () => {
+      if (!session()) { alert('Connecte-toi d\'abord à Cloach (en haut de cette page).'); return; }
+      attenteGarmin = '';
+      $('#formGarmin').reset();
+      $('#etapeIdentifiants').hidden = false;
+      $('#etapeCode').hidden = true;
+      $('#btnGarminValider').textContent = 'Se connecter';
+      statut($('#statutGarmin'), '');
+      fetch(SERVEUR + '/sante').catch(() => {}); // réveille le serveur pendant la saisie
+      $('#dlgGarmin').showModal();
+    };
+  }
+}
+
+$('#btnGarminAnnuler').onclick = () => $('#dlgGarmin').close();
+$('#formGarmin').onsubmit = async (e) => {
+  e.preventDefault();
+  const b = $('#btnGarminValider');
+  b.disabled = true;
+  statut($('#statutGarmin'), 'Connexion à Garmin… (jusqu\'à 30 secondes si le serveur dormait)');
+  try {
+    const r = attenteGarmin
+      ? await appelerGarmin('code', { attente: attenteGarmin, code: $('#g-code').value.trim() })
+      : await appelerGarmin('connexion', { email: $('#g-email').value.trim(), mot_de_passe: $('#g-mdp').value });
+    if (r.code) {
+      attenteGarmin = r.attente;
+      $('#g-mdp').value = '';
+      $('#etapeIdentifiants').hidden = true;
+      $('#etapeCode').hidden = false;
+      b.textContent = 'Valider le code';
+      statut($('#statutGarmin'), 'Garmin t\'a envoyé un code de vérification.');
+      $('#g-code').focus();
+      return;
+    }
+    $('#dlgGarmin').close();
+    modifier(() => { etat.garmin = { connecte: true, nom: r.nom || '' }; });
+  } catch (err) {
+    statut($('#statutGarmin'), err.message, true);
+  } finally {
+    b.disabled = false;
+  }
+};
+
+// Vérifie auprès du serveur que le compte Garmin est toujours branché (et réveille le serveur)
+async function verifierGarmin() {
+  if (!session()) return;
+  try {
+    const r = await appelerGarmin('etat');
+    if (r.connecte !== !!etat.garmin.connecte) modifier(() => { etat.garmin = { ...etat.garmin, connecte: r.connecte }; });
+  } catch { /* serveur endormi ou hors ligne : on garde l'état connu */ }
+}
+
+/* ---------- Navigation ---------- */
+function allerA(vue) {
+  for (const s of document.querySelectorAll('[data-vue]')) s.hidden = s.dataset.vue !== vue;
+  for (const b of document.querySelectorAll('[data-onglet]')) b.classList.toggle('actif', b.dataset.onglet === vue);
+  try { sessionStorage.setItem('cloach-vue', vue); } catch {}
+  window.scrollTo(0, 0);
+}
+$('#onglets').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-onglet]');
+  if (b) allerA(b.dataset.onglet);
+});
+
+function toutAfficher() {
+  afficherJour();
+  afficherPlan();
+  afficherJournal();
+  afficherProfil();
+  afficherGarmin();
+  majLiensClaude();
+}
+
+/* ---------- Mise à jour automatique ---------- */
+// À l'ouverture, on compare la version affichée avec celle en ligne ;
+// si elle est plus récente, on recharge la page en contournant le cache.
+async function verifierMiseAJour() {
+  try {
+    const actuelle = document.querySelector('meta[name="app-version"]').content;
+    const r = await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' });
+    const html = await r.text();
+    const enLigne = (html.match(/name="app-version" content="([^"]+)"/) || [])[1];
+    if (enLigne && enLigne !== actuelle && sessionStorage.getItem('cloach-maj-tentee') !== enLigne) {
+      sessionStorage.setItem('cloach-maj-tentee', enLigne);
+      location.replace(location.pathname + '?v=' + encodeURIComponent(enLigne));
+    }
+  } catch { /* hors ligne : on garde la version actuelle */ }
+}
+
+// Au retour dans l'app, on récupère ce que Claude a pu écrire entre-temps
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden) return;
+  if (location.protocol.startsWith('http')) verifierMiseAJour();
+  if (session()) { await synchroniser(); toutAfficher(); }
+});
+if (location.protocol.startsWith('http')) verifierMiseAJour();
+
+/* ---------- Démarrage ---------- */
+(async () => {
+  $('#j-date').value = jourISO();
+  let vue = 'jour';
+  try { vue = sessionStorage.getItem('cloach-vue') || 'jour'; } catch {}
+  allerA(vue);
+  afficherCompte();
+  toutAfficher();
+  if (/access_token|error_code/.test(location.hash)) await traiterLienEmail();
+  else if (session()) await apresConnexion();
+  else if (!etat.maj) allerA('profil'); // première visite : on commence par le compte
+})();
+</script>
+</body>
+</html>

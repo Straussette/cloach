@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: cloach
+    runtime: docker
+    rootDir: serveur
+    plan: free
+    healthCheckPath: /sante
+    envVars:
+      - key: CLE_SIGNATURE
+        generateValue: true
+      - key: SUPABASE_URL
+        value: https://linwjectmrqqdzcjtgeb.supabase.co
+      - key: SUPABASE_CLE
+        value: sb_publishable_pQWy8E2hky_HyhwNebDhCg_3Pjkrf7P
+      - key: SUPABASE_CLE_SECRETE
+        sync: false

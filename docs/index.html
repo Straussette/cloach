@@ -6,7 +6,11 @@
 <meta name="theme-color" content="#0f6b63">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Cloach">
-<meta name="app-version" content="2026-10-23.2">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icones/icone-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="app-version" content="2026-10-23.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -166,6 +170,13 @@
   table.donnees th, table.donnees td { text-align:right; padding:4px 6px; border-bottom:1px solid var(--border); }
   table.donnees th:first-child, table.donnees td:first-child { text-align:left; }
   .analyse { white-space:pre-line; line-height:1.5; }
+
+  /* ---------- Message éphémère ---------- */
+  .toast {
+    position:fixed; left:50%; bottom:calc(86px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:10;
+    background:var(--text); color:var(--bg); border-radius:10px; padding:10px 14px; font-size:.88rem; max-width:calc(100% - 32px);
+    box-shadow:var(--shadow);
+  }
 
   /* ---------- Fenêtres ---------- */
   dialog { border:0; border-radius:16px; padding:0; width:min(440px, calc(100% - 32px)); background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
@@ -658,6 +669,22 @@ function majLiensClaude() {
   for (const a of document.querySelectorAll('[data-question]')) a.href = lienClaude(QUESTIONS[a.dataset.question]());
 }
 $('#demandePlan').addEventListener('input', majLiensClaude);
+
+// La question est aussi copiée : si l'appli Claude s'ouvre sans elle, il suffit de la coller
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('[data-question]');
+  if (!a) return;
+  const question = QUESTIONS[a.dataset.question]() + ' (Utilise le connecteur Cloach.)';
+  navigator.clipboard?.writeText(question).then(() => toast('Question copiée : colle-la dans Claude si elle n\'apparaît pas.')).catch(() => {});
+});
+
+function toast(texte, duree = 4000) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = texte;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), duree);
+}
 
 /* ---------- Affichage d'une séance ---------- */
 function htmlSeance(s, { avecDate = false } = {}) {

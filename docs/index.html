@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-23.4">
+<meta name="app-version" content="2026-10-23.5">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -21,7 +21,7 @@
     --i-repos:#8a9593; --i-facile:#2f9e5b; --i-modere:#2a7fb8; --i-soutenu:#e8862c; --i-tres-soutenu:#c9372c;
     --shadow:0 1px 3px rgba(20,33,31,.08), 0 4px 14px rgba(20,33,31,.06);
     --voile-clair:rgba(255,255,255,.16); --voile:rgba(0,0,0,.45);
-    --serie-1:#008a7e; --serie-2:#d9581a;
+    --serie-1:#008a7e; --serie-2:#d9581a; --serie-autre:#8a9593;
     color-scheme:light;
   }
   @media (prefers-color-scheme: dark) {
@@ -29,14 +29,14 @@
       --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
       --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
       --ok:#4fb378; --alerte:#e0605a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
-      --serie-1:#1f9e91; --serie-2:#e0703a;
+      --serie-1:#1f9e91; --serie-2:#e0703a; --serie-autre:#6f7c79;
     }
   }
   :root[data-theme="dark"] {
     --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
     --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
     --ok:#4fb378; --alerte:#e0605a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
-    --serie-1:#1f9e91; --serie-2:#e0703a;
+    --serie-1:#1f9e91; --serie-2:#e0703a; --serie-autre:#6f7c79;
   }
 
   * { box-sizing:border-box; }
@@ -153,6 +153,8 @@
   .graph text { fill:var(--muted); font-size:11px; font-family:inherit; }
   .graph .grille { stroke:var(--border); stroke-width:1; }
   .graph .barre { fill:var(--serie-1); }
+  .graph .barre.f2 { fill:var(--serie-2); }
+  .graph .barre.f3 { fill:var(--serie-autre); }
   .graph .barre.survol { opacity:.75; }
   .graph .ligne-1 { fill:none; stroke:var(--serie-1); stroke-width:2; }
   .graph .ligne-2 { fill:none; stroke:var(--serie-2); stroke-width:2; }
@@ -165,6 +167,11 @@
   .cle { display:inline-block; width:14px; height:2px; vertical-align:middle; margin-right:6px; }
   .cle.s1 { background:var(--serie-1); }
   .cle.s2 { background:var(--serie-2); }
+  .cle.s3 { background:var(--serie-autre); }
+  .cle.carre { width:10px; height:10px; border-radius:2px; }
+  .tuiles.detaillees { grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
+  .repartition { display:grid; gap:2px; margin-top:6px; font-size:.75rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .repartition .cle { margin-right:5px; }
   .legende { display:flex; gap:14px; flex-wrap:wrap; font-size:.85rem; color:var(--muted); margin:6px 0 0; }
   table.donnees { width:100%; border-collapse:collapse; font-size:.85rem; font-variant-numeric:tabular-nums; }
   table.donnees th, table.donnees td { text-align:right; padding:4px 6px; border-bottom:1px solid var(--border); }
@@ -235,6 +242,7 @@
         <div class="semaine-h"><h3 id="titreVolume">Volume</h3><span id="uniteVolume"></span></div>
         <div class="puces" id="filtreMesure" style="margin-bottom:10px"></div>
         <div class="graph" id="graphVolume"></div>
+        <p class="legende" id="legendeVolume"></p>
         <details class="petit" style="margin-top:8px"><summary class="muted">Voir le tableau</summary><div id="tableVolume"></div></details>
       </div>
       <div class="carte">
@@ -1020,6 +1028,14 @@ const MESURES = {
   charge: { nom: 'Charge', unite: 'charge Garmin', valeur: (a) => Number(a.charge) || 0 },
   seances: { nom: 'Séances', unite: 'séances', valeur: () => 1 },
 };
+// Familles de sports, comme Strava : la course et le trail comptent ensemble
+const GROUPES = { pied: ['course', 'trail'] };
+const FAMILLES = [
+  { nom: 'Course + trail', sports: ['course', 'trail'], classe: 's1', barre: '' },
+  { nom: 'Vélo', sports: ['velo'], classe: 's2', barre: 'f2' },
+  { nom: 'Autres', sports: null, classe: 's3', barre: 'f3' },
+];
+const familleDe = (sport) => FAMILLES.findIndex((f) => !f.sports || f.sports.includes(sport));
 const choixStats = Object.assign({ periode: '12s', sport: '', mesure: 'km' }, (() => { try { return JSON.parse(localStorage.getItem('cloach-stats')) || {}; } catch { return {}; } })());
 const nombre = (x, d = 0) => x.toLocaleString('fr-FR', { maximumFractionDigits: d, minimumFractionDigits: 0 });
 const lundiDe = (iso) => decaler(iso, -((versDate(iso).getDay() + 6) % 7));
@@ -1078,39 +1094,54 @@ function afficherStats() {
   const debut = periode.jours ? decaler(fin, -periode.jours + 1) : activites[0].jour;
   const pas = periode.cle === 'tout' && (Number(fin.slice(0, 4)) - Number(debut.slice(0, 4))) < 3 ? 'mois' : periode.pas;
   const sportsPresents = [...new Set(activites.map((x) => x.sport))];
-  if (choixStats.sport && !sportsPresents.includes(choixStats.sport)) choixStats.sport = '';
-  const choisies = activites.filter((x) => x.jour >= debut && x.jour <= fin && (!choixStats.sport || x.sport === choixStats.sport));
+  const sportsDuFiltre = (cle) => GROUPES[cle] || [cle];
+  if (choixStats.sport && !sportsDuFiltre(choixStats.sport).some((sp) => sportsPresents.includes(sp))) choixStats.sport = '';
+  const garder = (x) => !choixStats.sport || sportsDuFiltre(choixStats.sport).includes(x.sport);
+  const choisies = activites.filter((x) => x.jour >= debut && x.jour <= fin && garder(x));
+  // Tous les sports : chaque total et chaque barre sont répartis par famille
+  const familles = choixStats.sport ? [{ nom: '', classe: 's1', barre: '' }]
+    : FAMILLES.filter((f, i) => choisies.some((x) => familleDe(x.sport) === i));
+  const indexFamille = (x) => (choixStats.sport ? 0 : familles.indexOf(FAMILLES[familleDe(x.sport)]));
 
   puces($('#filtrePeriode'), PERIODES.map((p) => [p.cle, p.nom]), periode.cle, (c) => { choixStats.periode = c; });
-  puces($('#filtreSport'), [['', 'Tous les sports'], ...Object.entries(SPORTS).filter(([k]) => sportsPresents.includes(k)).map(([k, x]) => [k, `${x.icone} ${x.nom}`])],
+  const avecPied = sportsPresents.includes('course') && sportsPresents.includes('trail');
+  puces($('#filtreSport'), [['', 'Tous les sports'], ...(avecPied ? [['pied', '🏃⛰️ Course + trail']] : []), ...Object.entries(SPORTS).filter(([k]) => sportsPresents.includes(k)).map(([k, x]) => [k, `${x.icone} ${x.nom}`])],
     choixStats.sport, (c) => { choixStats.sport = c; });
   puces($('#filtreMesure'), Object.entries(MESURES).map(([k, m]) => [k, m.nom]), choixStats.mesure, (c) => { choixStats.mesure = c; });
 
-  // Totaux de la période
-  const somme = (m) => choisies.reduce((n, x) => n + MESURES[m].valeur(x), 0);
-  const tuiles = [
-    [nombre(choisies.length), 'séances'], [nombre(somme('km')), 'km'], [nombre(somme('heures')), 'heures'],
-    [nombre(somme('denivele')), 'm de D+'], [nombre(somme('charge')), 'de charge'],
-  ];
-  $('#tuiles').innerHTML = tuiles.map(([v, l]) => `<div class="tuile"><b>${v}</b><span>${l}</span></div>`).join('');
+  // Totaux de la période, et leur répartition par famille quand tous les sports sont affichés
+  const somme = (m, liste = choisies) => liste.reduce((n, x) => n + MESURES[m].valeur(x), 0);
+  const tuiles = [['seances', 'séances'], ['km', 'km'], ['heures', 'heures'], ['denivele', 'm de D+'], ['charge', 'de charge']];
+  $('#tuiles').classList.toggle('detaillees', familles.length > 1);
+  $('#tuiles').innerHTML = tuiles.map(([m, l]) => {
+    const parts = familles.length > 1
+      ? `<div class="repartition">${familles.map((f, i) => `<span><i class="cle carre ${f.classe}"></i>${nombre(somme(m, choisies.filter((x) => indexFamille(x) === i)))} ${esc(f.nom.toLowerCase())}</span>`).join('')}</div>`
+      : '';
+    return `<div class="tuile"><b>${nombre(somme(m))}</b><span>${l}</span>${parts}</div>`;
+  }).join('');
 
   // Volume par période
   const mesure = MESURES[choixStats.mesure] || MESURES.km;
   const cles = periodesEntre(debut, fin, pas);
-  const totaux = Object.fromEntries(cles.map((c) => [c, 0]));
-  for (const x of choisies) totaux[cleDe(x.jour, pas)] = (totaux[cleDe(x.jour, pas)] || 0) + mesure.valeur(x);
-  const points = cles.map((c) => ({ libelle: libelleDe(c, pas), valeur: totaux[c] }));
+  const totaux = Object.fromEntries(cles.map((c) => [c, familles.map(() => 0)]));
+  for (const x of choisies) {
+    const t = totaux[cleDe(x.jour, pas)];
+    if (t) t[indexFamille(x)] += mesure.valeur(x);
+  }
+  const points = cles.map((c) => ({ libelle: libelleDe(c, pas), parts: totaux[c], valeur: totaux[c].reduce((n, v) => n + v, 0) }));
   const nomPas = { semaine: 'par semaine', mois: 'par mois', annee: 'par année' }[pas];
   $('#titreVolume').textContent = `${mesure.nom} ${nomPas}`;
   $('#uniteVolume').textContent = mesure.unite;
   const decimales = choixStats.mesure === 'heures' ? 1 : 0;
-  graphBarres($('#graphVolume'), points, (v) => `${nombre(v, decimales)} ${mesure.unite}`);
-  $('#tableVolume').innerHTML = `<table class="donnees"><thead><tr><th>Période</th><th>${esc(mesure.nom)} (${esc(mesure.unite)})</th></tr></thead><tbody>
-    ${points.slice().reverse().map((p) => `<tr><td>${esc(p.libelle)}</td><td>${nombre(p.valeur, decimales)}</td></tr>`).join('')}</tbody></table>`;
+  graphBarres($('#graphVolume'), points, familles, (v) => `${nombre(v, decimales)} ${mesure.unite}`);
+  $('#legendeVolume').innerHTML = familles.length > 1 ? familles.map((f) => `<span><i class="cle carre ${f.classe}"></i>${esc(f.nom)}</span>`).join('') : '';
+  const colonnes = familles.length > 1 ? familles.map((f) => `<th>${esc(f.nom)}</th>`).join('') : '';
+  $('#tableVolume').innerHTML = `<table class="donnees"><thead><tr><th>Période</th>${colonnes}<th>${familles.length > 1 ? 'Total' : esc(mesure.nom)} (${esc(mesure.unite)})</th></tr></thead><tbody>
+    ${points.slice().reverse().map((p) => `<tr><td>${esc(p.libelle)}</td>${familles.length > 1 ? p.parts.map((v) => `<td>${nombre(v, decimales)}</td>`).join('') : ''}<td>${nombre(p.valeur, decimales)}</td></tr>`).join('')}</tbody></table>`;
 
   // Forme et fatigue : moyennes exponentielles de la charge quotidienne (42 et 7 jours)
   const chargeJour = {};
-  for (const x of activites) if (!choixStats.sport || x.sport === choixStats.sport) chargeJour[x.jour] = (chargeJour[x.jour] || 0) + (Number(x.charge) || 0);
+  for (const x of activites) if (garder(x)) chargeJour[x.jour] = (chargeJour[x.jour] || 0) + (Number(x.charge) || 0);
   const pasForme = periode.jours && periode.jours <= 182 ? 1 : 7;
   const serie = [];
   let forme = 0, fatigue = 0;
@@ -1151,16 +1182,27 @@ function infobulle(conteneur) {
   return b;
 }
 
-function graphBarres(conteneur, points, format) {
+// points : [{ libelle, valeur (total), parts: [une valeur par série] }] ; series : [{ nom, classe, barre }]
+function graphBarres(conteneur, points, series, format) {
   const L = Math.max(280, conteneur.clientWidth || 320), l = L - MARGE.gauche - MARGE.droite, h = H_GRAPH - MARGE.haut - MARGE.bas;
   const ech = echelle(Math.max(...points.map((p) => p.valeur), 0));
   const larg = l / points.length, barre = Math.max(2, Math.min(28, larg - 2));
   const x = (i) => MARGE.gauche + larg * i + larg / 2;
+  const base = MARGE.haut + h;
   const barres = points.map((p, i) => {
-    const hb = (p.valeur / ech.max) * h, y = MARGE.haut + h - hb, r = Math.min(4, barre / 2, hb);
-    // Coins arrondis en haut seulement, posés sur la ligne de base
-    const d = hb <= 0 ? '' : `M${x(i) - barre / 2},${MARGE.haut + h}V${y + r}q0,-${r} ${r},-${r}h${barre - 2 * r}q${r},0 ${r},${r}V${MARGE.haut + h}Z`;
-    return `<path class="barre" data-i="${i}" d="${d}"/>`;
+    let dessous = 0;
+    const haut = p.parts.reduce((dernier, v, j) => (v > 0 ? j : dernier), -1);
+    return p.parts.map((v, j) => {
+      if (v <= 0) return '';
+      // Un espace de 2 px sépare les segments empilés ; seul le segment du haut a les coins arrondis
+      const y0 = base - (dessous / ech.max) * h - (dessous > 0 ? 2 : 0);
+      dessous += v;
+      const y1 = base - (dessous / ech.max) * h;
+      if (y0 - y1 < 0.5) return '';
+      const r = j === haut ? Math.min(4, barre / 2, y0 - y1) : 0;
+      const d = `M${x(i) - barre / 2},${y0}V${y1 + r}q0,-${r} ${r},-${r}h${barre - 2 * r}q${r},0 ${r},${r}V${y0}Z`;
+      return `<path class="barre ${series[j].barre}" data-i="${i}" d="${d}"/>`;
+    }).join('');
   }).join('');
   conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${H_GRAPH}" role="img" aria-label="Graphique en barres">${grilleEtAxes(l, h, ech)}${barres}${etiquettes(points, x, l)}</svg>`;
   const bulle = infobulle(conteneur), svg = conteneur.querySelector('svg');
@@ -1168,10 +1210,14 @@ function graphBarres(conteneur, points, format) {
     const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) * (L / rect.width);
     const i = Math.max(0, Math.min(points.length - 1, Math.floor((px - MARGE.gauche) / larg)));
     for (const el of svg.querySelectorAll('.barre')) el.classList.toggle('survol', Number(el.dataset.i) === i);
+    const p = points[i];
     bulle.hidden = false;
-    bulle.innerHTML = `<b>${esc(format(points[i].valeur))}</b> <span class="muted">${esc(points[i].libelle)}</span>`;
-    bulle.style.left = `${Math.min(Math.max((x(i) / L) * rect.width, 60), rect.width - 60)}px`;
-    bulle.style.top = `${((MARGE.haut + h - (points[i].valeur / ech.max) * h) / H_GRAPH) * rect.height - 6}px`;
+    bulle.innerHTML = series.length > 1
+      ? `<div><b>${esc(format(p.valeur))}</b> <span class="muted">${esc(p.libelle)}</span></div>`
+        + series.map((sr, j) => `<div><i class="cle ${sr.classe}"></i><b>${esc(format(p.parts[j]))}</b> <span class="muted">${esc(sr.nom)}</span></div>`).join('')
+      : `<b>${esc(format(p.valeur))}</b> <span class="muted">${esc(p.libelle)}</span>`;
+    bulle.style.left = `${Math.min(Math.max((x(i) / L) * rect.width, 80), rect.width - 80)}px`;
+    bulle.style.top = `${Math.max(((base - (p.valeur / ech.max) * h) / H_GRAPH) * rect.height - 6, series.length > 1 ? 70 : 30)}px`;
   };
   svg.addEventListener('pointermove', survoler);
   svg.addEventListener('pointerdown', survoler);

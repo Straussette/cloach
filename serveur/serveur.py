@@ -68,7 +68,7 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi) ; note les séances racontées par l'utilisateur avec noter_seance ; coche-les avec marquer_seance ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi) ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
 
 mcp = MCPServer(
     name="cloach",
@@ -255,7 +255,10 @@ async def noter_seance(
     ressenti: int | None = None, notes: str = "",
 ) -> str:
     """Ajoute une séance au journal (date AAAA-MM-JJ, durée en minutes, ressenti de 1 = épuisé à 5 = excellent)
-    et coche la séance du plan prévue ce jour-là pour ce sport."""
+    et coche la séance du plan prévue ce jour-là pour ce sport. À utiliser pour une séance que la montre n'a
+    pas enregistrée, ou pour ajouter le ressenti et les remarques de l'utilisateur sur une activité Garmin
+    (mêmes date, sport et durée : l'app les rattache à l'activité). N'y recopie pas une activité Garmin
+    sans rien y ajouter : elle est déjà affichée."""
     uid = _uid()
     try:
         date.fromisoformat(date_seance)

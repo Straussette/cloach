@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-23.6">
+<meta name="app-version" content="2026-10-23.7">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -728,6 +728,25 @@ document.addEventListener('click', (e) => {
 // Une semaine à la fois : le passé montre ce qui a été fait (Garmin et journal), l'avenir ce qui est prévu.
 let jourChoisi = jourISO();
 
+// Une séance du journal qui décrit une activité déjà enregistrée par Garmin (même jour, même famille
+// de sport, durée ou distance proches) n'est pas affichée deux fois : son ressenti et ses notes
+// sont rattachés à l'activité.
+const memeFamille = (a, b) => a === b || (GROUPES.pied.includes(a) && GROUPES.pied.includes(b));
+function correspond(note, act) {
+  if (!memeFamille(note.sport, act.sport)) return false;
+  const proche = (x, y, tol) => x > 0 && y > 0 && Math.abs(x - y) <= tol * Math.max(x, y);
+  return proche(Number(note.duree), Number(act.duree_min), 0.2) || proche(Number(note.distance), Number(act.distance_km), 0.1);
+}
+function realiseDuJour(jour) {
+  const acts = activites.filter((a) => a.jour === jour).sort((a, b) => String(a.debut).localeCompare(String(b.debut))).map((a) => ({ ...a }));
+  const seules = [];
+  for (const n of etat.journal.filter((x) => x.date === jour)) {
+    const a = acts.find((x) => !x.note && correspond(n, x));
+    if (a) a.note = n; else seules.push(n);
+  }
+  return { acts, seules };
+}
+
 function htmlActivite(a) {
   const sport = SPORTS[a.sport] || SPORTS.autre;
   const meta = [
@@ -737,10 +756,13 @@ function htmlActivite(a) {
     a.denivele_m ? `${nombre(Number(a.denivele_m))} m D+` : '',
     a.fc_moy ? `FC ${nombre(Number(a.fc_moy))}` : '',
     a.charge ? `charge ${nombre(Number(a.charge))}` : '',
+    a.note?.ressenti ? `ressenti ${a.note.ressenti}/5` : '',
   ].filter(Boolean).map(esc).join(' · ');
+  // Les notes qui ne font que recopier l'activité (son nom) ne sont pas répétées
+  const notes = a.note?.notes && !(a.nom && a.note.notes.includes(a.nom)) ? `<div class="details">${esc(a.note.notes)}</div>` : '';
   return `<div class="seance fait-garmin">
     <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
-    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div></div>
+    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div>${notes}</div>
     <div class="muted petit" title="Enregistrée par Garmin">⌚</div>
   </div>`;
 }
@@ -771,7 +793,8 @@ function afficherJour() {
   // Bandeau de la semaine : fait (Garmin, journal) en clair, prévu non fait en pâle
   $('#bandeau').innerHTML = JOURS.map((j, i) => {
     const jour = decaler(lundi, i);
-    const faites = [...parJour(activites, 'jour', jour), ...parJour(etat.journal, 'date', jour)].map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
+    const { acts, seules } = realiseDuJour(jour);
+    const faites = [...acts, ...seules].map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
     const prevues = parJour(seances, 'jour', jour).filter((x) => x.etat !== 'fait' && (jour >= ajd || x.etat !== 'saute')).map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
     const icones = faites.join('') + (prevues.length ? `<span class="prevu">${prevues.join('')}</span>` : '');
     return `<button type="button" data-jour="${jour}" class="${jour === ajd ? 'ajd' : ''} ${jour === jourChoisi ? 'choisi' : ''}">
@@ -790,8 +813,7 @@ function afficherJour() {
 
   // Détail du jour choisi
   const prevues = parJour(seances, 'jour', jourChoisi);
-  const faites = parJour(activites, 'jour', jourChoisi).sort((a, b) => String(a.debut).localeCompare(String(b.debut)));
-  const notes = parJour(etat.journal, 'date', jourChoisi);
+  const { acts: faites, seules: notes } = realiseDuJour(jourChoisi);
   const titre = dateLisible(jourChoisi).replace(/^./, (c) => c.toUpperCase()) + (jourChoisi === ajd ? ' · aujourd\'hui' : '');
   let html = `<h2>${esc(titre)}</h2>`;
   if (prevues.length) html += `<h3 style="margin:12px 0 4px">${jourChoisi < ajd ? 'Prévu' : 'Au programme'}</h3>` + prevues.map((x) => htmlSeance(x)).join('');

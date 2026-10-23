@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-23.5">
+<meta name="app-version" content="2026-10-23.6">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -124,11 +124,23 @@
   .semaine-h { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin:0 0 6px; }
   .semaine-h span { font-size:.85rem; color:var(--muted); }
 
-  /* ---------- Aujourd'hui ---------- */
+  /* ---------- Calendrier ---------- */
+  .nav-semaine { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:8px; margin-bottom:10px; }
+  .nav-semaine h2 { margin:0; font-size:1.1rem; text-align:center; }
+  .nav-semaine .fleche { border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:10px; width:40px; height:40px; font:inherit; font-size:1.2rem; cursor:pointer; }
   .bandeau { display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; }
-  .bandeau div { text-align:center; padding:8px 0; border-radius:10px; background:var(--accent-doux); font-size:.75rem; color:var(--muted); }
-  .bandeau div b { display:block; font-size:1.15rem; margin-top:2px; }
-  .bandeau div.ajd { outline:2px solid var(--accent); color:var(--text); }
+  .bandeau button {
+    border:0; text-align:center; padding:6px 0 8px; border-radius:10px; background:var(--accent-doux); color:var(--muted);
+    font:inherit; font-size:.72rem; cursor:pointer; display:grid; gap:2px; justify-items:center; min-height:72px; align-content:start;
+  }
+  .bandeau button .num { font-size:1rem; font-weight:600; color:var(--text); }
+  .bandeau button .icones { font-size:.95rem; line-height:1.15; }
+  .bandeau button .prevu { opacity:.45; }
+  .bandeau button.ajd .num { color:var(--accent); }
+  .bandeau button.choisi { outline:2px solid var(--accent); background:var(--surface); }
+  .resume-semaine { margin:10px 0 0; font-size:.85rem; color:var(--muted); text-align:center; font-variant-numeric:tabular-nums; }
+  .outils-cal { display:flex; justify-content:center; gap:8px; margin-top:8px; }
+  .outils-cal input { width:auto; padding:6px 10px; font-size:.85rem; }
 
   /* ---------- Onglets ---------- */
   .onglets {
@@ -197,14 +209,23 @@
 </header>
 
 <main class="wrap">
-  <!-- Aujourd'hui -->
+  <!-- Calendrier -->
   <section data-vue="jour">
     <div class="carte">
-      <div class="semaine-h"><h2 id="dateJour">Aujourd'hui</h2><span id="sourceDonnees"></span></div>
+      <div class="nav-semaine">
+        <button class="fleche" type="button" id="semainePrecedente" aria-label="Semaine précédente">‹</button>
+        <h2 id="titreSemaine"></h2>
+        <button class="fleche" type="button" id="semaineSuivante" aria-label="Semaine suivante">›</button>
+      </div>
       <div class="bandeau" id="bandeau"></div>
+      <p class="resume-semaine" id="resumeSemaine"></p>
+      <div class="outils-cal">
+        <button class="btn discret" type="button" id="btnAujourdhui">Aujourd'hui</button>
+        <input type="date" id="allerDate" aria-label="Aller à une date">
+      </div>
     </div>
-    <div class="carte" id="cartePrevue"></div>
-    <div class="carte">
+    <div class="carte" id="carteJour"></div>
+    <div class="carte" id="carteCoach">
       <h2>Demander au coach</h2>
       <p class="muted petit">Ouvre ton Claude avec la question déjà écrite. Le connecteur Cloach doit être branché (onglet Profil).</p>
       <div class="pile">
@@ -355,8 +376,8 @@
 </main>
 
 <nav class="onglets" id="onglets">
-  <button type="button" data-onglet="jour" class="actif"><span>☀️</span>Aujourd'hui</button>
-  <button type="button" data-onglet="plan"><span>🗓️</span>Plan</button>
+  <button type="button" data-onglet="jour" class="actif"><span>📅</span>Calendrier</button>
+  <button type="button" data-onglet="plan"><span>📋</span>Plan</button>
   <button type="button" data-onglet="stats"><span>📈</span>Stats</button>
   <button type="button" data-onglet="journal"><span>📒</span>Journal</button>
   <button type="button" data-onglet="profil"><span>👤</span>Profil</button>
@@ -435,6 +456,8 @@ function jourISO(d = new Date()) {
 }
 function versDate(iso) { const [a, m, j] = iso.split('-').map(Number); return new Date(a, m - 1, j); }
 function decaler(iso, jours) { const d = versDate(iso); d.setDate(d.getDate() + jours); return jourISO(d); }
+const lundiDe = (iso) => decaler(iso, -((versDate(iso).getDay() + 6) % 7));
+const nombre = (x, d = 0) => x.toLocaleString('fr-FR', { maximumFractionDigits: d, minimumFractionDigits: 0 });
 function dateLisible(iso, avecJour = true) {
   return versDate(iso).toLocaleDateString('fr-FR', avecJour ? { weekday: 'long', day: 'numeric', month: 'long' } : { day: 'numeric', month: 'short' });
 }
@@ -701,26 +724,108 @@ document.addEventListener('click', (e) => {
   });
 });
 
-/* ---------- Onglet Aujourd'hui ---------- */
+/* ---------- Onglet Calendrier ---------- */
+// Une semaine à la fois : le passé montre ce qui a été fait (Garmin et journal), l'avenir ce qui est prévu.
+let jourChoisi = jourISO();
+
+function htmlActivite(a) {
+  const sport = SPORTS[a.sport] || SPORTS.autre;
+  const meta = [
+    a.debut?.length >= 16 ? a.debut.slice(11, 16).replace(':', ' h ') : '',
+    a.distance_km ? `${nombre(Number(a.distance_km), 1)} km` : '',
+    a.duree_min ? dureeLisible(Math.round(a.duree_min)) : '',
+    a.denivele_m ? `${nombre(Number(a.denivele_m))} m D+` : '',
+    a.fc_moy ? `FC ${nombre(Number(a.fc_moy))}` : '',
+    a.charge ? `charge ${nombre(Number(a.charge))}` : '',
+  ].filter(Boolean).map(esc).join(' · ');
+  return `<div class="seance fait-garmin">
+    <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
+    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div></div>
+    <div class="muted petit" title="Enregistrée par Garmin">⌚</div>
+  </div>`;
+}
+
+function htmlNote(n) {
+  const sport = SPORTS[n.sport] || SPORTS.autre;
+  const meta = [dureeLisible(n.duree), n.distance ? `${String(n.distance).replace('.', ',')} km` : '', n.ressenti ? `ressenti ${n.ressenti}/5` : '']
+    .filter(Boolean).map(esc).join(' · ');
+  return `<div class="seance">
+    <div class="icone">${sport.icone}</div>
+    <div><div class="titre">${esc(sport.nom)} <span class="muted petit">(journal)</span></div><div class="meta">${meta}</div>${n.notes ? `<div class="details">${esc(n.notes)}</div>` : ''}</div>
+    <div class="muted petit">📒</div>
+  </div>`;
+}
+
 function afficherJour() {
   const ajd = jourISO();
-  $('#dateJour').textContent = dateLisible(ajd).replace(/^./, (c) => c.toUpperCase());
-  $('#sourceDonnees').textContent = etat.garmin.connecte ? '⌚ Garmin branché' : '';
-
-  // Bandeau de la semaine en cours (lundi → dimanche)
-  const lundi = decaler(ajd, -((versDate(ajd).getDay() + 6) % 7));
+  const lundi = lundiDe(jourChoisi);
+  const dimanche = decaler(lundi, 6);
   const seances = toutesSeances();
+  const parJour = (liste, champ, jour) => liste.filter((x) => x[champ] === jour);
+
+  const memeMois = lundi.slice(0, 7) === dimanche.slice(0, 7);
+  $('#titreSemaine').textContent = memeMois
+    ? `${versDate(lundi).getDate()} – ${dateLisible(dimanche, false)} ${dimanche.slice(0, 4)}`
+    : `${dateLisible(lundi, false)} – ${dateLisible(dimanche, false)} ${dimanche.slice(0, 4)}`;
+
+  // Bandeau de la semaine : fait (Garmin, journal) en clair, prévu non fait en pâle
   $('#bandeau').innerHTML = JOURS.map((j, i) => {
     const jour = decaler(lundi, i);
-    const icones = seances.filter((s) => s.jour === jour).map((s) => (SPORTS[s.sport] || SPORTS.autre).icone).join('') || '·';
-    return `<div class="${jour === ajd ? 'ajd' : ''}">${j.slice(0, 3)}<b>${icones}</b></div>`;
+    const faites = [...parJour(activites, 'jour', jour), ...parJour(etat.journal, 'date', jour)].map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
+    const prevues = parJour(seances, 'jour', jour).filter((x) => x.etat !== 'fait' && (jour >= ajd || x.etat !== 'saute')).map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
+    const icones = faites.join('') + (prevues.length ? `<span class="prevu">${prevues.join('')}</span>` : '');
+    return `<button type="button" data-jour="${jour}" class="${jour === ajd ? 'ajd' : ''} ${jour === jourChoisi ? 'choisi' : ''}">
+      ${j.slice(0, 3)}<span class="num">${versDate(jour).getDate()}</span><span class="icones">${icones || '·'}</span></button>`;
   }).join('');
 
-  const prevues = seances.filter((s) => s.jour === ajd);
-  $('#cartePrevue').innerHTML = '<h2>Au programme</h2>' + (prevues.length
-    ? prevues.map((s) => htmlSeance(s)).join('')
-    : `<p class="muted">${etat.plan ? 'Rien de prévu aujourd\'hui : repos ou séance libre.' : 'Pas encore de plan : remplis ton profil, branche Claude, puis demande ton plan dans l\'onglet Plan.'}</p>`);
+  // Résumé de la semaine (activités Garmin)
+  const semaine = activites.filter((a) => a.jour >= lundi && a.jour <= dimanche);
+  const km = semaine.reduce((n, a) => n + (Number(a.distance_km) || 0), 0);
+  const min = semaine.reduce((n, a) => n + (Number(a.duree_min) || 0), 0);
+  $('#resumeSemaine').textContent = semaine.length
+    ? `${semaine.length} activité${semaine.length > 1 ? 's' : ''} · ${nombre(km)} km · ${dureeLisible(Math.round(min))}`
+    : (lundi > ajd ? 'Semaine à venir' : 'Aucune activité Garmin cette semaine');
+  $('#allerDate').value = jourChoisi;
+  $('#btnAujourdhui').hidden = jourChoisi === ajd;
+
+  // Détail du jour choisi
+  const prevues = parJour(seances, 'jour', jourChoisi);
+  const faites = parJour(activites, 'jour', jourChoisi).sort((a, b) => String(a.debut).localeCompare(String(b.debut)));
+  const notes = parJour(etat.journal, 'date', jourChoisi);
+  const titre = dateLisible(jourChoisi).replace(/^./, (c) => c.toUpperCase()) + (jourChoisi === ajd ? ' · aujourd\'hui' : '');
+  let html = `<h2>${esc(titre)}</h2>`;
+  if (prevues.length) html += `<h3 style="margin:12px 0 4px">${jourChoisi < ajd ? 'Prévu' : 'Au programme'}</h3>` + prevues.map((x) => htmlSeance(x)).join('');
+  if (faites.length || notes.length) html += '<h3 style="margin:12px 0 4px">Réalisé</h3>' + faites.map(htmlActivite).join('') + notes.map(htmlNote).join('');
+  if (!prevues.length && !faites.length && !notes.length) {
+    html += `<p class="muted">${jourChoisi < ajd ? 'Aucune activité enregistrée : jour de repos.'
+      : etat.plan ? 'Rien de prévu : repos ou séance libre.'
+      : 'Pas encore de plan : remplis ton profil, branche Claude, puis demande ton plan dans l\'onglet Plan.'}</p>`;
+  }
+  $('#carteJour').innerHTML = html;
+  $('#carteCoach').hidden = jourChoisi !== ajd;
 }
+
+function choisirJour(jour) {
+  jourChoisi = jour;
+  afficherJour();
+}
+$('#bandeau').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-jour]');
+  if (b) choisirJour(b.dataset.jour);
+});
+$('#semainePrecedente').onclick = () => choisirJour(decaler(jourChoisi, -7));
+$('#semaineSuivante').onclick = () => choisirJour(decaler(jourChoisi, 7));
+$('#btnAujourdhui').onclick = () => choisirJour(jourISO());
+$('#allerDate').addEventListener('change', (e) => { if (e.target.value) choisirJour(e.target.value); });
+// Glisser à gauche ou à droite sur le bandeau change de semaine
+let departGlisse = null;
+$('#bandeau').addEventListener('touchstart', (e) => { departGlisse = e.touches[0].clientX; }, { passive: true });
+$('#bandeau').addEventListener('touchend', (e) => {
+  if (departGlisse == null) return;
+  const dx = e.changedTouches[0].clientX - departGlisse;
+  departGlisse = null;
+  if (Math.abs(dx) > 50) choisirJour(decaler(jourChoisi, dx > 0 ? -7 : 7));
+}, { passive: true });
 
 /* ---------- Onglet Plan ---------- */
 function afficherPlan() {
@@ -931,13 +1036,14 @@ async function chargerActivites() {
   try {
     const lignes = [];
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
-      const page = await sbFetch(`/rest/v1/activites?select=jour,sport,type,nom,distance_km,duree_min,denivele_m,charge&order=jour.asc&limit=1000&offset=${lignes.length}`);
+      const page = await sbFetch(`/rest/v1/activites?select=jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge&order=jour.asc&limit=1000&offset=${lignes.length}`);
       lignes.push(...(page || []));
       if (!page || page.length < 1000) break;
     }
     activites = lignes;
   } catch (e) { console.warn('Activités', e); }
   afficherStats();
+  afficherJour();
 }
 
 // Importe année par année, pour suivre l'avancement et rester sous les délais du serveur
@@ -1037,8 +1143,6 @@ const FAMILLES = [
 ];
 const familleDe = (sport) => FAMILLES.findIndex((f) => !f.sports || f.sports.includes(sport));
 const choixStats = Object.assign({ periode: '12s', sport: '', mesure: 'km' }, (() => { try { return JSON.parse(localStorage.getItem('cloach-stats')) || {}; } catch { return {}; } })());
-const nombre = (x, d = 0) => x.toLocaleString('fr-FR', { maximumFractionDigits: d, minimumFractionDigits: 0 });
-const lundiDe = (iso) => decaler(iso, -((versDate(iso).getDay() + 6) % 7));
 const cleDe = (iso, pas) => pas === 'semaine' ? lundiDe(iso) : pas === 'mois' ? iso.slice(0, 7) : iso.slice(0, 4);
 function libelleDe(cle, pas) {
   if (pas === 'semaine') return versDate(cle).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });

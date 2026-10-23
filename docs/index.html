@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0f6b63">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Cloach">
-<meta name="app-version" content="2026-10-21.1">
+<meta name="app-version" content="2026-10-23.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -436,6 +436,7 @@ function afficherCompte(message = '', erreur = true) {
   bloc.innerHTML = `<form class="champs" id="formCompte">
       ${modeCompte === 'nouveau' ? '' : '<label>E-mail<input type="email" id="c-email" autocomplete="username" required></label>'}
       ${modeCompte === 'oubli' ? '' : `<label>${modeCompte === 'nouveau' ? 'Nouveau mot de passe' : 'Mot de passe'}<input type="password" id="c-mdp" minlength="8" autocomplete="${modeCompte === 'connexion' ? 'current-password' : 'new-password'}" required></label>`}
+      ${['inscription', 'nouveau'].includes(modeCompte) ? '<label>Retape le mot de passe<input type="password" id="c-mdp2" minlength="8" autocomplete="new-password" required></label>' : ''}
       <p class="statut" id="statutCompte"></p>
       <button class="btn large" type="submit">${titres[modeCompte]}</button>
       <div class="rangee" style="justify-content:space-between">
@@ -450,6 +451,12 @@ function afficherCompte(message = '', erreur = true) {
     e.preventDefault();
     const email = $('#c-email')?.value.trim();
     const mdp = $('#c-mdp')?.value;
+    // Inscription et nouveau mot de passe : on vérifie qu'il n'y a pas de faute de frappe
+    if ($('#c-mdp2') && $('#c-mdp2').value !== mdp) {
+      statut($('#statutCompte'), 'Les deux mots de passe ne sont pas identiques.', true);
+      $('#c-mdp2').focus();
+      return;
+    }
     const json = (corps) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
     statut($('#statutCompte'), '…', false);
     try {

@@ -12,6 +12,7 @@ d'API pour les particuliers, ça peut cesser de marcher si Garmin change son sit
 
 import asyncio
 import json
+from datetime import date
 import secrets
 import threading
 import time
@@ -24,6 +25,43 @@ from starlette.responses import JSONResponse, Response
 from donnees import Supabase
 
 DUREE_ATTENTE_CODE = 5 * 60
+
+# Types d'activité Garmin → sports de Cloach (les autres deviennent « autre »)
+SPORTS_GARMIN = {
+    "course": {"running", "treadmill_running", "track_running", "street_running", "indoor_running",
+               "virtual_run", "obstacle_run", "ultra_run"},
+    "trail": {"trail_running"},
+    "velo": {"cycling", "road_biking", "virtual_ride", "indoor_cycling", "mountain_biking", "gravel_cycling",
+             "cyclocross", "track_cycling", "recumbent_cycling", "e_bike_fitness", "e_bike_mountain", "bmx"},
+    "renfo": {"strength_training", "hiit", "indoor_cardio", "fitness_equipment", "pilates", "yoga",
+              "elliptical", "stair_climbing", "indoor_rowing"},
+    "natation": {"lap_swimming", "open_water_swimming", "swimming"},
+}
+
+
+def sport_cloach(type_garmin: str) -> str:
+    return next((s for s, types in SPORTS_GARMIN.items() if type_garmin in types), "autre")
+
+
+def vers_activite(a: dict[str, Any]) -> dict[str, Any] | None:
+    """Activité Garmin → ligne de la table activites."""
+    debut = str(a.get("startTimeLocal") or "")
+    if not a.get("activityId") or len(debut) < 10:
+        return None
+    type_garmin = (a.get("activityType") or {}).get("typeKey") or ""
+    arrondi = lambda x, n=1: round(float(x), n) if isinstance(x, (int, float)) else None
+    return {
+        "id": str(a["activityId"]), "source": "garmin", "jour": debut[:10], "debut": debut[:19],
+        "sport": sport_cloach(type_garmin), "type": type_garmin, "nom": str(a.get("activityName") or "")[:200],
+        "distance_km": arrondi((a.get("distance") or 0) / 1000, 2) if a.get("distance") else None,
+        "duree_min": arrondi((a.get("duration") or 0) / 60) if a.get("duration") else None,
+        "denivele_m": arrondi(a.get("elevationGain"), 0),
+        "fc_moy": arrondi(a.get("averageHR"), 0), "fc_max": arrondi(a.get("maxHR"), 0),
+        "charge": arrondi(a.get("activityTrainingLoad")),
+        "te_aerobie": arrondi(a.get("aerobicTrainingEffect")), "te_anaerobie": arrondi(a.get("anaerobicTrainingEffect")),
+        "puissance_moy": arrondi(a.get("avgPower"), 0), "puissance_norm": arrondi(a.get("normPower"), 0),
+        "calories": arrondi(a.get("calories"), 0),
+    }
 
 
 class CompteAbsent(RuntimeError):
@@ -128,6 +166,8 @@ class Garmins:
                 return repondre(*await asyncio.to_thread(self._connexion, uid, corps))
             if action == "code":
                 return repondre(*await asyncio.to_thread(self._code, uid, corps))
+            if action == "importer":
+                return repondre(*await asyncio.to_thread(self._importer, uid, corps))
         except Exception as e:
             print(f"Garmin ({action}) : {type(e).__name__} : {e}", flush=True)
             await asyncio.sleep(2)  # freine les essais à la chaîne
@@ -160,6 +200,24 @@ class Garmins:
         with self._verrou:
             self._attente.pop(attente, None)
         return self._terminer(uid, g), 200
+
+    def _importer(self, uid: str, corps: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """Importe les activités Garmin entre deux dates (l'app découpe l'historique par année)."""
+        try:
+            debut = date.fromisoformat(str(corps.get("debut", "")))
+            fin = date.fromisoformat(str(corps.get("fin") or date.today().isoformat()))
+        except ValueError:
+            return {"erreur": "Dates attendues au format AAAA-MM-JJ"}, 400
+        if fin < debut or (fin - debut).days > 400:
+            return {"erreur": "Période d'un an au plus"}, 400
+        try:
+            brutes = self.appeler(uid, "get_activities_by_date", debut.isoformat(), fin.isoformat())
+        except CompteAbsent:
+            return {"erreur": "Branche d'abord ton compte Garmin."}, 400
+        activites = [a for a in map(vers_activite, brutes or []) if a]
+        if activites:
+            self.base.ecrire_activites(uid, activites)
+        return {"nombre": len(activites)}, 200
 
     def _terminer(self, uid: str, g: Garmin) -> dict[str, Any]:
         jetons = g.client.dumps()

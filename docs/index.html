@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0f6b63">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Cloach">
-<meta name="app-version" content="2026-10-23.1">
+<meta name="app-version" content="2026-10-23.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -17,6 +17,7 @@
     --i-repos:#8a9593; --i-facile:#2f9e5b; --i-modere:#2a7fb8; --i-soutenu:#e8862c; --i-tres-soutenu:#c9372c;
     --shadow:0 1px 3px rgba(20,33,31,.08), 0 4px 14px rgba(20,33,31,.06);
     --voile-clair:rgba(255,255,255,.16); --voile:rgba(0,0,0,.45);
+    --serie-1:#008a7e; --serie-2:#d9581a;
     color-scheme:light;
   }
   @media (prefers-color-scheme: dark) {
@@ -24,12 +25,14 @@
       --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
       --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
       --ok:#4fb378; --alerte:#e0605a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
+      --serie-1:#1f9e91; --serie-2:#e0703a;
     }
   }
   :root[data-theme="dark"] {
     --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
     --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
     --ok:#4fb378; --alerte:#e0605a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
+    --serie-1:#1f9e91; --serie-2:#e0703a;
   }
 
   * { box-sizing:border-box; }
@@ -126,11 +129,43 @@
   /* ---------- Onglets ---------- */
   .onglets {
     position:fixed; left:0; right:0; bottom:0; z-index:5; background:var(--surface); border-top:1px solid var(--border);
-    display:grid; grid-template-columns:repeat(4, 1fr); padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    display:grid; grid-template-columns:repeat(5, 1fr); padding:6px 4px calc(6px + env(safe-area-inset-bottom));
   }
   .onglets button { background:none; border:0; font:inherit; font-size:.72rem; color:var(--muted); display:grid; justify-items:center; gap:2px; padding:4px 0; cursor:pointer; }
   .onglets button span { font-size:1.35rem; line-height:1.1; }
   .onglets button.actif { color:var(--accent); font-weight:600; }
+
+  /* ---------- Stats ---------- */
+  .filtres { display:grid; gap:8px; margin-bottom:14px; }
+  .puces { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; }
+  .puce { border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:.85rem; white-space:nowrap; cursor:pointer; }
+  .puce.actif { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+  .tuiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:8px; margin-bottom:14px; }
+  .tuile { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
+  .tuile b { display:block; font-size:1.3rem; font-variant-numeric:tabular-nums; }
+  .tuile span { font-size:.78rem; color:var(--muted); }
+  .graph { position:relative; touch-action:pan-y; }
+  .graph svg { display:block; width:100%; height:auto; overflow:visible; }
+  .graph text { fill:var(--muted); font-size:11px; font-family:inherit; }
+  .graph .grille { stroke:var(--border); stroke-width:1; }
+  .graph .barre { fill:var(--serie-1); }
+  .graph .barre.survol { opacity:.75; }
+  .graph .ligne-1 { fill:none; stroke:var(--serie-1); stroke-width:2; }
+  .graph .ligne-2 { fill:none; stroke:var(--serie-2); stroke-width:2; }
+  .graph .repere { stroke:var(--muted); stroke-width:1; }
+  .infobulle {
+    position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border); box-shadow:var(--shadow);
+    border-radius:8px; padding:6px 10px; font-size:.82rem; white-space:nowrap; transform:translate(-50%, -100%); z-index:2;
+  }
+  .infobulle b { font-variant-numeric:tabular-nums; }
+  .cle { display:inline-block; width:14px; height:2px; vertical-align:middle; margin-right:6px; }
+  .cle.s1 { background:var(--serie-1); }
+  .cle.s2 { background:var(--serie-2); }
+  .legende { display:flex; gap:14px; flex-wrap:wrap; font-size:.85rem; color:var(--muted); margin:6px 0 0; }
+  table.donnees { width:100%; border-collapse:collapse; font-size:.85rem; font-variant-numeric:tabular-nums; }
+  table.donnees th, table.donnees td { text-align:right; padding:4px 6px; border-bottom:1px solid var(--border); }
+  table.donnees th:first-child, table.donnees td:first-child { text-align:left; }
+  .analyse { white-space:pre-line; line-height:1.5; }
 
   /* ---------- Fenêtres ---------- */
   dialog { border:0; border-radius:16px; padding:0; width:min(440px, calc(100% - 32px)); background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
@@ -180,6 +215,35 @@
         <a class="btn large" target="_blank" rel="noopener" data-question="plan" id="btnPlan">🗓️ Demander mon plan à Claude</a>
         <button class="btn discret" type="button" id="btnRafraichir">↻ Rafraîchir</button>
       </div>
+    </div>
+  </section>
+
+  <!-- Stats -->
+  <section data-vue="stats" hidden>
+    <div id="statsVide" class="carte" hidden></div>
+    <div id="statsContenu" hidden>
+      <div class="filtres">
+        <div class="puces" id="filtrePeriode"></div>
+        <div class="puces" id="filtreSport"></div>
+      </div>
+      <div class="tuiles" id="tuiles"></div>
+      <div class="carte">
+        <div class="semaine-h"><h3 id="titreVolume">Volume</h3><span id="uniteVolume"></span></div>
+        <div class="puces" id="filtreMesure" style="margin-bottom:10px"></div>
+        <div class="graph" id="graphVolume"></div>
+        <details class="petit" style="margin-top:8px"><summary class="muted">Voir le tableau</summary><div id="tableVolume"></div></details>
+      </div>
+      <div class="carte">
+        <div class="semaine-h"><h3>Forme et fatigue</h3><span>d'après la charge Garmin</span></div>
+        <div class="graph" id="graphForme"></div>
+        <p class="legende"><span><i class="cle s1"></i>Forme (charge moyenne sur 42 jours)</span><span><i class="cle s2"></i>Fatigue (sur 7 jours)</span></p>
+        <p class="muted petit">Quand la fatigue dépasse nettement la forme, tu es en surcharge ; quand elle passe en dessous, tu récupères.</p>
+      </div>
+    </div>
+    <div class="carte">
+      <div class="semaine-h"><h2>L'avis du coach</h2><span id="dateAnalyse"></span></div>
+      <div id="texteAnalyse" class="analyse"></div>
+      <a class="btn large" target="_blank" rel="noopener" data-question="analyse" style="margin-top:12px">🔎 Demander à Claude d'analyser mon historique</a>
     </div>
   </section>
 
@@ -281,9 +345,29 @@
 <nav class="onglets" id="onglets">
   <button type="button" data-onglet="jour" class="actif"><span>☀️</span>Aujourd'hui</button>
   <button type="button" data-onglet="plan"><span>🗓️</span>Plan</button>
+  <button type="button" data-onglet="stats"><span>📈</span>Stats</button>
   <button type="button" data-onglet="journal"><span>📒</span>Journal</button>
   <button type="button" data-onglet="profil"><span>👤</span>Profil</button>
 </nav>
+
+<!-- Import de l'historique -->
+<dialog id="dlgImport">
+  <form class="dlg" id="formImport">
+    <h2>Importer ton historique</h2>
+    <p class="muted petit" style="margin:0">Cloach récupère tes activités Garmin pour tracer tes statistiques, et Claude pourra les commenter. Tes nouvelles activités seront ensuite ajoutées automatiquement.</p>
+    <div class="champs" id="choixImport">
+      <label style="flex-direction:row; display:flex; gap:8px; align-items:center; color:var(--text)"><input type="radio" name="etendue" value="date" checked style="width:auto"> Depuis le</label>
+      <input type="date" id="i-debut">
+      <label style="flex-direction:row; display:flex; gap:8px; align-items:center; color:var(--text)"><input type="radio" name="etendue" value="tout" style="width:auto"> Tout mon historique</label>
+    </div>
+    <p class="statut" id="statutImport"></p>
+    <div class="rangee">
+      <button class="btn" type="submit" id="btnImporter">Importer</button>
+      <button class="btn discret" type="button" id="btnImportFermer">Plus tard</button>
+    </div>
+    <a class="btn secondaire" id="lienAnalyseImport" target="_blank" rel="noopener" data-question="analyse" hidden>🔎 Demander à Claude de commenter</a>
+  </form>
+</dialog>
 
 <!-- Connexion à Garmin -->
 <dialog id="dlgGarmin">
@@ -497,7 +581,9 @@ async function apresConnexion() {
   afficherCompte();
   await synchroniser();
   toutAfficher();
-  verifierGarmin();
+  await verifierGarmin();
+  await chargerActivites();
+  mettreAJourHistorique();
 }
 
 // Retour d'un lien reçu par e-mail (confirmation d'inscription ou mot de passe oublié)
@@ -562,6 +648,7 @@ function lienClaude(question) {
 }
 const QUESTIONS = {
   jour: () => 'Que dois-je faire aujourd\'hui ? Regarde mon contexte du jour et ma forme, dis-moi si je garde, allège ou décale la séance prévue, puis détaille la séance.',
+  analyse: () => 'Analyse mon historique d\'activités : volume, régularité, progression, répartition par sport, équilibre endurance / intensité et points d\'attention, en lien avec mon objectif. Puis enregistre ton commentaire pour l\'app.',
   bilan: () => 'Fais le bilan de ma semaine : séances prévues et faites, charge, forme, points positifs, points d\'attention, et ce que je dois ajuster.',
   plan: () => (etat.plan ? 'Réajuste mon plan d\'entraînement' : 'Construis mon plan d\'entraînement')
     + ' des 3 prochaines semaines d\'après mon profil, ce que j\'ai fait récemment et ma forme, puis enregistre-le.'
@@ -756,7 +843,12 @@ function afficherGarmin() {
   const bloc = $('#blocGarmin');
   if (etat.garmin.connecte) {
     bloc.innerHTML = `<p>⌚ Compte Garmin branché${etat.garmin.nom ? ` (<b>${esc(etat.garmin.nom)}</b>)` : ''}. Claude lit tes activités, ton sommeil, ta VFC, ta Body Battery et ton statut d'entraînement.</p>
-      <button class="btn danger" type="button" id="btnGarminDebrancher">Débrancher Garmin</button>`;
+      <p class="muted petit">${etat.garmin.dernierImport ? `Historique importé (mis à jour le ${esc(dateLisible(etat.garmin.dernierImport, false))}).` : 'Historique pas encore importé.'}</p>
+      <div class="rangee">
+        <button class="btn secondaire" type="button" id="btnOuvrirImport">${etat.garmin.dernierImport ? 'Réimporter l\'historique' : 'Importer mon historique'}</button>
+        <button class="btn danger" type="button" id="btnGarminDebrancher">Débrancher Garmin</button>
+      </div>`;
+    $('#btnOuvrirImport').onclick = ouvrirImport;
     $('#btnGarminDebrancher').onclick = async () => {
       if (!confirm('Débrancher ton compte Garmin ? Les jetons d\'accès seront supprimés du serveur.')) return;
       try { await appelerGarmin('deconnexion'); } catch (e) { alert('Échec : ' + e.message); return; }
@@ -800,7 +892,8 @@ $('#formGarmin').onsubmit = async (e) => {
       return;
     }
     $('#dlgGarmin').close();
-    modifier(() => { etat.garmin = { connecte: true, nom: r.nom || '' }; });
+    await modifier(() => { etat.garmin = { ...etat.garmin, connecte: true, nom: r.nom || '' }; });
+    if (!etat.garmin.dernierImport) ouvrirImport();
   } catch (err) {
     statut($('#statutGarmin'), err.message, true);
   } finally {
@@ -817,9 +910,301 @@ async function verifierGarmin() {
   } catch { /* serveur endormi ou hors ligne : on garde l'état connu */ }
 }
 
+/* ---------- Historique des activités (table activites) ---------- */
+// Une ligne par activité, importée depuis Garmin par le serveur ; lue ici pour l'onglet Stats.
+let activites = [];
+
+async function chargerActivites() {
+  if (!session()) { activites = []; return; }
+  try {
+    const lignes = [];
+    for (;;) { // l'API renvoie au plus 1000 lignes par appel
+      const page = await sbFetch(`/rest/v1/activites?select=jour,sport,type,nom,distance_km,duree_min,denivele_m,charge&order=jour.asc&limit=1000&offset=${lignes.length}`);
+      lignes.push(...(page || []));
+      if (!page || page.length < 1000) break;
+    }
+    activites = lignes;
+  } catch (e) { console.warn('Activités', e); }
+  afficherStats();
+}
+
+// Importe année par année, pour suivre l'avancement et rester sous les délais du serveur
+async function importerPeriode(debut, fin, progression) {
+  let total = 0;
+  for (let a = Number(fin.slice(0, 4)); a >= Number(debut.slice(0, 4)); a--) {
+    const d = a === Number(debut.slice(0, 4)) ? debut : `${a}-01-01`;
+    const f = a === Number(fin.slice(0, 4)) ? fin : `${a}-12-31`;
+    const r = await appelerGarmin('importer', { debut: d, fin: f });
+    total += r.nombre;
+    progression?.(a, r.nombre, total);
+  }
+  return total;
+}
+
+// Tout l'historique : on remonte les années jusqu'à deux années vides de suite
+async function importerTout(progression) {
+  let total = 0, vides = 0;
+  for (let a = new Date().getFullYear(); a >= 2000 && vides < 2; a--) {
+    const fin = a === new Date().getFullYear() ? jourISO() : `${a}-12-31`;
+    const r = await appelerGarmin('importer', { debut: `${a}-01-01`, fin });
+    total += r.nombre;
+    vides = r.nombre ? 0 : vides + 1;
+    progression?.(a, r.nombre, total);
+  }
+  return total;
+}
+
+function ouvrirImport() {
+  $('#i-debut').value = decaler(jourISO(), -365);
+  $('#choixImport').hidden = false;
+  $('#btnImporter').hidden = false;
+  $('#lienAnalyseImport').hidden = true;
+  $('#btnImportFermer').textContent = 'Plus tard';
+  statut($('#statutImport'), '');
+  $('#dlgImport').showModal();
+}
+$('#btnImportFermer').onclick = () => $('#dlgImport').close();
+$('#formImport').onsubmit = async (e) => {
+  e.preventDefault();
+  const tout = new FormData(e.target).get('etendue') === 'tout';
+  const debut = $('#i-debut').value;
+  if (!tout && !debut) return statut($('#statutImport'), 'Choisis une date de début.', true);
+  const b = $('#btnImporter');
+  b.disabled = true;
+  statut($('#statutImport'), 'Import en cours… (jusqu\'à 30 secondes de plus si le serveur dormait)');
+  const progression = (annee, n, total) => statut($('#statutImport'), `${annee} : ${n} activité${n > 1 ? 's' : ''} — ${total} au total…`);
+  try {
+    const total = tout ? await importerTout(progression) : await importerPeriode(debut, jourISO(), progression);
+    await modifier(() => { etat.garmin = { ...etat.garmin, dernierImport: jourISO() }; });
+    await chargerActivites();
+    statut($('#statutImport'), `✓ ${total} activité${total > 1 ? 's' : ''} importée${total > 1 ? 's' : ''}. Claude peut maintenant les commenter.`);
+    $('#choixImport').hidden = true;
+    b.hidden = true;
+    $('#lienAnalyseImport').hidden = false;
+    $('#btnImportFermer').textContent = 'Fermer';
+  } catch (err) {
+    statut($('#statutImport'), 'Échec : ' + err.message, true);
+  } finally {
+    b.disabled = false;
+  }
+};
+// Le lien vers Claude ferme la fenêtre et montre les stats
+$('#lienAnalyseImport').addEventListener('click', () => { $('#dlgImport').close(); allerA('stats'); });
+
+// À l'ouverture : ajoute les activités faites depuis le dernier import
+async function mettreAJourHistorique() {
+  if (!etat.garmin.connecte || !etat.garmin.dernierImport || etat.garmin.dernierImport === jourISO()) return;
+  try {
+    await importerPeriode(decaler(etat.garmin.dernierImport, -3), jourISO());
+    await modifier(() => { etat.garmin = { ...etat.garmin, dernierImport: jourISO() }; });
+    await chargerActivites();
+  } catch (e) { console.warn('Mise à jour de l\'historique', e); }
+}
+
+/* ---------- Onglet Stats ---------- */
+const PERIODES = [
+  { cle: '12s', nom: '12 semaines', jours: 84, pas: 'semaine' },
+  { cle: '6m', nom: '6 mois', jours: 182, pas: 'semaine' },
+  { cle: '12m', nom: '12 mois', jours: 365, pas: 'mois' },
+  { cle: '3a', nom: '3 ans', jours: 1095, pas: 'mois' },
+  { cle: 'tout', nom: 'Tout', jours: null, pas: 'annee' },
+];
+const MESURES = {
+  km: { nom: 'Distance', unite: 'km', valeur: (a) => Number(a.distance_km) || 0 },
+  heures: { nom: 'Durée', unite: 'h', valeur: (a) => (Number(a.duree_min) || 0) / 60 },
+  denivele: { nom: 'Dénivelé', unite: 'm D+', valeur: (a) => Number(a.denivele_m) || 0 },
+  charge: { nom: 'Charge', unite: 'charge Garmin', valeur: (a) => Number(a.charge) || 0 },
+  seances: { nom: 'Séances', unite: 'séances', valeur: () => 1 },
+};
+const choixStats = Object.assign({ periode: '12s', sport: '', mesure: 'km' }, (() => { try { return JSON.parse(localStorage.getItem('cloach-stats')) || {}; } catch { return {}; } })());
+const nombre = (x, d = 0) => x.toLocaleString('fr-FR', { maximumFractionDigits: d, minimumFractionDigits: 0 });
+const lundiDe = (iso) => decaler(iso, -((versDate(iso).getDay() + 6) % 7));
+const cleDe = (iso, pas) => pas === 'semaine' ? lundiDe(iso) : pas === 'mois' ? iso.slice(0, 7) : iso.slice(0, 4);
+function libelleDe(cle, pas) {
+  if (pas === 'semaine') return versDate(cle).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  if (pas === 'mois') return versDate(cle + '-01').toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
+  return cle;
+}
+// Toutes les périodes entre deux dates, vides comprises
+function periodesEntre(debut, fin, pas) {
+  const cles = [];
+  let j = pas === 'semaine' ? lundiDe(debut) : pas === 'mois' ? debut.slice(0, 7) + '-01' : debut.slice(0, 4) + '-01-01';
+  while (j <= fin) {
+    cles.push(cleDe(j, pas));
+    const d = versDate(j);
+    if (pas === 'semaine') d.setDate(d.getDate() + 7); else if (pas === 'mois') d.setMonth(d.getMonth() + 1); else d.setFullYear(d.getFullYear() + 1);
+    j = jourISO(d);
+  }
+  return cles;
+}
+
+function puces(conteneur, options, actuel, choisir) {
+  conteneur.innerHTML = options.map(([cle, nom]) => `<button type="button" class="puce ${cle === actuel ? 'actif' : ''}" data-cle="${esc(cle)}">${esc(nom)}</button>`).join('');
+  conteneur.onclick = (e) => {
+    const b = e.target.closest('[data-cle]');
+    if (!b) return;
+    choisir(b.dataset.cle);
+    try { localStorage.setItem('cloach-stats', JSON.stringify(choixStats)); } catch {}
+    afficherStats();
+  };
+}
+
+function afficherStats() {
+  const a = etat.analyse;
+  $('#texteAnalyse').textContent = a?.texte || 'Pas encore d\'analyse. Importe ton historique (Profil → Garmin), puis demande à Claude de le commenter : son avis s\'affichera ici.';
+  $('#texteAnalyse').classList.toggle('muted', !a?.texte);
+  $('#dateAnalyse').textContent = a?.date ? 'le ' + dateLisible(a.date, false) : '';
+
+  if (!activites.length) {
+    $('#statsContenu').hidden = true;
+    $('#statsVide').hidden = false;
+    $('#statsVide').innerHTML = `<h2>Mes stats</h2><p class="muted">${etat.garmin.connecte
+      ? 'Importe ton historique Garmin pour voir tes kilomètres, tes heures, ton dénivelé et ta charge au fil du temps.'
+      : 'Branche ton compte Garmin (onglet Profil), puis importe ton historique pour voir tes statistiques.'}</p>
+      ${etat.garmin.connecte ? '<button class="btn" type="button" id="btnImportStats">Importer mon historique</button>' : ''}`;
+    const b = $('#btnImportStats');
+    if (b) b.onclick = ouvrirImport;
+    return;
+  }
+  $('#statsVide').hidden = true;
+  $('#statsContenu').hidden = false;
+
+  const periode = PERIODES.find((p) => p.cle === choixStats.periode) || PERIODES[0];
+  const fin = jourISO();
+  const debut = periode.jours ? decaler(fin, -periode.jours + 1) : activites[0].jour;
+  const pas = periode.cle === 'tout' && (Number(fin.slice(0, 4)) - Number(debut.slice(0, 4))) < 3 ? 'mois' : periode.pas;
+  const sportsPresents = [...new Set(activites.map((x) => x.sport))];
+  if (choixStats.sport && !sportsPresents.includes(choixStats.sport)) choixStats.sport = '';
+  const choisies = activites.filter((x) => x.jour >= debut && x.jour <= fin && (!choixStats.sport || x.sport === choixStats.sport));
+
+  puces($('#filtrePeriode'), PERIODES.map((p) => [p.cle, p.nom]), periode.cle, (c) => { choixStats.periode = c; });
+  puces($('#filtreSport'), [['', 'Tous les sports'], ...Object.entries(SPORTS).filter(([k]) => sportsPresents.includes(k)).map(([k, x]) => [k, `${x.icone} ${x.nom}`])],
+    choixStats.sport, (c) => { choixStats.sport = c; });
+  puces($('#filtreMesure'), Object.entries(MESURES).map(([k, m]) => [k, m.nom]), choixStats.mesure, (c) => { choixStats.mesure = c; });
+
+  // Totaux de la période
+  const somme = (m) => choisies.reduce((n, x) => n + MESURES[m].valeur(x), 0);
+  const tuiles = [
+    [nombre(choisies.length), 'séances'], [nombre(somme('km')), 'km'], [nombre(somme('heures')), 'heures'],
+    [nombre(somme('denivele')), 'm de D+'], [nombre(somme('charge')), 'de charge'],
+  ];
+  $('#tuiles').innerHTML = tuiles.map(([v, l]) => `<div class="tuile"><b>${v}</b><span>${l}</span></div>`).join('');
+
+  // Volume par période
+  const mesure = MESURES[choixStats.mesure] || MESURES.km;
+  const cles = periodesEntre(debut, fin, pas);
+  const totaux = Object.fromEntries(cles.map((c) => [c, 0]));
+  for (const x of choisies) totaux[cleDe(x.jour, pas)] = (totaux[cleDe(x.jour, pas)] || 0) + mesure.valeur(x);
+  const points = cles.map((c) => ({ libelle: libelleDe(c, pas), valeur: totaux[c] }));
+  const nomPas = { semaine: 'par semaine', mois: 'par mois', annee: 'par année' }[pas];
+  $('#titreVolume').textContent = `${mesure.nom} ${nomPas}`;
+  $('#uniteVolume').textContent = mesure.unite;
+  const decimales = choixStats.mesure === 'heures' ? 1 : 0;
+  graphBarres($('#graphVolume'), points, (v) => `${nombre(v, decimales)} ${mesure.unite}`);
+  $('#tableVolume').innerHTML = `<table class="donnees"><thead><tr><th>Période</th><th>${esc(mesure.nom)} (${esc(mesure.unite)})</th></tr></thead><tbody>
+    ${points.slice().reverse().map((p) => `<tr><td>${esc(p.libelle)}</td><td>${nombre(p.valeur, decimales)}</td></tr>`).join('')}</tbody></table>`;
+
+  // Forme et fatigue : moyennes exponentielles de la charge quotidienne (42 et 7 jours)
+  const chargeJour = {};
+  for (const x of activites) if (!choixStats.sport || x.sport === choixStats.sport) chargeJour[x.jour] = (chargeJour[x.jour] || 0) + (Number(x.charge) || 0);
+  const pasForme = periode.jours && periode.jours <= 182 ? 1 : 7;
+  const serie = [];
+  let forme = 0, fatigue = 0;
+  for (let j = decaler(debut, -84), i = 0; j <= fin; j = decaler(j, 1), i++) {
+    const c = chargeJour[j] || 0;
+    forme += (c - forme) / 42;
+    fatigue += (c - fatigue) / 7;
+    if (j >= debut && (i % pasForme === 0 || j === fin)) serie.push({ libelle: versDate(j).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' }), a: forme, b: fatigue });
+  }
+  graphLignes($('#graphForme'), serie, ['Forme', 'Fatigue']);
+}
+
+/* ---------- Graphiques (SVG) ---------- */
+const H_GRAPH = 180, MARGE = { haut: 10, droite: 8, bas: 22, gauche: 36 };
+
+function echelle(max) {
+  if (max <= 0) return { max: 1, pas: 1 };
+  const brut = max / 4, puissance = 10 ** Math.floor(Math.log10(brut));
+  const pas = [1, 2, 2.5, 5, 10].map((m) => m * puissance).find((p) => p >= brut);
+  return { max: pas * Math.ceil(max / pas), pas };
+}
+function grilleEtAxes(l, h, ech) {
+  let svg = '';
+  for (let v = 0; v <= ech.max + 1e-9; v += ech.pas) {
+    const y = MARGE.haut + h - (v / ech.max) * h;
+    svg += `<line class="grille" x1="${MARGE.gauche}" x2="${MARGE.gauche + l}" y1="${y}" y2="${y}"/><text x="${MARGE.gauche - 6}" y="${y + 4}" text-anchor="end">${nombre(v)}</text>`;
+  }
+  return svg;
+}
+// Une étiquette d'abscisse sur n, pour qu'elles ne se chevauchent pas
+function etiquettes(points, x, l) {
+  const tous = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(l / 56))));
+  return points.map((p, i) => (i % tous === 0 ? `<text x="${x(i)}" y="${MARGE.haut + H_GRAPH - MARGE.haut - MARGE.bas + 16}" text-anchor="middle">${esc(p.libelle)}</text>` : '')).join('');
+}
+function infobulle(conteneur) {
+  let b = conteneur.querySelector('.infobulle');
+  if (!b) { b = document.createElement('div'); b.className = 'infobulle'; b.hidden = true; conteneur.appendChild(b); }
+  return b;
+}
+
+function graphBarres(conteneur, points, format) {
+  const L = Math.max(280, conteneur.clientWidth || 320), l = L - MARGE.gauche - MARGE.droite, h = H_GRAPH - MARGE.haut - MARGE.bas;
+  const ech = echelle(Math.max(...points.map((p) => p.valeur), 0));
+  const larg = l / points.length, barre = Math.max(2, Math.min(28, larg - 2));
+  const x = (i) => MARGE.gauche + larg * i + larg / 2;
+  const barres = points.map((p, i) => {
+    const hb = (p.valeur / ech.max) * h, y = MARGE.haut + h - hb, r = Math.min(4, barre / 2, hb);
+    // Coins arrondis en haut seulement, posés sur la ligne de base
+    const d = hb <= 0 ? '' : `M${x(i) - barre / 2},${MARGE.haut + h}V${y + r}q0,-${r} ${r},-${r}h${barre - 2 * r}q${r},0 ${r},${r}V${MARGE.haut + h}Z`;
+    return `<path class="barre" data-i="${i}" d="${d}"/>`;
+  }).join('');
+  conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${H_GRAPH}" role="img" aria-label="Graphique en barres">${grilleEtAxes(l, h, ech)}${barres}${etiquettes(points, x, l)}</svg>`;
+  const bulle = infobulle(conteneur), svg = conteneur.querySelector('svg');
+  const survoler = (e) => {
+    const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) * (L / rect.width);
+    const i = Math.max(0, Math.min(points.length - 1, Math.floor((px - MARGE.gauche) / larg)));
+    for (const el of svg.querySelectorAll('.barre')) el.classList.toggle('survol', Number(el.dataset.i) === i);
+    bulle.hidden = false;
+    bulle.innerHTML = `<b>${esc(format(points[i].valeur))}</b> <span class="muted">${esc(points[i].libelle)}</span>`;
+    bulle.style.left = `${Math.min(Math.max((x(i) / L) * rect.width, 60), rect.width - 60)}px`;
+    bulle.style.top = `${((MARGE.haut + h - (points[i].valeur / ech.max) * h) / H_GRAPH) * rect.height - 6}px`;
+  };
+  svg.addEventListener('pointermove', survoler);
+  svg.addEventListener('pointerdown', survoler);
+  svg.addEventListener('pointerleave', () => { bulle.hidden = true; for (const el of svg.querySelectorAll('.barre')) el.classList.remove('survol'); });
+}
+
+function graphLignes(conteneur, points, noms) {
+  const L = Math.max(280, conteneur.clientWidth || 320), l = L - MARGE.gauche - MARGE.droite, h = H_GRAPH - MARGE.haut - MARGE.bas;
+  const ech = echelle(Math.max(...points.flatMap((p) => [p.a, p.b]), 0));
+  const x = (i) => MARGE.gauche + (points.length > 1 ? (l * i) / (points.length - 1) : l / 2);
+  const y = (v) => MARGE.haut + h - (v / ech.max) * h;
+  const trace = (k) => points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join('');
+  conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${H_GRAPH}" role="img" aria-label="Forme et fatigue">${grilleEtAxes(l, h, ech)}
+    <path class="ligne-1" d="${trace('a')}"/><path class="ligne-2" d="${trace('b')}"/>
+    <line class="repere" y1="${MARGE.haut}" y2="${MARGE.haut + h}" visibility="hidden"/>${etiquettes(points, x, l)}</svg>`;
+  const bulle = infobulle(conteneur), svg = conteneur.querySelector('svg'), repere = svg.querySelector('.repere');
+  const survoler = (e) => {
+    const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) * (L / rect.width);
+    const i = Math.max(0, Math.min(points.length - 1, Math.round(((px - MARGE.gauche) / l) * (points.length - 1))));
+    repere.setAttribute('x1', x(i)); repere.setAttribute('x2', x(i)); repere.setAttribute('visibility', 'visible');
+    bulle.hidden = false;
+    bulle.innerHTML = `<div class="muted">${esc(points[i].libelle)}</div><div><i class="cle s1"></i><b>${nombre(points[i].a)}</b> ${esc(noms[0])}</div><div><i class="cle s2"></i><b>${nombre(points[i].b)}</b> ${esc(noms[1])}</div>`;
+    bulle.style.left = `${Math.min(Math.max((x(i) / L) * rect.width, 70), rect.width - 70)}px`;
+    bulle.style.top = `${(MARGE.haut / H_GRAPH) * rect.height + 50}px`;
+  };
+  svg.addEventListener('pointermove', survoler);
+  svg.addEventListener('pointerdown', survoler);
+  svg.addEventListener('pointerleave', () => { bulle.hidden = true; repere.setAttribute('visibility', 'hidden'); });
+}
+// Les graphiques suivent la largeur de l'écran
+let minuteurRedim = null;
+window.addEventListener('resize', () => { clearTimeout(minuteurRedim); minuteurRedim = setTimeout(afficherStats, 200); });
+
 /* ---------- Navigation ---------- */
 function allerA(vue) {
   for (const s of document.querySelectorAll('[data-vue]')) s.hidden = s.dataset.vue !== vue;
+  if (vue === 'stats') requestAnimationFrame(afficherStats); // les graphiques ont besoin de la largeur visible
   for (const b of document.querySelectorAll('[data-onglet]')) b.classList.toggle('actif', b.dataset.onglet === vue);
   try { sessionStorage.setItem('cloach-vue', vue); } catch {}
   window.scrollTo(0, 0);
@@ -835,6 +1220,7 @@ function toutAfficher() {
   afficherJournal();
   afficherProfil();
   afficherGarmin();
+  afficherStats();
   majLiensClaude();
 }
 

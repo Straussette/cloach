@@ -13,8 +13,8 @@ Le coaching se passe dans le Claude de chaque utilisateur, sur son propre abonne
   - `serveur.py` : consignes de coach (`CONSIGNES`), outils (profil, plan, journal, Garmin), prompts, routes HTTP ;
   - `acces.py` : OAuth sans stockage ; la page de connexion vérifie le compte Cloach auprès de Supabase, et les jetons portent l'identifiant de l'utilisateur (`subject`) ;
   - `donnees.py` : accès à Supabase avec la clé secrète (filtrer toujours sur l'identifiant de l'utilisateur) ;
-  - `garmin.py` : sessions Garmin par utilisateur et routes `/garmin/*` appelées par l'app.
-- `supabase/schema.sql` : schéma du projet Supabase `cloach` (tables `donnees` et `garmin_comptes`).
+  - `garmin.py` : sessions Garmin par utilisateur et routes `/garmin/*` appelées par l'app (connexion, code, état, déconnexion, `importer` pour l'historique, un an au plus par appel).
+- `supabase/schema.sql` : schéma du projet Supabase `cloach` (tables `donnees`, `activites` et `garmin_comptes`).
 
 ## Commandes
 
@@ -33,4 +33,7 @@ Le coaching se passe dans le Claude de chaque utilisateur, sur son propre abonne
 
 - L'état d'un compte est un seul document JSON (`donnees.data`) : `{ maj, profil, plan: { cree, resume, conseils, semaines: [{ debut, theme, seances: [{ id, jour, sport, titre, duree, intensite, details, etat }] }] }, journal: [{ id, date, sport, duree, distance, ressenti, notes }], garmin: { connecte, nom } }`.
 - L'app et le serveur l'écrivent tous les deux ; `maj` (millisecondes) départage, la version la plus récente l'emporte. L'app relit avant chaque modification (`modifier()`) et au retour au premier plan. Si la forme du document change, mettre à jour l'app **et** le serveur.
+- `analyse` (`{ date, texte }`) dans le même document : le commentaire de Claude sur l'historique, écrit par l'outil `enregistrer_analyse` et affiché dans l'onglet Stats.
+- Historique des activités : table `activites`, une ligne par activité (`id` Garmin, `jour`, `sport`, `type`, `distance_km`, `duree_min`, `denivele_m`, `charge`…). Le serveur l'écrit (import depuis Garmin, mapping dans `vers_activite()`), l'app la lit (onglet Stats), Claude la lit avec `historique` et `statistiques`. L'app importe année par année (`importerPeriode`, `importerTout`) puis ajoute les nouvelles activités à chaque ouverture (`mettreAJourHistorique`).
+- Couleurs des graphiques : `--serie-1` et `--serie-2`, validées (contraste, écart pour les daltoniens) en clair et en sombre.
 - Valeurs de `sport` : `course`, `trail`, `velo`, `renfo`, `natation`, `autre`. Valeurs d'`intensite` : `repos`, `facile`, `modere`, `soutenu`, `tres-soutenu`. Valeurs d'`etat` : vide (à faire), `fait`, `saute`.

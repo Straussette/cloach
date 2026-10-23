@@ -4,7 +4,8 @@ Chaque utilisateur l'ajoute comme connecteur dans son Claude (claude.ai, appli
 mobile ou de bureau) et se connecte avec son compte Cloach : le coaching se passe
 dans ses conversations, sur son propre abonnement Claude. Le serveur donne à Claude :
 - les données Garmin de l'utilisateur (s'il a branché son compte dans l'app) ;
-- son profil sportif, son plan d'entraînement et son journal, partagés avec l'app ;
+- son profil sportif, son plan d'entraînement, son journal et l'historique de ses
+  activités (importé depuis Garmin par l'app), partagés avec l'app ;
 - des consignes de coach (instructions du serveur) et des prompts prêts à l'emploi.
 
 Variables d'environnement :
@@ -61,12 +62,13 @@ acces = Acces(CLE_SIGNATURE, URL_PUBLIQUE, base.verifier_compte)
 CONSIGNES = """Tu es Cloach, le coach sportif personnel de l'utilisateur : bienveillant, précis, exigeant juste ce qu'il faut. Tu coaches la course à pied, le trail, le vélo (y compris home trainer / Zwift), le renforcement musculaire, la natation et le multisport. Tu parles en français et tu tutoies, sauf si l'utilisateur écrit dans une autre langue.
 
 Avant de conseiller, appuie-toi sur ses vraies données :
-- contexte_du_jour donne en un appel la date, le profil, les séances prévues autour d'aujourd'hui, le journal récent et si Garmin est branché ;
+- contexte_du_jour donne en un appel la date, le profil, les séances prévues autour d'aujourd'hui, le journal récent, les activités des 14 derniers jours et si Garmin est branché ;
+- pour le passé plus lointain, utilise statistiques (totaux par semaine, mois ou année, records) puis historique (le détail d'une période) : l'historique importé est plus rapide que les outils Garmin ;
 - si Garmin est branché, consulte ce qui est utile, sans excès : activités récentes, disponibilite_entrainement, statut_entrainement, sommeil, vfc, body_battery. Cite brièvement les chiffres.
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi) ; note les séances racontées par l'utilisateur avec noter_seance ; coche-les avec marquer_seance ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure."""
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi) ; note les séances racontées par l'utilisateur avec noter_seance ; coche-les avec marquer_seance ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
 
 mcp = MCPServer(
     name="cloach",
@@ -159,6 +161,10 @@ async def contexte_du_jour() -> dict[str, Any]:
     ajd = _aujourdhui()
     debut, fin = (ajd - timedelta(days=7)).isoformat(), (ajd + timedelta(days=7)).isoformat()
     garmin = await anyio.to_thread.run_sync(garmins.branche, uid)
+    try:
+        activites = await anyio.to_thread.run_sync(base.lire_activites, uid, (ajd - timedelta(days=14)).isoformat())
+    except Exception:
+        activites = []
     return {
         "aujourdhui": ajd.isoformat(),
         "jour": JOURS[ajd.weekday()],
@@ -166,6 +172,7 @@ async def contexte_du_jour() -> dict[str, Any]:
         "plan_resume": (etat.get("plan") or {}).get("resume", ""),
         "seances_prevues": [s for s in _seances(etat) if debut <= s.get("jour", "") <= fin],
         "journal": [s for s in etat.get("journal", []) if s.get("date", "") >= (ajd - timedelta(days=14)).isoformat()],
+        "activites_14_jours": [_compacte(a) for a in activites],
         "garmin_branche": garmin,
     }
 
@@ -290,6 +297,101 @@ async def modifier_profil(
         profil = etat.setdefault("profil", {})
         profil.update({k: v for k, v in changements.items() if v is not None})
         return profil
+
+    return await _modifier(uid, changer)
+
+
+# ---------- Historique des activités (table activites) ----------
+
+CHAMPS_HISTORIQUE = ("id", "debut", "sport", "type", "nom", "distance_km", "duree_min", "denivele_m",
+                     "fc_moy", "fc_max", "charge", "te_aerobie", "te_anaerobie", "puissance_moy", "puissance_norm")
+
+
+def _compacte(a: dict[str, Any]) -> dict[str, Any]:
+    return {k: a[k] for k in CHAMPS_HISTORIQUE if a.get(k) not in (None, "")}
+
+
+async def _activites(uid: str, debut: str | None, fin: str | None, sport: str | None) -> list[dict[str, Any]]:
+    try:
+        return await anyio.to_thread.run_sync(base.lire_activites, uid, debut, fin, sport)
+    except Exception as exc:
+        raise ToolError(_causes(exc)) from exc
+
+
+@mcp.tool()
+async def historique(debut: str | None = None, fin: str | None = None, sport: Sport | None = None) -> dict[str, Any]:
+    """Détail des activités importées entre deux dates (AAAA-MM-JJ, incluses), éventuellement pour un sport.
+    Au plus 300 activités (les plus récentes) : pour une longue période, commence par statistiques."""
+    activites = await _activites(_uid(), debut, fin, sport)
+    return {
+        "nombre": len(activites),
+        "tronque": len(activites) > 300,
+        "activites": [_compacte(a) for a in activites[-300:]],
+    }
+
+
+def _ajouter(total: dict[str, Any], a: dict[str, Any]) -> None:
+    total["seances"] += 1
+    total["km"] += float(a.get("distance_km") or 0)
+    total["heures"] += float(a.get("duree_min") or 0) / 60
+    total["denivele_m"] += float(a.get("denivele_m") or 0)
+    total["charge"] += float(a.get("charge") or 0)
+
+
+def _vide() -> dict[str, Any]:
+    return {"seances": 0, "km": 0.0, "heures": 0.0, "denivele_m": 0.0, "charge": 0.0}
+
+
+def _arrondir(t: dict[str, Any]) -> dict[str, Any]:
+    return {k: round(v, 1) if isinstance(v, float) else v for k, v in t.items()}
+
+
+@mcp.tool()
+async def statistiques(
+    regroupement: Literal["semaine", "mois", "annee"] = "mois",
+    debut: str | None = None, fin: str | None = None, sport: Sport | None = None,
+) -> dict[str, Any]:
+    """Totaux de l'historique importé (séances, km, heures, dénivelé, charge Garmin) par semaine
+    (lundi), mois ou année, avec les totaux par sport et les records. Sans dates : tout l'historique."""
+    activites = await _activites(_uid(), debut, fin, sport)
+    if not activites:
+        return {"nombre": 0, "message": "Aucune activité importée sur cette période : l'utilisateur peut importer son historique dans l'app (Profil → Garmin)."}
+    periodes: dict[str, dict[str, Any]] = {}
+    par_sport: dict[str, dict[str, Any]] = {}
+    for a in activites:
+        j = date.fromisoformat(str(a["jour"]))
+        cle = ((j - timedelta(days=j.weekday())).isoformat() if regroupement == "semaine"
+               else j.isoformat()[:7] if regroupement == "mois" else str(j.year))
+        _ajouter(periodes.setdefault(cle, _vide()), a)
+        _ajouter(par_sport.setdefault(a["sport"], _vide()), a)
+    record = lambda champ, filtre=None: max(
+        (a for a in activites if a.get(champ) and (filtre is None or a["sport"] in filtre)),
+        key=lambda a: float(a[champ]), default=None)
+    records = {
+        "plus_longue_course": record("distance_km", {"course", "trail"}),
+        "plus_longue_sortie_velo": record("distance_km", {"velo"}),
+        "plus_gros_denivele": record("denivele_m"),
+        "plus_longue_duree": record("duree_min"),
+        "plus_grosse_charge": record("charge"),
+    }
+    return {
+        "nombre": len(activites),
+        "du": activites[0]["jour"], "au": activites[-1]["jour"],
+        "par_periode": {k: _arrondir(v) for k, v in sorted(periodes.items())},
+        "par_sport": {k: _arrondir(v) for k, v in par_sport.items()},
+        "records": {k: _compacte(v) for k, v in records.items() if v},
+    }
+
+
+@mcp.tool()
+async def enregistrer_analyse(texte: str) -> str:
+    """Enregistre ton commentaire sur l'historique de l'utilisateur (quelques paragraphes en texte simple,
+    listes à tirets possibles) ; il s'affiche dans l'onglet Stats de l'app et remplace le précédent."""
+    uid = _uid()
+
+    def changer(etat: dict[str, Any]) -> str:
+        etat["analyse"] = {"date": _aujourdhui().isoformat(), "texte": texte[:6000]}
+        return "Analyse enregistrée : elle apparaît dans l'onglet Stats de l'app."
 
     return await _modifier(uid, changer)
 
@@ -446,6 +548,15 @@ def creer_plan(demande: str = "") -> str:
     return ("Construis mon plan d'entraînement des 3 prochaines semaines d'après mon profil, ce que j'ai fait "
             "récemment et ma forme, puis enregistre-le avec enregistrer_plan."
             + (f" Ma demande : {demande}" if demande else ""))
+
+
+@mcp.prompt(title="Analyser mon historique")
+def analyse_historique() -> str:
+    """Le coach commente ton historique d'activités : volume, régularité, progression, points d'attention."""
+    return ("Analyse mon historique d'activités : regarde mes statistiques par mois (et par semaine sur les 3 "
+            "derniers mois), mes records et la répartition par sport. Commente le volume, la régularité, la "
+            "progression, l'équilibre entre intensité et endurance, et les points d'attention, en lien avec mon "
+            "objectif. Puis enregistre ce commentaire avec enregistrer_analyse.")
 
 
 @mcp.prompt(title="Bilan de la semaine")

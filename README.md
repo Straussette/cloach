@@ -2,9 +2,9 @@
 
 Coach sportif personnel : course à pied, trail, vélo, renforcement, natation. Le coaching se passe dans **le Claude de chaque utilisateur** (claude.ai, appli mobile ou de bureau), sur son propre abonnement, grâce à un connecteur MCP.
 
-- **App** : https://straussette.github.io/cloach/ (`docs/index.html`, publié par GitHub Pages). Compte, profil sportif, plan d'entraînement, journal des séances, branchement de Garmin et de Claude.
-- **Serveur MCP** (`serveur/`, Python, hébergé sur Render) : le connecteur que chacun ajoute dans Claude. Il donne à Claude le profil, le plan et le journal de l'utilisateur, ses données Garmin, des consignes de coach et trois prompts (« Que faire aujourd'hui ? », « Créer ou réajuster mon plan », « Bilan de la semaine »).
-- **Supabase** (projet `cloach`, schéma dans `supabase/schema.sql`) : comptes, données de chaque compte (table `donnees`), jetons Garmin chiffrés (table `garmin_comptes`).
+- **App** : https://straussette.github.io/cloach/ (`docs/index.html`, publié par GitHub Pages). Compte, profil sportif, plan d'entraînement, journal des séances, import de l'historique Garmin, statistiques (distance, durée, dénivelé, charge, forme et fatigue), branchement de Garmin et de Claude.
+- **Serveur MCP** (`serveur/`, Python, hébergé sur Render) : le connecteur que chacun ajoute dans Claude. Il donne à Claude le profil, le plan et le journal de l'utilisateur, ses données Garmin, des consignes de coach et son historique d'activités (détail et statistiques), et quatre prompts (« Que faire aujourd'hui ? », « Créer ou réajuster mon plan », « Analyser mon historique », « Bilan de la semaine »).
+- **Supabase** (projet `cloach`, schéma dans `supabase/schema.sql`) : comptes, données de chaque compte (table `donnees`), historique des activités (table `activites`), jetons Garmin chiffrés (table `garmin_comptes`).
 
 Personne ne paie l'IA pour les autres : l'app et le serveur n'appellent jamais l'API Claude.
 

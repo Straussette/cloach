@@ -4,6 +4,7 @@
   claude.ai) et d'un jeton de connexion de l'app (branchement de Garmin).
 - Données de chaque compte (table donnees) : profil, plan, journal, dans un seul
   document JSON partagé avec l'app.
+- Historique des activités (table activites), importé depuis Garmin.
 - Jetons Garmin (table garmin_comptes), chiffrés avant d'être envoyés.
 
 La clé secrète (SUPABASE_CLE_SECRETE) passe outre les règles RLS : chaque fonction
@@ -73,6 +74,37 @@ class Supabase:
             json={"user_id": uid, "data": etat, "maj": datetime.now(timezone.utc).isoformat()},
         )
         r.raise_for_status()
+
+    # ---------- Historique des activités ----------
+
+    def ecrire_activites(self, uid: str, activites: list[dict[str, Any]]) -> None:
+        for i in range(0, len(activites), 500):
+            r = requests.post(
+                f"{self.url}/rest/v1/activites", timeout=30,
+                headers={**self.entetes, "Prefer": "resolution=merge-duplicates,return=minimal"},
+                json=[{**a, "user_id": uid} for a in activites[i:i + 500]],
+            )
+            r.raise_for_status()
+
+    def lire_activites(self, uid: str, debut: str | None = None, fin: str | None = None,
+                       sport: str | None = None) -> list[dict[str, Any]]:
+        """Activités de l'utilisateur, de la plus ancienne à la plus récente."""
+        params: list[tuple[str, str]] = [("user_id", f"eq.{uid}"), ("order", "debut.asc")]
+        if debut:
+            params.append(("jour", f"gte.{debut}"))
+        if fin:
+            params.append(("jour", f"lte.{fin}"))
+        if sport:
+            params.append(("sport", f"eq.{sport}"))
+        lignes: list[dict[str, Any]] = []
+        while True:  # l'API renvoie au plus 1000 lignes par appel
+            r = requests.get(f"{self.url}/rest/v1/activites", headers=self.entetes, timeout=30,
+                             params=[*params, ("limit", "1000"), ("offset", str(len(lignes)))])
+            r.raise_for_status()
+            page = r.json()
+            lignes.extend(page)
+            if len(page) < 1000:
+                return lignes
 
     # ---------- Jetons Garmin ----------
 

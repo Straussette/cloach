@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.6">
+<meta name="app-version" content="2026-10-24.7">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -371,7 +371,7 @@
       <div id="blocGarmin"></div>
     </div>
 
-    <div class="carte">
+    <div class="carte" id="carteStrava" hidden>
       <h2>Strava</h2>
       <div id="blocStrava"></div>
     </div>
@@ -536,6 +536,8 @@ let etat = Object.assign(ETAT_VIDE(), lireLocal(CLE_ETAT) || {});
 // Source des activités : Garmin en priorité, sinon Strava (les deux à la fois créeraient des doublons)
 const sourceActive = () => (etat.garmin?.connecte ? 'garmin' : etat.strava?.connecte ? 'strava' : null);
 const NOMS_SOURCES = { garmin: 'Garmin', strava: 'Strava' };
+// Strava est prêt côté code mais pas encore activé (application Strava à créer) : carte masquée
+const STRAVA_ACTIF = false;
 
 const toutesSeances = () => (etat.plan?.semaines || []).flatMap((w) => w.seances);
 
@@ -1292,6 +1294,7 @@ $('#formGarmin').onsubmit = async (e) => {
 
 /* ---------- Strava (pour ceux qui n'ont pas Garmin) ---------- */
 function afficherStrava() {
+  $('#carteStrava').hidden = !STRAVA_ACTIF && !etat.strava?.connecte;
   const bloc = $('#blocStrava');
   if (etat.garmin.connecte && !etat.strava?.connecte) {
     bloc.innerHTML = '<p class="muted petit">Tu utilises déjà Garmin : inutile de brancher Strava, tes activités apparaîtraient en double.</p>';
@@ -1340,7 +1343,7 @@ async function traiterRetourStrava() {
 }
 
 async function verifierStrava() {
-  if (!session() || etat.garmin.connecte) return;
+  if (!STRAVA_ACTIF || !session() || etat.garmin.connecte) return;
   try {
     const r = await appelerStrava('etat');
     if (r.connecte !== !!etat.strava?.connecte || (r.nom && r.nom !== etat.strava?.nom)) {

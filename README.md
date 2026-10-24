@@ -37,6 +37,11 @@ Personne ne paie l'IA pour les autres : l'app et le serveur n'appellent jamais l
 
 Sur l'offre gratuite de Render, le service s'endort après 15 min d'inactivité : le premier appel prend environ 30 s (l'app le réveille dès l'ouverture).
 
+### Strava (facultatif, pour ceux qui n'ont pas Garmin)
+1. Sur https://www.strava.com/settings/api, créer une application : nom « Cloach », site `https://straussette.github.io/cloach/`, **Authorization Callback Domain** : `cloach.onrender.com`.
+2. Dans Render, renseigner `STRAVA_CLIENT_ID` et `STRAVA_CLIENT_SECRET`.
+3. Une nouvelle application Strava ne peut brancher qu'un seul compte (le tien) tant que Strava n'a pas validé une demande d'augmentation (formulaire « Developer Program » de Strava).
+
 ### GitHub Pages
 Settings → Pages → « Deploy from a branch » → `main`, dossier `/docs`.
 

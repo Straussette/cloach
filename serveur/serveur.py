@@ -14,7 +14,10 @@ Variables d'environnement :
   oblige chacun à rebrancher Garmin.
 - SUPABASE_URL, SUPABASE_CLE (clé publique sb_publishable_…) et
   SUPABASE_CLE_SECRETE (clé secrète sb_secret_…) du projet Supabase « cloach ».
-- ORIGINE_APP : origine de l'app (par défaut https://straussette.github.io).
+- ORIGINE_APP : origine de l'app (par défaut https://straussette.github.io) ; URL_APP : adresse de
+  l'app (par défaut ORIGINE_APP + /cloach/), où Strava renvoie l'utilisateur.
+- STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET (facultatif) : application Strava, pour les utilisateurs sans
+  Garmin (voir strava.py).
 - URL_PUBLIQUE : adresse publique du serveur ; inutile sur Render (RENDER_EXTERNAL_URL).
 - FUSEAU : fuseau horaire des dates (par défaut Europe/Paris).
 - PORT : port d'écoute (par défaut 8000).
@@ -39,6 +42,7 @@ from starlette.responses import PlainTextResponse
 from acces import Acces
 from donnees import Supabase
 from garmin import CompteAbsent, Garmins
+from strava import Stravas
 
 # strip() : un copier-coller ajoute souvent un retour à la ligne invisible.
 CLE_SIGNATURE = os.environ.get("CLE_SIGNATURE", "").strip()
@@ -57,12 +61,14 @@ base = Supabase(
     CLE_SIGNATURE,
 )
 garmins = Garmins(base, {ORIGINE_APP})
+URL_APP = os.environ.get("URL_APP", ORIGINE_APP + "/cloach/").strip()
+stravas = Stravas(base, {ORIGINE_APP}, CLE_SIGNATURE, URL_PUBLIQUE, URL_APP)
 acces = Acces(CLE_SIGNATURE, URL_PUBLIQUE, base.verifier_compte)
 
 CONSIGNES = """Tu es Cloach, le coach sportif personnel de l'utilisateur : bienveillant, précis, exigeant juste ce qu'il faut. Tu coaches la course à pied, le trail, le vélo (y compris home trainer / Zwift), le renforcement musculaire, la natation et le multisport. Tu parles en français et tu tutoies, sauf si l'utilisateur écrit dans une autre langue.
 
 Avant de conseiller, appuie-toi sur ses vraies données :
-- contexte_du_jour donne en un appel la date, le profil, les séances prévues autour d'aujourd'hui, le journal récent, les activités des 14 derniers jours et si Garmin est branché ;
+- contexte_du_jour donne en un appel la date, le profil, les séances prévues autour d'aujourd'hui, le journal récent, les activités des 14 derniers jours et si Garmin ou Strava est branché (avec Strava seul, les outils Garmin ne marchent pas : appuie-toi sur l'historique, et demande à l'utilisateur son sommeil et sa fatigue) ;
 - pour le passé plus lointain, utilise statistiques (totaux par semaine, mois ou année, records) puis historique (le détail d'une période) : l'historique importé est plus rapide que les outils Garmin ;
 - si Garmin est branché, consulte ce qui est utile, sans excès : activités récentes, disponibilite_entrainement, statut_entrainement, sommeil, vfc, body_battery. Cite brièvement les chiffres.
 
@@ -174,6 +180,7 @@ async def contexte_du_jour() -> dict[str, Any]:
         "journal": [s for s in etat.get("journal", []) if s.get("date", "") >= (ajd - timedelta(days=14)).isoformat()],
         "activites_14_jours": [_compacte(a, etat.get("commentaires")) for a in activites],
         "garmin_branche": garmin,
+        "strava_branche": await anyio.to_thread.run_sync(lambda: bool(base.lire_jetons_strava(uid))),
     }
 
 
@@ -685,6 +692,18 @@ def bilan_semaine() -> str:
 async def route_garmin(request: Request):
     """Branchement du compte Garmin depuis l'app (voir garmin.py)."""
     return await garmins.route(request)
+
+
+@mcp.custom_route("/strava/retour", methods=["GET"])
+async def route_strava_retour(request: Request):
+    """Retour de strava.com après l'accord de l'utilisateur (voir strava.py)."""
+    return await stravas.retour(request)
+
+
+@mcp.custom_route("/strava/{action}", methods=["POST", "OPTIONS"])
+async def route_strava(request: Request):
+    """Branchement et import Strava depuis l'app (voir strava.py)."""
+    return await stravas.route(request)
 
 
 @mcp.custom_route("/sante", methods=["GET"])

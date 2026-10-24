@@ -14,3 +14,7 @@ services:
         value: sb_publishable_pQWy8E2hky_HyhwNebDhCg_3Pjkrf7P
       - key: SUPABASE_CLE_SECRETE
         sync: false
+      - key: STRAVA_CLIENT_ID
+        sync: false
+      - key: STRAVA_CLIENT_SECRET
+        sync: false

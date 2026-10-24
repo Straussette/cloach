@@ -5,7 +5,7 @@
 - Données de chaque compte (table donnees) : profil, plan, journal, dans un seul
   document JSON partagé avec l'app.
 - Historique des activités (table activites), importé depuis Garmin.
-- Jetons Garmin (table garmin_comptes), chiffrés avant d'être envoyés.
+- Jetons Garmin (table garmin_comptes) et Strava (table strava_comptes), chiffrés avant d'être envoyés.
 
 La clé secrète (SUPABASE_CLE_SECRETE) passe outre les règles RLS : chaque fonction
 ci-dessous filtre donc elle-même sur l'identifiant de l'utilisateur.
@@ -105,6 +105,40 @@ class Supabase:
             lignes.extend(page)
             if len(page) < 1000:
                 return lignes
+
+    # ---------- Jetons Strava (même principe que Garmin) ----------
+
+    def lire_jetons_strava(self, uid: str) -> str | None:
+        return self._lire_jetons("strava_comptes", uid)
+
+    def ecrire_jetons_strava(self, uid: str, jetons: str) -> None:
+        self._ecrire_jetons("strava_comptes", uid, jetons)
+
+    def supprimer_jetons_strava(self, uid: str) -> None:
+        r = requests.delete(f"{self.url}/rest/v1/strava_comptes", headers=self.entetes, timeout=10,
+                            params={"user_id": f"eq.{uid}"})
+        r.raise_for_status()
+
+    def _lire_jetons(self, table: str, uid: str) -> str | None:
+        r = requests.get(f"{self.url}/rest/v1/{table}", headers=self.entetes, timeout=10,
+                         params={"select": "jetons", "user_id": f"eq.{uid}"})
+        r.raise_for_status()
+        lignes = r.json()
+        if not lignes:
+            return None
+        try:
+            return self.chiffre.decrypt(lignes[0]["jetons"].encode()).decode()
+        except InvalidToken:
+            return None
+
+    def _ecrire_jetons(self, table: str, uid: str, jetons: str) -> None:
+        r = requests.post(
+            f"{self.url}/rest/v1/{table}", timeout=10,
+            headers={**self.entetes, "Prefer": "resolution=merge-duplicates,return=minimal"},
+            json={"user_id": uid, "jetons": self.chiffre.encrypt(jetons.encode()).decode(),
+                  "maj": datetime.now(timezone.utc).isoformat()},
+        )
+        r.raise_for_status()
 
     # ---------- Jetons Garmin ----------
 

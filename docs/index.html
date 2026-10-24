@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.5">
+<meta name="app-version" content="2026-10-24.6">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -370,6 +370,11 @@
       <h2>Garmin</h2>
       <div id="blocGarmin"></div>
     </div>
+
+    <div class="carte">
+      <h2>Strava</h2>
+      <div id="blocStrava"></div>
+    </div>
   </section>
 </main>
 
@@ -438,7 +443,7 @@
 <dialog id="dlgImport">
   <form class="dlg" id="formImport">
     <h2>Importer ton historique</h2>
-    <p class="muted petit" style="margin:0">Cloach récupère tes activités Garmin pour tracer tes statistiques, et Claude pourra les commenter. Tes nouvelles activités seront ensuite ajoutées automatiquement.</p>
+    <p class="muted petit" style="margin:0">Cloach récupère tes activités <span id="sourceImport">Garmin</span> pour tracer tes statistiques, et Claude pourra les commenter. Tes nouvelles activités seront ensuite ajoutées automatiquement.</p>
     <div class="champs" id="choixImport">
       <label style="flex-direction:row; display:flex; gap:8px; align-items:center; color:var(--text)"><input type="radio" name="etendue" value="date" checked style="width:auto"> Depuis le</label>
       <input type="date" id="i-debut">
@@ -526,8 +531,11 @@ function statut(el, texte, erreur = false) {
 /* ---------- État de l'app ---------- */
 // { maj, profil, plan: { cree, resume, conseils, semaines: [{ debut, theme, seances: [...] }] }, journal: [...], garmin: { connecte, nom } }
 // Il est partagé avec le serveur MCP : Claude y écrit le plan, le journal et le profil.
-const ETAT_VIDE = () => ({ maj: 0, profil: {}, plan: null, journal: [], commentaires: {}, garmin: { connecte: false } });
+const ETAT_VIDE = () => ({ maj: 0, profil: {}, plan: null, journal: [], commentaires: {}, garmin: { connecte: false }, strava: { connecte: false } });
 let etat = Object.assign(ETAT_VIDE(), lireLocal(CLE_ETAT) || {});
+// Source des activités : Garmin en priorité, sinon Strava (les deux à la fois créeraient des doublons)
+const sourceActive = () => (etat.garmin?.connecte ? 'garmin' : etat.strava?.connecte ? 'strava' : null);
+const NOMS_SOURCES = { garmin: 'Garmin', strava: 'Strava' };
 
 const toutesSeances = () => (etat.plan?.semaines || []).flatMap((w) => w.seances);
 
@@ -668,6 +676,7 @@ async function apresConnexion() {
   await synchroniser();
   toutAfficher();
   await verifierGarmin();
+  await verifierStrava();
   await chargerActivites();
   mettreAJourHistorique();
 }
@@ -1010,7 +1019,7 @@ function afficherChoixActivite(jour, sport, choisie) {
   const liste = candidates(jour, sport);
   const zone = $('#activiteDlgSeance');
   if (!liste.length) {
-    zone.innerHTML = `<p class="muted petit">${etat.garmin.connecte ? 'Aucune activité Garmin ce jour-là. Synchronise ta montre puis rouvre cette fenêtre, ou valide quand même.' : 'Garmin n\'est pas branché : la séance sera simplement cochée.'}</p>`;
+    zone.innerHTML = `<p class="muted petit">${sourceActive() ? `Aucune activité ${NOMS_SOURCES[sourceActive()]} ce jour-là. Synchronise ta montre puis rouvre cette fenêtre, ou valide quand même.` : 'Ni Garmin ni Strava ne sont branchés : la séance sera simplement cochée.'}</p>`;
     return;
   }
   const actuelle = choisie || liste[0].id;
@@ -1048,17 +1057,17 @@ async function ouvrirSeance(idSeance, idActivite = null) {
   $('#dlgSeance').showModal();
 
   // Séance du jour ou passée : on va chercher sur Garmin ce qui n'est pas encore importé
-  if (seanceOuverte && etat.garmin.connecte && jour <= jourISO() && session()) {
-    statut($('#statutSeance'), '⌚ Je récupère ta séance sur Garmin…');
+  if (seanceOuverte && sourceActive() && jour <= jourISO() && session()) {
+    statut($('#statutSeance'), `⌚ Je récupère ta séance sur ${NOMS_SOURCES[sourceActive()]}…`);
     try {
-      await appelerGarmin('importer', { debut: jour, fin: jour });
+      await appelerServeur(`${sourceActive()}/importer`, { debut: jour, fin: jour });
       await chargerActivites();
       if (!$('#dlgSeance').open) return;
       afficherChoixActivite(jour, seanceOuverte.sport, seanceOuverte.activite);
       remplirCommentaire(seanceOuverte.activite || $('#formSeance input[name="activite"]:checked')?.value);
       statut($('#statutSeance'), '');
     } catch (err) {
-      statut($('#statutSeance'), 'Garmin ne répond pas : ' + err.message, true);
+      statut($('#statutSeance'), `${NOMS_SOURCES[sourceActive()]} ne répond pas : ` + err.message, true);
     }
   }
 }
@@ -1199,12 +1208,14 @@ $('#formProfil').onsubmit = async (e) => {
 /* ---------- Garmin (serveur Cloach) ---------- */
 let attenteGarmin = '';
 
-async function appelerGarmin(action, corps = {}) {
+const appelerGarmin = (action, corps = {}) => appelerServeur(`garmin/${action}`, corps);
+const appelerStrava = (action, corps = {}) => appelerServeur(`strava/${action}`, corps);
+async function appelerServeur(chemin, corps = {}) {
   const tok = await jeton();
   if (!tok) throw new Error('connecte-toi d\'abord à Cloach.');
   let r;
   try {
-    r = await fetch(`${SERVEUR}/garmin/${action}`, {
+    r = await fetch(`${SERVEUR}/${chemin}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok },
       body: JSON.stringify(corps),
@@ -1279,6 +1290,65 @@ $('#formGarmin').onsubmit = async (e) => {
   }
 };
 
+/* ---------- Strava (pour ceux qui n'ont pas Garmin) ---------- */
+function afficherStrava() {
+  const bloc = $('#blocStrava');
+  if (etat.garmin.connecte && !etat.strava?.connecte) {
+    bloc.innerHTML = '<p class="muted petit">Tu utilises déjà Garmin : inutile de brancher Strava, tes activités apparaîtraient en double.</p>';
+    return;
+  }
+  if (etat.strava?.connecte) {
+    bloc.innerHTML = `<p>🟠 Compte Strava branché${etat.strava.nom ? ` (<b>${esc(etat.strava.nom)}</b>)` : ''}. Cloach importe tes activités ; Claude les lit dans ton historique. Strava ne fournit ni sommeil ni VFC : la forme du jour reste réservée à Garmin.</p>
+      <p class="muted petit">${etat.strava.dernierImport ? `Historique importé (mis à jour le ${esc(dateLisible(etat.strava.dernierImport, false))}).` : 'Historique pas encore importé.'}</p>
+      <div class="rangee">
+        <button class="btn secondaire" type="button" id="btnImportStrava">${etat.strava.dernierImport ? 'Réimporter l\'historique' : 'Importer mon historique'}</button>
+        <button class="btn danger" type="button" id="btnStravaDebrancher">Débrancher Strava</button>
+      </div>`;
+    $('#btnImportStrava').onclick = ouvrirImport;
+    $('#btnStravaDebrancher').onclick = async () => {
+      if (!confirm('Débrancher ton compte Strava ? Cloach n\'importera plus tes nouvelles activités.')) return;
+      try { await appelerStrava('deconnexion'); } catch (e) { alert('Échec : ' + e.message); return; }
+      modifier(() => { etat.strava = { connecte: false }; });
+    };
+    return;
+  }
+  bloc.innerHTML = `<p class="muted">Pas de Garmin ? Branche Strava : Cloach importera tes activités (toutes les marques de montres, ou ton téléphone).</p>
+    <button class="btn" type="button" id="btnStravaBrancher">Brancher mon compte Strava</button>
+    <p class="statut" id="statutStrava"></p>`;
+  $('#btnStravaBrancher').onclick = async () => {
+    if (!session()) { alert('Connecte-toi d\'abord à Cloach (en haut de cette page).'); return; }
+    statut($('#statutStrava'), 'Ouverture de Strava… (jusqu\'à 30 secondes si le serveur dormait)');
+    try {
+      location.href = (await appelerStrava('lien')).url;
+    } catch (e) { statut($('#statutStrava'), e.message, true); }
+  };
+}
+
+// Retour de strava.com (#strava=ok, annule, droits ou erreur)
+async function traiterRetourStrava() {
+  const resultat = new URLSearchParams(location.hash.slice(1)).get('strava');
+  history.replaceState(null, '', location.pathname);
+  allerA('profil');
+  const messages = {
+    annule: 'Branchement de Strava annulé.',
+    droits: 'Strava a besoin de l\'autorisation de lire tes activités : recommence en laissant la case cochée.',
+    erreur: 'Strava n\'a pas pu être branché, réessaie dans un moment.',
+  };
+  if (resultat !== 'ok') { alert(messages[resultat] || messages.erreur); return; }
+  await verifierStrava();
+  if (etat.strava?.connecte && !etat.strava.dernierImport) ouvrirImport();
+}
+
+async function verifierStrava() {
+  if (!session() || etat.garmin.connecte) return;
+  try {
+    const r = await appelerStrava('etat');
+    if (r.connecte !== !!etat.strava?.connecte || (r.nom && r.nom !== etat.strava?.nom)) {
+      await modifier(() => { etat.strava = { ...(etat.strava || {}), connecte: r.connecte, nom: r.nom || '' }; });
+    }
+  } catch { /* serveur endormi ou Strava pas encore configuré : on garde l'état connu */ }
+}
+
 // Vérifie auprès du serveur que le compte Garmin est toujours branché (et réveille le serveur)
 async function verifierGarmin() {
   if (!session()) return;
@@ -1313,7 +1383,7 @@ async function importerPeriode(debut, fin, progression) {
   for (let a = Number(fin.slice(0, 4)); a >= Number(debut.slice(0, 4)); a--) {
     const d = a === Number(debut.slice(0, 4)) ? debut : `${a}-01-01`;
     const f = a === Number(fin.slice(0, 4)) ? fin : `${a}-12-31`;
-    const r = await appelerGarmin('importer', { debut: d, fin: f });
+    const r = await appelerServeur(`${sourceActive()}/importer`, { debut: d, fin: f });
     total += r.nombre;
     progression?.(a, r.nombre, total);
   }
@@ -1325,7 +1395,7 @@ async function importerTout(progression) {
   let total = 0, vides = 0;
   for (let a = new Date().getFullYear(); a >= 2000 && vides < 2; a--) {
     const fin = a === new Date().getFullYear() ? jourISO() : `${a}-12-31`;
-    const r = await appelerGarmin('importer', { debut: `${a}-01-01`, fin });
+    const r = await appelerServeur(`${sourceActive()}/importer`, { debut: `${a}-01-01`, fin });
     total += r.nombre;
     vides = r.nombre ? 0 : vides + 1;
     progression?.(a, r.nombre, total);
@@ -1334,6 +1404,7 @@ async function importerTout(progression) {
 }
 
 function ouvrirImport() {
+  $('#sourceImport').textContent = NOMS_SOURCES[sourceActive()] || 'Garmin';
   $('#i-debut').value = decaler(jourISO(), -365);
   $('#choixImport').hidden = false;
   $('#btnImporter').hidden = false;
@@ -1354,7 +1425,8 @@ $('#formImport').onsubmit = async (e) => {
   const progression = (annee, n, total) => statut($('#statutImport'), `${annee} : ${n} activité${n > 1 ? 's' : ''} — ${total} au total…`);
   try {
     const total = tout ? await importerTout(progression) : await importerPeriode(debut, jourISO(), progression);
-    await modifier(() => { etat.garmin = { ...etat.garmin, dernierImport: jourISO() }; });
+    const source = sourceActive();
+    await modifier(() => { etat[source] = { ...etat[source], dernierImport: jourISO() }; });
     await chargerActivites();
     statut($('#statutImport'), `✓ ${total} activité${total > 1 ? 's' : ''} importée${total > 1 ? 's' : ''}. Claude peut maintenant les commenter.`);
     $('#choixImport').hidden = true;
@@ -1372,10 +1444,12 @@ $('#lienAnalyseImport').addEventListener('click', () => { $('#dlgImport').close(
 
 // À l'ouverture : ajoute les activités faites depuis le dernier import
 async function mettreAJourHistorique() {
-  if (!etat.garmin.connecte || !etat.garmin.dernierImport || etat.garmin.dernierImport === jourISO()) return;
+  const source = sourceActive();
+  const dernier = source && etat[source].dernierImport;
+  if (!dernier || dernier === jourISO()) return;
   try {
-    await importerPeriode(decaler(etat.garmin.dernierImport, -3), jourISO());
-    await modifier(() => { etat.garmin = { ...etat.garmin, dernierImport: jourISO() }; });
+    await importerPeriode(decaler(dernier, -3), jourISO());
+    await modifier(() => { etat[source] = { ...etat[source], dernierImport: jourISO() }; });
     await chargerActivites();
   } catch (e) { console.warn('Mise à jour de l\'historique', e); }
 }
@@ -1443,10 +1517,10 @@ function afficherStats() {
   if (!activites.length) {
     $('#statsContenu').hidden = true;
     $('#statsVide').hidden = false;
-    $('#statsVide').innerHTML = `<h2>Mes stats</h2><p class="muted">${etat.garmin.connecte
-      ? 'Importe ton historique Garmin pour voir tes kilomètres, tes heures, ton dénivelé et ta charge au fil du temps.'
-      : 'Branche ton compte Garmin (onglet Profil), puis importe ton historique pour voir tes statistiques.'}</p>
-      ${etat.garmin.connecte ? '<button class="btn" type="button" id="btnImportStats">Importer mon historique</button>' : ''}`;
+    $('#statsVide').innerHTML = `<h2>Mes stats</h2><p class="muted">${sourceActive()
+      ? `Importe ton historique ${NOMS_SOURCES[sourceActive()]} pour voir tes kilomètres, tes heures, ton dénivelé et ta charge au fil du temps.`
+      : 'Branche ton compte Garmin ou Strava (onglet Profil), puis importe ton historique pour voir tes statistiques.'}</p>
+      ${sourceActive() ? '<button class="btn" type="button" id="btnImportStats">Importer mon historique</button>' : ''}`;
     const b = $('#btnImportStats');
     if (b) b.onclick = ouvrirImport;
     return;
@@ -1780,6 +1854,7 @@ function toutAfficher() {
   afficherPlan();
   afficherProfil();
   afficherGarmin();
+  afficherStrava();
   afficherStats();
   majLiensClaude();
 }
@@ -1817,6 +1892,7 @@ if (location.protocol.startsWith('http')) verifierMiseAJour();
   afficherCompte();
   toutAfficher();
   if (/access_token|error_code/.test(location.hash)) await traiterLienEmail();
+  else if (/strava=/.test(location.hash)) { await apresConnexion(); await traiterRetourStrava(); }
   else if (session()) await apresConnexion();
   else if (!etat.maj) allerA('profil'); // première visite : on commence par le compte
 })();

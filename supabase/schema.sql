@@ -59,3 +59,12 @@ create policy "activites_lire" on public.activites
   for select to authenticated using (user_id = (select auth.uid()));
 create policy "activites_supprimer" on public.activites
   for delete to authenticated using (user_id = (select auth.uid()));
+
+-- strava_comptes : jetons Strava chiffrés par le serveur, comme garmin_comptes (aucune règle RLS).
+create table if not exists public.strava_comptes (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  jetons  text not null,
+  maj     timestamptz not null default now()
+);
+alter table public.strava_comptes enable row level security;
+revoke all on public.strava_comptes from anon, authenticated;

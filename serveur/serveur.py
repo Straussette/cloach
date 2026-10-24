@@ -250,6 +250,20 @@ async def forme_du_jour() -> dict[str, Any]:
 
 
 @mcp.tool()
+async def records_garmin() -> list[dict[str, Any]]:
+    """Garmin : records personnels (meilleurs efforts) : meilleurs temps sur 1 km, 1 mile, 5 km, 10 km,
+    semi-marathon et marathon (valeur en secondes), plus longues sorties (valeur en mètres), avec la date
+    et l'activité. Les records sans nom sont d'autres types Garmin (pas, vélo…)."""
+    uid = _uid()
+    try:
+        return await anyio.to_thread.run_sync(garmins.records, uid)
+    except CompteAbsent as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        raise ToolError(_causes(exc)) from exc
+
+
+@mcp.tool()
 async def avis_du_jour(
     verdict: Literal["garder", "alleger", "remplacer", "repos"], explication: str,
     id_seance: str | None = None, remplacement: Alternative | None = None,

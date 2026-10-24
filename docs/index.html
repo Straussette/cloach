@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.3">
+<meta name="app-version" content="2026-10-24.4">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1521,6 +1521,33 @@ function afficherStats() {
 }
 
 /* ---------- Records (période et sport choisis) ---------- */
+// Meilleurs efforts calculés par Garmin (meilleur 5 km dans une sortie plus longue, etc.) : lus une fois par ouverture
+let recordsGarmin = null, recordsEnCours = false;
+async function chargerRecordsGarmin() {
+  if (recordsGarmin || recordsEnCours || !etat.garmin.connecte || !session()) return;
+  recordsEnCours = true;
+  try {
+    recordsGarmin = (await appelerGarmin('records')).records || [];
+    afficherStats();
+  } catch (e) { console.warn('Records Garmin', e); } finally { recordsEnCours = false; }
+}
+function formatTemps(secondes) {
+  const s = Math.round(secondes), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return h ? `${h} h ${String(m).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`;
+}
+function htmlRecordsGarmin() {
+  const connus = (recordsGarmin || []).filter((r) => r.nom && r.valeur);
+  if (!connus.length) return '';
+  const distances = { '1km': 1, mile: 1.609, '5km': 5, '10km': 10, semi: 21.0975, marathon: 42.195 };
+  return '<h4 class="famille-records">⌚ Meilleurs efforts (Garmin, depuis toujours)</h4>' + connus.map((r) => {
+    const texte = r.nature === 'temps'
+      ? `${formatTemps(r.valeur)}${distances[r.cle] ? ` · ${formatAllure(r.valeur / 60 / distances[r.cle])}` : ''}`
+      : `${nombre(r.valeur / 1000, 1)} km`;
+    const quand = [r.date ? `${dateLisible(r.date, false)} ${r.date.slice(0, 4)}` : '', r.activite_nom || ''].filter(Boolean).join(' · ');
+    return `<button type="button" class="record" ${r.date ? `data-aller-jour="${esc(r.date)}"` : ''}>
+      <span>${esc(r.nom)}</span><span class="valeur">${esc(texte)}</span><span class="quand">${esc(quand)}</span></button>`;
+  }).join('');
+}
 function allure(a) {
   const km = Number(a.distance_km), min = Number(a.duree_min);
   return km > 0 && min > 0 ? min / km : null;
@@ -1585,7 +1612,8 @@ function afficherRecords(liste, periode) {
     + (semaineMax ? `<button type="button" class="record" data-aller-jour="${esc(semaineMax.jour)}"><span>Plus grosse semaine</span><span class="valeur">${nombre(semaineMax.km)} km</span><span class="quand">semaine du ${esc(dateLisible(semaineMax.jour, false))} ${esc(semaineMax.jour.slice(0, 4))} · ${esc(dureeLisible(Math.round(semaineMax.min)))}</span></button>` : '')
     + (moisMax ? `<button type="button" class="record" data-aller-jour="${esc(moisMax.jour)}"><span>Plus gros mois</span><span class="valeur">${nombre(moisMax.km)} km</span><span class="quand">${esc(versDate(moisMax.jour).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }))} · ${esc(dureeLisible(Math.round(moisMax.min)))}</span></button>` : '')
     + (serie.long > 1 ? `<button type="button" class="record" data-aller-jour="${esc(serie.debut)}"><span>Plus longue série de jours actifs</span><span class="valeur">${serie.long} jours</span><span class="quand">du ${esc(dateLisible(serie.debut, false))} au ${esc(dateLisible(serie.fin, false))} ${esc(serie.fin.slice(0, 4))}</span></button>` : ''));
-  $('#records').innerHTML = blocs.join('');
+  $('#records').innerHTML = htmlRecordsGarmin() + blocs.join('');
+  chargerRecordsGarmin();
 }
 
 // Toucher un record ouvre ce jour dans le Calendrier

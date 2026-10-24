@@ -39,6 +39,20 @@ SPORTS_GARMIN = {
 }
 
 
+# Records personnels Garmin : typeId → (clé, nom, nature de la valeur)
+# (1 à 7 : course à pied, d'après la documentation de garminconnect ; à compléter au besoin)
+RECORDS_GARMIN = {
+    1: ("1km", "1 km", "temps"),
+    2: ("mile", "1 mile", "temps"),
+    3: ("5km", "5 km", "temps"),
+    4: ("10km", "10 km", "temps"),
+    5: ("semi", "Semi-marathon", "temps"),
+    6: ("marathon", "Marathon", "temps"),
+    7: ("plus_longue_course", "Plus longue course", "distance"),
+    8: ("plus_longue_sortie_velo", "Plus longue sortie vélo", "distance"),
+}
+
+
 def sport_cloach(type_garmin: str) -> str:
     return next((s for s, types in SPORTS_GARMIN.items() if type_garmin in types), "autre")
 
@@ -153,6 +167,26 @@ class Garmins:
             forme["disponibilite"] = {"score": dispo[0].get("score"), "niveau": dispo[0].get("level")}
         return forme
 
+    def records(self, uid: str) -> list[dict[str, Any]]:
+        """Records personnels calculés par Garmin (meilleurs efforts), mis en forme."""
+        brut = self.appeler(uid, "get_personal_record") or []
+        records = []
+        for r in brut if isinstance(brut, list) else []:
+            connu = RECORDS_GARMIN.get(r.get("typeId"))
+            date_record = str(r.get("actStartDateTimeInGMTFormatted") or r.get("prStartTimeGmtFormatted") or "")[:10]
+            records.append({
+                "type": r.get("typeId"),
+                "cle": connu[0] if connu else None,
+                "nom": connu[1] if connu else None,
+                "nature": connu[2] if connu else None,
+                "valeur": r.get("value"),
+                "date": date_record or None,
+                "activite_id": str(r["activityId"]) if r.get("activityId") else None,
+                "activite_nom": r.get("activityName"),
+                "type_activite": r.get("activityType"),
+            })
+        return records
+
     def branche(self, uid: str) -> bool:
         return self.base.lire_jetons_garmin(uid) is not None
 
@@ -199,6 +233,8 @@ class Garmins:
                 return repondre(*await asyncio.to_thread(self._connexion, uid, corps))
             if action == "code":
                 return repondre(*await asyncio.to_thread(self._code, uid, corps))
+            if action == "records":
+                return repondre({"records": await asyncio.to_thread(self.records, uid)})
             if action == "forme":
                 jour = str(corps.get("jour") or date.today().isoformat())[:10]
                 return repondre(await asyncio.to_thread(self.forme, uid, jour))

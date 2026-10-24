@@ -24,6 +24,7 @@ from starlette.responses import JSONResponse, Response
 
 from donnees import Supabase
 import vap
+from entrainements import vers_garmin
 
 DUREE_ATTENTE_CODE = 5 * 60
 
@@ -188,6 +189,31 @@ class Garmins:
             })
         return records
 
+    def entrainement(self, uid: str, id_seance: str) -> dict[str, Any]:
+        """Crée (ou met à jour) l'entraînement Garmin d'une séance structurée et le programme au jour prévu."""
+        etat = self.base.lire_etat(uid)
+        seances = [s for w in (etat.get("plan") or {}).get("semaines", []) for s in w.get("seances", [])]
+        seance = next((s for s in seances if s.get("id") == id_seance), None)
+        if not seance:
+            raise RuntimeError("Séance introuvable dans le plan.")
+        ftp = float((etat.get("profil") or {}).get("ftp") or 0) or None
+        entrainement = vers_garmin(seance, ftp)
+        deja = (seance.get("garmin") or {}).get("workoutId")
+        if deja:
+            try:
+                self.appeler(uid, "update_workout", deja, entrainement)
+                id_garmin = deja
+            except Exception:
+                deja = None  # supprimé dans Garmin Connect entre-temps : on le recrée
+        if not deja:
+            cree = self.appeler(uid, "upload_workout", entrainement)
+            id_garmin = cree.get("workoutId")
+        if not deja or (seance.get("garmin") or {}).get("programme") != seance.get("jour"):
+            self.appeler(uid, "schedule_workout", id_garmin, seance["jour"])
+        seance["garmin"] = {"workoutId": id_garmin, "programme": seance["jour"]}
+        self.base.ecrire_etat(uid, etat)
+        return seance["garmin"]
+
     def vap(self, uid: str, id_activite: str) -> dict[str, Any]:
         """Calcule la VAP d'une sortie à partir de son profil détaillé, et l'enregistre avec l'activité."""
         details = self.appeler(uid, "get_activity_details", str(int(id_activite)), 4000, 0)
@@ -243,6 +269,11 @@ class Garmins:
                 return repondre(*await asyncio.to_thread(self._connexion, uid, corps))
             if action == "code":
                 return repondre(*await asyncio.to_thread(self._code, uid, corps))
+            if action == "entrainement":
+                try:
+                    return repondre(await asyncio.to_thread(self.entrainement, uid, str(corps.get("id", ""))))
+                except (RuntimeError, ValueError) as e:
+                    return repondre({"erreur": str(e)}, 400)
             if action == "vap":
                 id_activite = str(corps.get("id", ""))
                 if not id_activite.isdigit():

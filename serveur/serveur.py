@@ -74,7 +74,7 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan : le jour J, vérifie avec forme_du_jour si la séance prévue reste pertinente, puis enregistre ton verdict avec avis_du_jour (garder, alléger, remplacer ou repos), avec la séance de remplacement s'il y en a une. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
 
 mcp = MCPServer(
     name="cloach",
@@ -190,6 +190,27 @@ async def plan() -> dict[str, Any] | None:
     return (await _lire(_uid())).get("plan")
 
 
+class Cible(BaseModel):
+    type: Literal["zone_fc", "fc", "allure", "puissance", "zone_puissance", "ftp"]
+    min: float | None = Field(default=None, description="fc en bpm, allure en min/km (4.5 = 4:30), puissance en W, ftp en %")
+    max: float | None = None
+    zone: int | None = Field(default=None, description="Zone (1 à 5 pour la FC, 1 à 7 pour la puissance)")
+
+
+class EtapeSimple(BaseModel):
+    type: Literal["echauffement", "effort", "recuperation", "retour_au_calme", "repos"]
+    duree_s: int | None = Field(default=None, ge=1, le=36000, description="Durée en secondes")
+    distance_m: int | None = Field(default=None, ge=1, le=300000, description="Ou distance en mètres")
+    cible: Cible | None = None
+    note: str | None = Field(default=None, description="Consigne courte affichée sur la montre")
+
+
+class Etape(EtapeSimple):
+    type: Literal["echauffement", "effort", "recuperation", "retour_au_calme", "repos", "repetition"]
+    repetitions: int | None = Field(default=None, ge=1, le=50, description="Pour une répétition : nombre de fois")
+    etapes: list[EtapeSimple] | None = Field(default=None, description="Pour une répétition : les étapes répétées (ex. effort puis récupération)")
+
+
 class Alternative(BaseModel):
     pour: str = Field(description="Dans quel cas la choisir, ex. « Si fatigue », « Si peu de temps », « En intérieur »")
     sport: Sport
@@ -197,6 +218,7 @@ class Alternative(BaseModel):
     duree: int = Field(ge=0, le=600, description="Durée en minutes")
     intensite: Intensite
     details: str = Field(description="Contenu précis de la séance")
+    etapes: list[Etape] = Field(default_factory=list, description="Structure étape par étape (facultatif)")
 
 
 class Seance(BaseModel):
@@ -207,6 +229,7 @@ class Seance(BaseModel):
     intensite: Intensite
     details: str = Field(description="Contenu précis : échauffement, corps de séance, retour au calme, allures ou zones")
     alternatives: list[Alternative] = Field(default_factory=list, description="1 à 3 variantes que l'utilisateur peut choisir à la place")
+    etapes: list[Etape] = Field(default_factory=list, description="Structure étape par étape, pour l'envoyer sur la montre Garmin ou dans Zwift : échauffement, efforts (souvent dans une répétition effort + récupération), retour au calme, avec des cibles (zones de FC, allures, puissance ou % de FTP)")
 
 
 class Semaine(BaseModel):
@@ -230,7 +253,7 @@ async def enregistrer_plan(resume: str, semaines: list[Semaine], conseils: list[
         for w in semaines[:6]:
             seances = []
             for s in w.seances[:14]:
-                seance = {"id": _id(), **s.model_dump()}
+                seance = {"id": _id(), **s.model_dump(exclude_none=True)}
                 seance["alternatives"] = seance["alternatives"][:3]
                 avant = next((x for x in anciennes if x.get("jour") == s.jour and x.get("sport") == s.sport), None)
                 if avant:
@@ -241,6 +264,38 @@ async def enregistrer_plan(resume: str, semaines: list[Semaine], conseils: list[
         return f"Plan enregistré : {sum(len(w['seances']) for w in nouvelles)} séances sur {len(nouvelles)} semaines."
 
     return await _modifier(uid, changer)
+
+
+@mcp.tool()
+async def structurer_seance(id_seance: str, etapes: list[Etape]) -> str:
+    """Donne (ou remplace) la structure étape par étape d'une séance du plan, pour qu'elle puisse partir sur
+    la montre Garmin ou dans Zwift. Exemple de fractionné : échauffement 15 min zone_fc 2, répétition 6 fois
+    [effort 3 min allure 4:10-4:20, récupération 2 min zone_fc 1], retour au calme 10 min."""
+    uid = _uid()
+
+    def changer(etat: dict[str, Any]) -> str:
+        seance = next((x for x in _seances(etat) if x.get("id") == id_seance), None)
+        if not seance:
+            raise ToolError("Séance introuvable dans le plan.")
+        seance["etapes"] = [e.model_dump(exclude_none=True) for e in etapes]
+        seance.pop("garmin", None)
+        return f"Séance « {seance.get('titre', '')} » structurée ({len(etapes)} étapes) : elle peut partir sur la montre depuis l'app."
+
+    return await _modifier(uid, changer)
+
+
+@mcp.tool()
+async def envoyer_seance_garmin(id_seance: str) -> str:
+    """Crée dans Garmin Connect l'entraînement d'une séance structurée et le programme au jour prévu : la
+    montre le reçoit à la synchronisation suivante."""
+    uid = _uid()
+    try:
+        r = await anyio.to_thread.run_sync(garmins.entrainement, uid, id_seance)
+    except CompteAbsent as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        raise ToolError(_causes(exc)) from exc
+    return f"Entraînement Garmin créé et programmé le {r['programme']}."
 
 
 @mcp.tool()
@@ -300,9 +355,11 @@ async def avis_du_jour(
             seance = next((x for x in _seances(etat) if x.get("id") == id_seance), None)
             if not seance:
                 raise ToolError("Séance introuvable dans le plan.")
-            initiale = {k: seance.get(k) for k in ("sport", "titre", "duree", "intensite", "details")}
-            nouvelle = remplacement.model_dump()
+            initiale = {k: seance.get(k) for k in ("sport", "titre", "duree", "intensite", "details", "etapes") if seance.get(k) is not None}
+            nouvelle = remplacement.model_dump(exclude_none=True)
             nouvelle.pop("pour", None)
+            seance.pop("etapes", None)
+            seance.pop("garmin", None)  # l'entraînement envoyé sur la montre ne correspond plus
             seance.update(nouvelle)
             alternatives = [a for a in seance.get("alternatives") or [] if a.get("pour") != "Prévu initialement"]
             seance["alternatives"] = [{"pour": "Prévu initialement", **initiale}, *alternatives][:4]
@@ -372,17 +429,18 @@ async def noter_seance(
 async def modifier_profil(
     objectif: str | None = None, date_objectif: str | None = None, niveau: str | None = None,
     seances_semaine: int | None = None, jours_disponibles: list[str] | None = None,
-    contraintes: str | None = None, sports: list[Sport] | None = None,
+    contraintes: str | None = None, sports: list[Sport] | None = None, ftp: int | None = None,
 ) -> dict[str, Any]:
     """Met à jour le profil sportif (seuls les champs donnés changent) : objectif, date de l'objectif
     (AAAA-MM-JJ), niveau, séances par semaine, jours disponibles (lundi…dimanche), contraintes ou
-    blessures, sports pratiqués. Renvoie le profil à jour."""
+    blessures, sports pratiqués, FTP vélo en watts. Renvoie le profil à jour."""
     uid = _uid()
     changements = {
         "objectif": objectif, "dateObjectif": date_objectif, "niveau": niveau,
         "seancesSemaine": str(seances_semaine) if seances_semaine is not None else None,
         "jours": [j for j in (jours_disponibles or []) if j in JOURS] if jours_disponibles is not None else None,
         "contraintes": contraintes, "sports": sports,
+        "ftp": str(ftp) if ftp else None,
     }
 
     def changer(etat: dict[str, Any]) -> dict[str, Any]:

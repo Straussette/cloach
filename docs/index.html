@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.9">
+<meta name="app-version" content="2026-10-24.10">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -153,6 +153,10 @@
   .choix-activite label { display:flex; gap:8px; align-items:flex-start; color:var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; cursor:pointer; }
   .choix-activite label:has(input:checked) { border-color:var(--accent); background:var(--accent-doux); }
   .choix-activite input { width:auto; margin-top:3px; }
+  .structure { margin:8px 0 0; padding-left:18px; font-size:.86rem; line-height:1.5; }
+  .actions-seance { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .actions-seance .btn { padding:7px 12px; font-size:.85rem; }
+  .actions-seance .ok { font-size:.82rem; color:var(--ok); align-self:center; }
   details.alternatives { margin-top:8px; font-size:.88rem; }
   details.alternatives summary { color:var(--accent); cursor:pointer; font-weight:600; }
   .alternative { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:start; padding:8px 0; border-top:1px dashed var(--border); }
@@ -340,6 +344,10 @@
         <div class="deux">
           <label>Date de l'objectif<input type="date" id="p-dateObjectif"></label>
           <label>Séances par semaine<input type="number" id="p-seancesSemaine" min="1" max="14" inputmode="numeric"></label>
+        </div>
+        <div class="deux">
+          <label>FTP vélo (W)<input type="number" id="p-ftp" min="50" max="600" inputmode="numeric" placeholder="ex. 260"></label>
+          <span></span>
         </div>
         <div><p class="muted petit" style="margin:0 0 6px">Jours disponibles</p><div class="cases" id="p-jours"></div></div>
         <label>Contraintes, blessures, matériel<textarea id="p-contraintes" placeholder="Ex. genou fragile, home trainer avec capteur de puissance, piscine le mardi…"></textarea></label>
@@ -791,6 +799,7 @@ function htmlSeance(s, { avecDate = false, lien = true } = {}) {
       <div class="meta">${meta}</div>
       ${s.details && s.etat !== 'fait' ? `<div class="details">${esc(s.details)}</div>` : ''}
       ${s.etat === 'fait' && lien ? htmlLienGarmin(s) : ''}
+      ${s.etat !== 'fait' ? htmlStructure(s) : ''}
       ${s.etat !== 'fait' && s.alternatives?.length ? `<details class="alternatives"><summary>${s.alternatives.length} alternative${s.alternatives.length > 1 ? 's' : ''}</summary>
         ${s.alternatives.map((a, i) => `<div class="alternative"><div>
           <div class="pour">${esc(a.pour)}</div>
@@ -804,6 +813,115 @@ function htmlSeance(s, { avecDate = false, lien = true } = {}) {
   </div>`;
 }
 
+/* ---------- Séances structurées : montre Garmin et Zwift ---------- */
+// Étapes écrites par Claude : { type, duree_s | distance_m, cible: { type, min, max, zone }, repetitions, etapes }
+const NOMS_ETAPES = { echauffement: 'Échauffement', effort: 'Effort', recuperation: 'Récupération', retour_au_calme: 'Retour au calme', repos: 'Repos' };
+function texteCible(c) {
+  if (!c) return '';
+  if (c.type === 'zone_fc') return `zone FC ${c.zone}`;
+  if (c.type === 'fc') return `FC ${c.min}–${c.max}`;
+  if (c.type === 'allure') return `${formatAllure(Math.min(c.min, c.max)).replace(' /km', '')}–${formatAllure(Math.max(c.min, c.max))}`;
+  if (c.type === 'puissance') return `${c.min}–${c.max} W`;
+  if (c.type === 'zone_puissance') return `zone puissance ${c.zone}`;
+  if (c.type === 'ftp') return `${c.min}–${c.max} % FTP`;
+  return '';
+}
+function texteEtape(e) {
+  const quantite = e.duree_s
+    ? (e.duree_s % 60 ? `${Math.floor(e.duree_s / 60) ? Math.floor(e.duree_s / 60) + ' min ' : ''}${e.duree_s % 60} s` : dureeLisible(e.duree_s / 60))
+    : e.distance_m ? (e.distance_m < 1000 ? `${e.distance_m} m` : `${nombre(e.distance_m / 1000, 2)} km`) : 'jusqu\'au tour';
+  return [quantite, texteCible(e.cible)].filter(Boolean).join(' à ');
+}
+function htmlStructure(s) {
+  if (!s.etapes?.length) return '';
+  const lignes = s.etapes.map((e) => (e.type === 'repetition'
+    ? `<li>${e.repetitions || 1} × (${(e.etapes || []).map((x) => esc(texteEtape(x))).join(' + ')})</li>`
+    : `<li>${esc(NOMS_ETAPES[e.type] || e.type)} : ${esc(texteEtape(e))}</li>`)).join('');
+  const surMontre = ['course', 'trail', 'velo'].includes(s.sport) && etat.garmin?.connecte;
+  const garmin = s.garmin?.workoutId
+    ? `<span class="ok">✓ Sur ta montre (programmé le ${esc(dateLisible(s.garmin.programme, false))})</span><button class="btn secondaire" type="button" data-garmin-seance="${esc(s.id)}">Renvoyer</button>`
+    : `<button class="btn secondaire" type="button" data-garmin-seance="${esc(s.id)}">⌚ Envoyer sur ma montre</button>`;
+  return `<ol class="structure">${lignes}</ol><div class="actions-seance">${surMontre ? garmin : ''}${s.sport === 'velo' ? `<button class="btn secondaire" type="button" data-zwift-seance="${esc(s.id)}">🚴 Fichier Zwift</button>` : ''}</div>`;
+}
+
+document.addEventListener('click', async (e) => {
+  const g = e.target.closest('[data-garmin-seance]');
+  if (g) {
+    g.disabled = true;
+    const texte = g.textContent;
+    g.textContent = 'Envoi à Garmin…';
+    try {
+      const r = await appelerGarmin('entrainement', { id: g.dataset.garminSeance });
+      await synchroniser(); // le serveur a noté l'entraînement dans la séance
+      toutAfficher();
+      if (r.programme) alert(`✓ Entraînement créé dans Garmin Connect et programmé le ${dateLisible(r.programme, false)}. Il arrivera sur ta montre à la prochaine synchronisation.`);
+    } catch (err) {
+      alert('Échec : ' + err.message);
+      g.disabled = false;
+      g.textContent = texte;
+    }
+  }
+  const z = e.target.closest('[data-zwift-seance]');
+  if (z) telechargerZwift(toutesSeances().find((x) => x.id === z.dataset.zwiftSeance));
+});
+
+// Fichier d'entraînement Zwift (.zwo) : puissances en fraction de la FTP
+function puissanceZwift(c, ftp, defaut) {
+  if (!c) return defaut;
+  const milieu = (c.min != null && c.max != null) ? (Number(c.min) + Number(c.max)) / 2 : null;
+  if (c.type === 'ftp' && milieu) return milieu / 100;
+  if (c.type === 'puissance' && milieu && ftp) return milieu / ftp;
+  if (c.type === 'zone_puissance') return [0.5, 0.65, 0.82, 0.97, 1.12, 1.35, 1.6][Math.min(7, Math.max(1, c.zone)) - 1];
+  if (c.type === 'zone_fc') return [0.5, 0.65, 0.8, 0.92, 1.05][Math.min(5, Math.max(1, c.zone)) - 1];
+  return defaut;
+}
+function zwo(s) {
+  const ftp = Number(etat.profil?.ftp) || null;
+  const xml = (t) => esc(String(t ?? ''));
+  const duree = (e) => Math.round(e.duree_s || (e.distance_m ? e.distance_m / 8.3 : 300));
+  const p = (x) => x.toFixed(2);
+  const bloc = (e) => {
+    const d = duree(e);
+    // Échauffement et retour au calme en rampe : de la borne basse à la borne haute de la cible (en % de FTP)
+    const rampe = e.cible?.type === 'ftp' && e.cible.min && e.cible.max ? [e.cible.min / 100, e.cible.max / 100] : null;
+    if (e.type === 'echauffement') return `<Warmup Duration="${d}" PowerLow="${p(rampe?.[0] ?? 0.45)}" PowerHigh="${p(rampe?.[1] ?? puissanceZwift(e.cible, ftp, 0.7))}"/>`;
+    if (e.type === 'retour_au_calme') return `<Cooldown Duration="${d}" PowerLow="${p(rampe?.[1] ?? puissanceZwift(e.cible, ftp, 0.65))}" PowerHigh="${p(rampe?.[0] ?? 0.45)}"/>`;
+    const defaut = e.type === 'effort' ? 0.85 : 0.5;
+    return `<SteadyState Duration="${d}" Power="${p(puissanceZwift(e.cible, ftp, defaut))}"/>`;
+  };
+  const corps = s.etapes.map((e) => {
+    if (e.type !== 'repetition') return bloc(e);
+    const [on, off] = e.etapes || [];
+    if (e.etapes?.length === 2 && on && off) {
+      return `<IntervalsT Repeat="${e.repetitions || 1}" OnDuration="${duree(on)}" OffDuration="${duree(off)}" OnPower="${p(puissanceZwift(on.cible, ftp, 0.9))}" OffPower="${p(puissanceZwift(off.cible, ftp, 0.5))}"/>`;
+    }
+    return Array.from({ length: e.repetitions || 1 }, () => (e.etapes || []).map(bloc).join('\n    ')).join('\n    ');
+  }).join('\n    ');
+  return `<workout_file>
+  <author>Cloach</author>
+  <name>${xml(s.titre)}</name>
+  <description>${xml(s.details)}</description>
+  <sportType>bike</sportType>
+  <tags><tag name="Cloach"/></tags>
+  <workout>
+    ${corps}
+  </workout>
+</workout_file>
+`;
+}
+function telechargerZwift(s) {
+  if (!s?.etapes?.length) return;
+  if (!etat.profil?.ftp && s.etapes.some((e) => e.cible?.type === 'puissance' || e.etapes?.some((x) => x.cible?.type === 'puissance'))) {
+    alert('Renseigne ta FTP dans ton profil pour convertir les puissances en watts.');
+  }
+  const lien = document.createElement('a');
+  lien.href = URL.createObjectURL(new Blob([zwo(s)], { type: 'application/xml' }));
+  lien.download = `Cloach ${s.jour} ${s.titre}`.replace(/[^\w\- àâçéèêëîïôûùüÿœ]/gi, '').slice(0, 60) + '.zwo';
+  document.body.appendChild(lien);
+  lien.click();
+  setTimeout(() => { URL.revokeObjectURL(lien.href); lien.remove(); }, 1000);
+}
+
 // Choisir une alternative : elle prend la place de la séance, qui devient une alternative
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-alternative]');
@@ -815,8 +933,10 @@ document.addEventListener('click', (e) => {
     if (!alt) return;
     // Une seule « Prévu initialement » : la séance remplacée prend ce nom s'il est libre
     const initialeAilleurs = s.alternatives.some((x, j) => j !== i && x.pour === 'Prévu initialement');
-    const ancienne = { pour: initialeAilleurs ? 'Option précédente' : 'Prévu initialement', sport: s.sport, titre: s.titre, duree: s.duree, intensite: s.intensite, details: s.details };
-    Object.assign(s, { sport: alt.sport, titre: alt.titre, duree: alt.duree, intensite: alt.intensite, details: alt.details });
+    const ancienne = { pour: initialeAilleurs ? 'Option précédente' : 'Prévu initialement', sport: s.sport, titre: s.titre, duree: s.duree, intensite: s.intensite, details: s.details, etapes: s.etapes };
+    Object.assign(s, { sport: alt.sport, titre: alt.titre, duree: alt.duree, intensite: alt.intensite, details: alt.details, etapes: alt.etapes });
+    if (!s.etapes) delete s.etapes;
+    delete s.garmin;
     s.alternatives.splice(i, 1, ancienne);
   });
 });
@@ -1220,7 +1340,7 @@ $('#btnCopier').onclick = async () => {
   setTimeout(() => { $('#btnCopier').textContent = 'Copier'; }, 2000);
 };
 
-const CHAMPS_PROFIL = ['prenom', 'age', 'niveau', 'objectif', 'dateObjectif', 'seancesSemaine', 'contraintes'];
+const CHAMPS_PROFIL = ['prenom', 'age', 'niveau', 'objectif', 'dateObjectif', 'seancesSemaine', 'ftp', 'contraintes'];
 function afficherProfil() {
   // On ne réécrit pas le formulaire pendant qu'on le remplit
   if ($('#formProfil').contains(document.activeElement)) return;

@@ -242,6 +242,8 @@ class Semaine(BaseModel):
 async def enregistrer_plan(resume: str, semaines: list[Semaine], conseils: list[str]) -> str:
     """Enregistre un nouveau plan d'entraînement (remplace le précédent) ; il apparaît aussitôt
     dans l'app. resume : 2 à 3 phrases sur la logique du plan. conseils : 2 à 4 conseils pratiques.
+    Donne à chaque séance de course, de trail et de vélo ses etapes (échauffement, répétitions, retour au calme,
+    avec cibles), indispensables pour l'envoyer sur la montre Garmin ou dans Zwift.
     L'état des séances déjà faites est conservé quand le jour et le sport correspondent."""
     uid = _uid()
     if not semaines or not any(w.seances for w in semaines):
@@ -261,7 +263,14 @@ async def enregistrer_plan(resume: str, semaines: list[Semaine], conseils: list[
                 seances.append(seance)
             nouvelles.append({"debut": w.debut, "theme": w.theme, "seances": seances})
         etat["plan"] = {"cree": _aujourdhui().isoformat(), "resume": resume, "conseils": conseils[:6], "semaines": nouvelles}
-        return f"Plan enregistré : {sum(len(w['seances']) for w in nouvelles)} séances sur {len(nouvelles)} semaines."
+        message = f"Plan enregistré : {sum(len(w['seances']) for w in nouvelles)} séances sur {len(nouvelles)} semaines."
+        # Les séances de course, trail et vélo doivent être structurées pour partir sur la montre ou dans Zwift
+        a_structurer = [s for w in nouvelles for s in w["seances"] if s["sport"] in ("course", "trail", "velo") and not s.get("etapes")]
+        if a_structurer:
+            message += (f" {len(a_structurer)} séance(s) de course, trail ou vélo sans étapes : structure-les maintenant avec "
+                        "structurer_seance (ids : " + ", ".join(s["id"] for s in a_structurer) + ") pour qu'elles puissent "
+                        "partir sur la montre Garmin ou dans Zwift.")
+        return message
 
     return await _modifier(uid, changer)
 

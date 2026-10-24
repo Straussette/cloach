@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.12">
+<meta name="app-version" content="2026-10-24.13">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -837,14 +837,7 @@ function texteEtape(e) {
   return [quantite, texteCible(e.cible)].filter(Boolean).join(' à ');
 }
 function htmlStructure(s) {
-  // Séance pas encore structurée : Claude peut la détailler étape par étape et l'envoyer sur la montre
-  if (!s.etapes?.length) {
-    if (!['course', 'trail', 'velo'].includes(s.sport)) return '';
-    const cible = etat.garmin?.connecte ? (s.sport === 'velo' ? 'ma montre Garmin (et en faire un fichier Zwift si c\'est sur home trainer)' : 'ma montre Garmin') : 'Zwift';
-    const question = `Structure étape par étape ma séance du ${dateLisible(s.jour)} « ${s.titre} » (séance ${s.id}), avec des cibles adaptées (zones de FC, allures, puissance ou % de FTP)`
-      + (etat.garmin?.connecte ? ', puis envoie-la sur ma montre Garmin.' : '.');
-    return `<a class="lien-avis" href="${esc(lienClaude(question))}" target="_blank" rel="noopener">🧩 Préparer pour ${esc(cible.split(' (')[0])} avec Claude</a>`;
-  }
+  if (!s.etapes?.length) return '';
   const lignes = s.etapes.map((e) => (e.type === 'repetition'
     ? `<li>${e.repetitions || 1} × (${(e.etapes || []).map((x) => esc(texteEtape(x))).join(' + ')})</li>`
     : `<li>${esc(NOMS_ETAPES[e.type] || e.type)} : ${esc(texteEtape(e))}</li>`)).join('');

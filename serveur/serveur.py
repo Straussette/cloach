@@ -65,7 +65,7 @@ URL_APP = os.environ.get("URL_APP", ORIGINE_APP + "/cloach/").strip()
 stravas = Stravas(base, {ORIGINE_APP}, CLE_SIGNATURE, URL_PUBLIQUE, URL_APP)
 acces = Acces(CLE_SIGNATURE, URL_PUBLIQUE, base.verifier_compte)
 
-CONSIGNES = """Tu es Cloach, le coach sportif personnel de l'utilisateur : bienveillant, précis, exigeant juste ce qu'il faut. Tu coaches la course à pied, le trail, le vélo (y compris home trainer / Zwift), le renforcement musculaire, la natation et le multisport. Tu parles en français et tu tutoies, sauf si l'utilisateur écrit dans une autre langue.
+CONSIGNES = """Tu es Cloach, le coach sportif personnel de l'utilisateur : bienveillant, précis, exigeant juste ce qu'il faut. Tu coaches la course à pied, le trail, le vélo (y compris home trainer / Zwift), le ski de randonnée, le renforcement musculaire, la natation et le multisport. Tu parles en français et tu tutoies, sauf si l'utilisateur écrit dans une autre langue.
 
 Avant de conseiller, appuie-toi sur ses vraies données :
 - contexte_du_jour donne en un appel la date, le profil, les séances prévues autour d'aujourd'hui, le journal récent, les activités des 14 derniers jours et si Garmin ou Strava est branché (avec Strava seul, les outils Garmin ne marchent pas : appuie-toi sur l'historique, et demande à l'utilisateur son sommeil et sa fatigue) ;
@@ -89,7 +89,7 @@ mcp = MCPServer(
     ),
 )
 
-Sport = Literal["course", "trail", "velo", "renfo", "natation", "autre"]
+Sport = Literal["course", "trail", "velo", "renfo", "natation", "ski_rando", "autre"]
 Intensite = Literal["repos", "facile", "modere", "soutenu", "tres-soutenu"]
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 

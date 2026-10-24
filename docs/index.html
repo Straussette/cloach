@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.13">
+<meta name="app-version" content="2026-10-24.14">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -21,7 +21,7 @@
     --i-repos:#8a9593; --i-facile:#2f9e5b; --i-modere:#2a7fb8; --i-soutenu:#e8862c; --i-tres-soutenu:#c9372c;
     --shadow:0 1px 3px rgba(20,33,31,.08), 0 4px 14px rgba(20,33,31,.06);
     --voile-clair:rgba(255,255,255,.16); --voile:rgba(0,0,0,.45);
-    --serie-1:#008a7e; --serie-2:#d9581a; --serie-autre:#8a9593;
+    --serie-1:#008a7e; --serie-2:#d9581a; --serie-3:#7b5cc4; --serie-autre:#8a9593;
     color-scheme:light;
   }
   @media (prefers-color-scheme: dark) {
@@ -29,14 +29,14 @@
       --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
       --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
       --ok:#4fb378; --alerte:#f07b74; --attention:#e3a25a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
-      --serie-1:#1f9e91; --serie-2:#e0703a; --serie-autre:#6f7c79;
+      --serie-1:#1f9e91; --serie-2:#e0703a; --serie-3:#9a7fe0; --serie-autre:#6f7c79;
     }
   }
   :root[data-theme="dark"] {
     --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
     --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
     --ok:#4fb378; --alerte:#f07b74; --attention:#e3a25a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
-    --serie-1:#1f9e91; --serie-2:#e0703a; --serie-autre:#6f7c79;
+    --serie-1:#1f9e91; --serie-2:#e0703a; --serie-3:#9a7fe0; --serie-autre:#6f7c79;
   }
 
   * { box-sizing:border-box; }
@@ -196,6 +196,7 @@
   .graph .barre { fill:var(--serie-1); }
   .graph .barre.f2 { fill:var(--serie-2); }
   .graph .barre.f3 { fill:var(--serie-autre); }
+  .graph .barre.f4 { fill:var(--serie-3); }
   .graph .barre.survol { opacity:.75; }
   .graph .ligne-1 { fill:none; stroke:var(--serie-1); stroke-width:2; }
   .graph .ligne-2 { fill:none; stroke:var(--serie-2); stroke-width:2; }
@@ -209,6 +210,7 @@
   .cle.s1 { background:var(--serie-1); }
   .cle.s2 { background:var(--serie-2); }
   .cle.s3 { background:var(--serie-autre); }
+  .cle.s4 { background:var(--serie-3); }
   .cle.carre { width:10px; height:10px; border-radius:2px; }
   .tuiles.detaillees { grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
   .repartition { display:grid; gap:2px; margin-top:6px; font-size:.75rem; color:var(--muted); font-variant-numeric:tabular-nums; }
@@ -503,6 +505,7 @@ const SPORTS = {
   velo: { nom: 'Vélo', icone: '🚴' },
   renfo: { nom: 'Renforcement', icone: '💪' },
   natation: { nom: 'Natation', icone: '🏊' },
+  ski_rando: { nom: 'Ski de rando', icone: '🎿' },
   autre: { nom: 'Autre', icone: '✨' },
 };
 const INTENSITES = { repos: 'repos', facile: 'facile', modere: 'modéré', soutenu: 'soutenu', 'tres-soutenu': 'très soutenu' };
@@ -1650,6 +1653,7 @@ const GROUPES = { pied: ['course', 'trail'] };
 const FAMILLES = [
   { nom: 'Course + trail', sports: ['course', 'trail'], classe: 's1', barre: '' },
   { nom: 'Vélo', sports: ['velo'], classe: 's2', barre: 'f2' },
+  { nom: 'Ski de rando', sports: ['ski_rando'], classe: 's4', barre: 'f4' },
   { nom: 'Autres', sports: null, classe: 's3', barre: 'f3' },
 ];
 const familleDe = (sport) => FAMILLES.findIndex((f) => !f.sports || f.sports.includes(sport));
@@ -1855,7 +1859,14 @@ function afficherRecords(toutes) {
       + ligne('Plus longue durée', meilleur(velo, (a) => Number(a.duree_min)), dureeLisible(Math.round(meilleur(velo, (a) => Number(a.duree_min))?.duree_min || 0)))
       + (rapide ? ligne('Vitesse moyenne la plus élevée (20 km et plus)', rapide, `${nombre(vitesse(rapide), 1)} km/h sur ${nombre(Number(rapide.distance_km))} km`) : ''));
   }
-  const autres = liste.filter((a) => !GROUPES.pied.includes(a.sport) && a.sport !== 'velo');
+  const ski = liste.filter((a) => a.sport === 'ski_rando');
+  if (ski.length) {
+    blocs.push(`<h4 class="famille-records">🎿 Ski de rando</h4>`
+      + ligne('Plus gros dénivelé', meilleur(ski, (a) => Number(a.denivele_m)), `${nombre(Number(meilleur(ski, (a) => Number(a.denivele_m))?.denivele_m || 0))} m D+`)
+      + ligne('Plus longue sortie', meilleur(ski, (a) => Number(a.distance_km)), `${nombre(Number(meilleur(ski, (a) => Number(a.distance_km))?.distance_km || 0), 1)} km`)
+      + ligne('Plus longue durée', meilleur(ski, (a) => Number(a.duree_min)), dureeLisible(Math.round(meilleur(ski, (a) => Number(a.duree_min))?.duree_min || 0))));
+  }
+  const autres = liste.filter((a) => !GROUPES.pied.includes(a.sport) && a.sport !== 'velo' && a.sport !== 'ski_rando');
   if (autres.length) {
     blocs.push(`<h4 class="famille-records">✨ Autres sports</h4>`
       + ligne('Plus longue durée', meilleur(autres, (a) => Number(a.duree_min)), dureeLisible(Math.round(meilleur(autres, (a) => Number(a.duree_min))?.duree_min || 0))));

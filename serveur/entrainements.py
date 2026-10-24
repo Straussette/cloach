@@ -1,5 +1,6 @@
 """Séances structurées : conversion en entraînement Garmin Connect.
 
+(Le ski de rando n'a pas d'entraînement structuré sur la montre : seuls course, trail et vélo.)
 Une séance du plan peut avoir des « etapes » (écrites par Claude) :
     { type: echauffement | effort | recuperation | retour_au_calme | repetition,
       duree_s, distance_m,                       # l'un ou l'autre (sinon : bouton « tour »)

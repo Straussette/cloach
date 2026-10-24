@@ -38,6 +38,7 @@ SPORTS_GARMIN = {
     "renfo": {"strength_training", "hiit", "indoor_cardio", "fitness_equipment", "pilates", "yoga",
               "elliptical", "stair_climbing", "indoor_rowing"},
     "natation": {"lap_swimming", "open_water_swimming", "swimming"},
+    "ski_rando": {"backcountry_skiing", "backcountry_skiing_snowboarding_ws", "backcountry_snowboarding"},
 }
 
 

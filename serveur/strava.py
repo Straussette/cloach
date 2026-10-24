@@ -40,6 +40,7 @@ SPORTS_STRAVA = {
     "renfo": {"WeightTraining", "Workout", "Crossfit", "HighIntensityIntervalTraining", "Yoga", "Pilates",
               "Elliptical", "StairStepper", "Rowing"},
     "natation": {"Swim"},
+    "ski_rando": {"BackcountrySki"},
 }
 
 

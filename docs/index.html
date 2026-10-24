@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.14">
+<meta name="app-version" content="2026-10-24.15">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -813,6 +813,7 @@ function htmlSeance(s, { avecDate = false, lien = true } = {}) {
           <div class="titre">${(SPORTS[a.sport] || SPORTS.autre).icone} ${esc(a.titre)}</div>
           <div class="meta">${[a.duree ? dureeLisible(a.duree) : '', esc(INTENSITES[a.intensite] || a.intensite || '')].filter(Boolean).join(' · ')}</div>
           ${a.details ? `<div class="details">${esc(a.details)}</div>` : ''}
+          ${htmlStructure(a, i, s.id)}
         </div><button class="btn secondaire" type="button" data-alternative="${esc(s.id)}" data-index="${i}">Choisir</button></div>`).join('')}
       </details>` : ''}
     </div>
@@ -839,16 +840,17 @@ function texteEtape(e) {
     : e.distance_m ? (e.distance_m < 1000 ? `${e.distance_m} m` : `${nombre(e.distance_m / 1000, 2)} km`) : 'jusqu\'au tour';
   return [quantite, texteCible(e.cible)].filter(Boolean).join(' à ');
 }
-function htmlStructure(s) {
+// s : la séance, ou une alternative (index = son numéro dans s.alternatives, idSeance = la séance)
+function htmlStructure(s, index = null, idSeance = s.id) {
   if (!s.etapes?.length) return '';
   const lignes = s.etapes.map((e) => (e.type === 'repetition'
     ? `<li>${e.repetitions || 1} × (${(e.etapes || []).map((x) => esc(texteEtape(x))).join(' + ')})</li>`
     : `<li>${esc(NOMS_ETAPES[e.type] || e.type)} : ${esc(texteEtape(e))}</li>`)).join('');
   const surMontre = ['course', 'trail', 'velo'].includes(s.sport) && etat.garmin?.connecte;
   const garmin = s.garmin?.workoutId
-    ? `<span class="ok">✓ Sur ta montre (programmé le ${esc(dateLisible(s.garmin.programme, false))})</span><button class="btn secondaire" type="button" data-garmin-seance="${esc(s.id)}">Renvoyer</button>`
-    : `<button class="btn secondaire" type="button" data-garmin-seance="${esc(s.id)}">⌚ Envoyer sur ma montre</button>`;
-  return `<ol class="structure">${lignes}</ol><div class="actions-seance">${surMontre ? garmin : ''}${s.sport === 'velo' ? `<button class="btn secondaire" type="button" data-zwift-seance="${esc(s.id)}">🚴 Fichier Zwift</button>` : ''}</div>`;
+    ? `<span class="ok">✓ Sur ta montre (programmé le ${esc(dateLisible(s.garmin.programme, false))})</span><button class="btn secondaire" type="button" data-garmin-seance="${esc(idSeance)}" data-alt="${index ?? ''}">Renvoyer</button>`
+    : `<button class="btn secondaire" type="button" data-garmin-seance="${esc(idSeance)}" data-alt="${index ?? ''}">⌚ Envoyer sur ma montre</button>`;
+  return `<ol class="structure">${lignes}</ol><div class="actions-seance">${surMontre ? garmin : ''}${s.sport === 'velo' ? `<button class="btn secondaire" type="button" data-zwift-seance="${esc(idSeance)}" data-alt="${index ?? ''}">🚴 Fichier Zwift</button>` : ''}</div>`;
 }
 
 document.addEventListener('click', async (e) => {
@@ -858,7 +860,7 @@ document.addEventListener('click', async (e) => {
     const texte = g.textContent;
     g.textContent = 'Envoi à Garmin…';
     try {
-      const r = await appelerGarmin('entrainement', { id: g.dataset.garminSeance });
+      const r = await appelerGarmin('entrainement', { id: g.dataset.garminSeance, alternative: g.dataset.alt === '' ? null : Number(g.dataset.alt) });
       await synchroniser(); // le serveur a noté l'entraînement dans la séance
       toutAfficher();
       if (r.programme) alert(`✓ Entraînement créé dans Garmin Connect et programmé le ${dateLisible(r.programme, false)}. Il arrivera sur ta montre à la prochaine synchronisation.`);
@@ -869,7 +871,10 @@ document.addEventListener('click', async (e) => {
     }
   }
   const z = e.target.closest('[data-zwift-seance]');
-  if (z) telechargerZwift(toutesSeances().find((x) => x.id === z.dataset.zwiftSeance));
+  if (z) {
+    const seance = toutesSeances().find((x) => x.id === z.dataset.zwiftSeance);
+    telechargerZwift(z.dataset.alt === '' ? seance : { ...seance.alternatives[Number(z.dataset.alt)], jour: seance.jour });
+  }
 });
 
 // Fichier d'entraînement Zwift (.zwo) : puissances en fraction de la FTP
@@ -940,10 +945,10 @@ document.addEventListener('click', (e) => {
     if (!alt) return;
     // Une seule « Prévu initialement » : la séance remplacée prend ce nom s'il est libre
     const initialeAilleurs = s.alternatives.some((x, j) => j !== i && x.pour === 'Prévu initialement');
-    const ancienne = { pour: initialeAilleurs ? 'Option précédente' : 'Prévu initialement', sport: s.sport, titre: s.titre, duree: s.duree, intensite: s.intensite, details: s.details, etapes: s.etapes };
-    Object.assign(s, { sport: alt.sport, titre: alt.titre, duree: alt.duree, intensite: alt.intensite, details: alt.details, etapes: alt.etapes });
-    if (!s.etapes) delete s.etapes;
-    delete s.garmin;
+    // Chaque version garde sa structure et son entraînement Garmin
+    const ancienne = { pour: initialeAilleurs ? 'Option précédente' : 'Prévu initialement', sport: s.sport, titre: s.titre, duree: s.duree, intensite: s.intensite, details: s.details, etapes: s.etapes, garmin: s.garmin };
+    Object.assign(s, { sport: alt.sport, titre: alt.titre, duree: alt.duree, intensite: alt.intensite, details: alt.details, etapes: alt.etapes, garmin: alt.garmin });
+    for (const objet of [s, ancienne]) for (const k of ['etapes', 'garmin']) if (!objet[k]) delete objet[k];
     s.alternatives.splice(i, 1, ancienne);
   });
 });

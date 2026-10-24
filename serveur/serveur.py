@@ -74,7 +74,7 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan : le jour J, vérifie avec forme_du_jour si la séance prévue reste pertinente, puis enregistre ton verdict avec avis_du_jour (garder, alléger, remplacer ou repos), avec la séance de remplacement s'il y en a une. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app."""
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Pour une séance de course sur tapis, ajoute toujours une alternative structurée « Sur route » (et pour une séance sur route ou sur piste, une alternative « Sur tapis »), qui garde le même effet : allures adaptées, côtes remplacées par l'inclinaison du tapis ou l'inverse. Structure aussi les alternatives. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app."""
 
 mcp = MCPServer(
     name="cloach",
@@ -294,12 +294,13 @@ async def structurer_seance(id_seance: str, etapes: list[Etape]) -> str:
 
 
 @mcp.tool()
-async def envoyer_seance_garmin(id_seance: str) -> str:
+async def envoyer_seance_garmin(id_seance: str, alternative: int | None = None) -> str:
     """Crée dans Garmin Connect l'entraînement d'une séance structurée et le programme au jour prévu : la
-    montre le reçoit à la synchronisation suivante."""
+    montre le reçoit à la synchronisation suivante. alternative : numéro (à partir de 0) d'une alternative de
+    la séance à envoyer à la place (ou en plus) de la séance elle-même."""
     uid = _uid()
     try:
-        r = await anyio.to_thread.run_sync(garmins.entrainement, uid, id_seance)
+        r = await anyio.to_thread.run_sync(garmins.entrainement, uid, id_seance, alternative)
     except CompteAbsent as exc:
         raise ToolError(str(exc)) from exc
     except Exception as exc:

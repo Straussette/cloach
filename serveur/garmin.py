@@ -190,15 +190,21 @@ class Garmins:
             })
         return records
 
-    def entrainement(self, uid: str, id_seance: str) -> dict[str, Any]:
-        """Crée (ou met à jour) l'entraînement Garmin d'une séance structurée et le programme au jour prévu."""
+    def entrainement(self, uid: str, id_seance: str, alternative: int | None = None) -> dict[str, Any]:
+        """Crée (ou met à jour) l'entraînement Garmin d'une séance structurée, ou de l'une de ses alternatives,
+        et le programme au jour prévu."""
         etat = self.base.lire_etat(uid)
         seances = [s for w in (etat.get("plan") or {}).get("semaines", []) for s in w.get("seances", [])]
-        seance = next((s for s in seances if s.get("id") == id_seance), None)
-        if not seance:
+        principale = next((s for s in seances if s.get("id") == id_seance), None)
+        if not principale:
             raise RuntimeError("Séance introuvable dans le plan.")
+        alternatives = principale.get("alternatives") or []
+        if alternative is not None and not 0 <= alternative < len(alternatives):
+            raise RuntimeError("Alternative introuvable.")
+        # L'entraînement est noté sur l'objet exporté (séance ou alternative) ; le jour est celui de la séance
+        seance = principale if alternative is None else alternatives[alternative]
         ftp = float((etat.get("profil") or {}).get("ftp") or 0) or None
-        entrainement = vers_garmin(seance, ftp)
+        entrainement = vers_garmin({**seance, "jour": principale["jour"]}, ftp)
         deja = (seance.get("garmin") or {}).get("workoutId")
         if deja:
             try:
@@ -209,9 +215,9 @@ class Garmins:
         if not deja:
             cree = self.appeler(uid, "upload_workout", entrainement)
             id_garmin = cree.get("workoutId")
-        if not deja or (seance.get("garmin") or {}).get("programme") != seance.get("jour"):
-            self.appeler(uid, "schedule_workout", id_garmin, seance["jour"])
-        seance["garmin"] = {"workoutId": id_garmin, "programme": seance["jour"]}
+        if not deja or (seance.get("garmin") or {}).get("programme") != principale.get("jour"):
+            self.appeler(uid, "schedule_workout", id_garmin, principale["jour"])
+        seance["garmin"] = {"workoutId": id_garmin, "programme": principale["jour"]}
         self.base.ecrire_etat(uid, etat)
         return seance["garmin"]
 
@@ -272,7 +278,9 @@ class Garmins:
                 return repondre(*await asyncio.to_thread(self._code, uid, corps))
             if action == "entrainement":
                 try:
-                    return repondre(await asyncio.to_thread(self.entrainement, uid, str(corps.get("id", ""))))
+                    alt = corps.get("alternative")
+                    return repondre(await asyncio.to_thread(self.entrainement, uid, str(corps.get("id", "")),
+                                                            int(alt) if isinstance(alt, (int, str)) and str(alt).isdigit() else None))
                 except (RuntimeError, ValueError) as e:
                     return repondre({"erreur": str(e)}, 400)
             if action == "vap":

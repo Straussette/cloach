@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.2">
+<meta name="app-version" content="2026-10-24.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -165,7 +165,7 @@
   /* ---------- Onglets ---------- */
   .onglets {
     position:fixed; left:0; right:0; bottom:0; z-index:5; background:var(--surface); border-top:1px solid var(--border);
-    display:grid; grid-template-columns:repeat(5, 1fr); padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    display:grid; grid-template-columns:repeat(4, 1fr); padding:6px 4px calc(6px + env(safe-area-inset-bottom));
   }
   .onglets button { background:none; border:0; font:inherit; font-size:.72rem; color:var(--muted); display:grid; justify-items:center; gap:2px; padding:4px 0; cursor:pointer; }
   .onglets button span { font-size:1.35rem; line-height:1.1; }
@@ -180,7 +180,9 @@
   .tuile { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
   .tuile b { display:block; font-size:1.3rem; font-variant-numeric:tabular-nums; }
   .tuile span { font-size:.78rem; color:var(--muted); }
-  .graph { position:relative; touch-action:pan-y; }
+  .graph { position:relative; touch-action:pan-y; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
+  .detail-graph { min-height:2.6em; margin:8px 0 0; font-size:.88rem; display:flex; flex-wrap:wrap; gap:4px 12px; align-items:baseline; font-variant-numeric:tabular-nums; }
+  .detail-graph b { font-size:1rem; }
   .graph svg { display:block; width:100%; height:auto; overflow:visible; }
   .graph text { fill:var(--muted); font-size:11px; font-family:inherit; }
   .graph .grille { stroke:var(--border); stroke-width:1; }
@@ -209,6 +211,11 @@
   table.donnees th, table.donnees td { text-align:right; padding:4px 6px; border-bottom:1px solid var(--border); }
   table.donnees th:first-child, table.donnees td:first-child { text-align:left; }
   .analyse { white-space:pre-line; line-height:1.5; }
+  .famille-records { margin:12px 0 4px; font-size:.95rem; }
+  .famille-records:first-child { margin-top:0; }
+  .record { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:8px 0; border-top:1px solid var(--border); background:none; border-left:0; border-right:0; border-bottom:0; width:100%; text-align:left; font:inherit; color:inherit; cursor:pointer; }
+  .record .valeur { font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
+  .record .quand { grid-column:1 / -1; font-size:.8rem; color:var(--muted); }
 
   /* ---------- Fenêtres ---------- */
   dialog { border:0; border-radius:16px; padding:0; width:min(440px, calc(100% - 32px)); background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
@@ -294,44 +301,14 @@
         <p class="muted petit">Quand la fatigue dépasse nettement la forme, tu es en surcharge ; quand elle passe en dessous, tu récupères.</p>
       </div>
     </div>
+    <div class="carte" id="carteRecords" hidden>
+      <div class="semaine-h"><h3>Records</h3><span id="periodeRecords"></span></div>
+      <div id="records"></div>
+    </div>
     <div class="carte">
       <div class="semaine-h"><h2>L'avis du coach</h2><span id="dateAnalyse"></span></div>
       <div id="texteAnalyse" class="analyse"></div>
       <a class="btn large" target="_blank" rel="noopener" data-question="analyse" style="margin-top:12px">🔎 Demander à Claude d'analyser mon historique</a>
-    </div>
-  </section>
-
-  <!-- Journal -->
-  <section data-vue="journal" hidden>
-    <div class="carte">
-      <h2>Noter une séance</h2>
-      <p class="muted petit" id="noteJournal"></p>
-      <form class="champs" id="formJournal">
-        <div class="deux">
-          <label>Date<input type="date" id="j-date" required></label>
-          <label>Sport<select id="j-sport"></select></label>
-        </div>
-        <div class="deux">
-          <label>Durée (min)<input type="number" id="j-duree" min="1" max="900" inputmode="numeric" required></label>
-          <label>Distance (km)<input type="number" id="j-distance" min="0" step="0.1" inputmode="decimal"></label>
-        </div>
-        <label>Ressenti
-          <select id="j-ressenti">
-            <option value="">—</option>
-            <option value="1">1 · très dur, épuisé</option>
-            <option value="2">2 · dur</option>
-            <option value="3">3 · correct</option>
-            <option value="4">4 · bien</option>
-            <option value="5">5 · excellent, plein d'énergie</option>
-          </select>
-        </label>
-        <label>Notes<textarea id="j-notes" placeholder="Douleurs, sensations, météo, allures…"></textarea></label>
-        <button class="btn large" type="submit">Ajouter au journal</button>
-      </form>
-    </div>
-    <div class="carte">
-      <h2>Mes séances</h2>
-      <div id="listeJournal"></div>
     </div>
   </section>
 
@@ -400,9 +377,36 @@
   <button type="button" data-onglet="jour" class="actif"><span>📅</span>Calendrier</button>
   <button type="button" data-onglet="plan"><span>📋</span>Plan</button>
   <button type="button" data-onglet="stats"><span>📈</span>Stats</button>
-  <button type="button" data-onglet="journal"><span>📒</span>Journal</button>
   <button type="button" data-onglet="profil"><span>👤</span>Profil</button>
 </nav>
+
+<!-- Séance sans montre (journal) -->
+<dialog id="dlgJournal">
+  <form class="dlg" id="formJournal">
+    <h2>Séance sans montre</h2>
+    <p class="muted petit" style="margin:0" id="dateJournal"></p>
+    <div class="deux">
+      <label>Sport<select id="j-sport"></select></label>
+      <label>Durée (min)<input type="number" id="j-duree" min="1" max="900" inputmode="numeric" required></label>
+    </div>
+    <label>Distance (km)<input type="number" id="j-distance" min="0" step="0.1" inputmode="decimal"></label>
+    <label>Ressenti
+      <select id="j-ressenti">
+        <option value="">—</option>
+        <option value="1">1 · très dur, épuisé</option>
+        <option value="2">2 · dur</option>
+        <option value="3">3 · correct</option>
+        <option value="4">4 · bien</option>
+        <option value="5">5 · excellent, plein d'énergie</option>
+      </select>
+    </label>
+    <label>Notes<textarea id="j-notes" placeholder="Douleurs, sensations, météo, allures…"></textarea></label>
+    <div class="rangee">
+      <button class="btn" type="submit">Ajouter</button>
+      <button class="btn discret" type="button" id="btnJournalAnnuler">Annuler</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- Séance faite : activité Garmin et commentaire -->
 <dialog id="dlgSeance">
@@ -856,7 +860,7 @@ function htmlNote(n) {
   return `<div class="seance">
     <div class="icone">${sport.icone}</div>
     <div><div class="titre">${esc(sport.nom)} <span class="muted petit">(journal)</span></div><div class="meta">${meta}</div>${n.notes ? `<div class="details">${esc(n.notes)}</div>` : ''}</div>
-    <div class="muted petit">📒</div>
+    <div><button class="btn danger" type="button" data-supprimer-note="${esc(n.id)}" aria-label="Supprimer">✕</button></div>
   </div>`;
 }
 
@@ -961,7 +965,10 @@ function afficherJour() {
       : etat.plan ? 'Rien de prévu : repos ou séance libre.'
       : 'Pas encore de plan : remplis ton profil, branche Claude, puis demande ton plan dans l\'onglet Plan.'}</p>`;
   }
+  if (jourChoisi <= ajd) html += '<button class="btn discret" type="button" id="btnAjoutJournal" style="margin-top:8px">+ Ajouter une séance sans montre</button>';
   $('#carteJour').innerHTML = html;
+  const ajout = $('#btnAjoutJournal');
+  if (ajout) ajout.onclick = ouvrirJournal;
   $('#carteCoach').hidden = jourChoisi !== ajd;
   if (jourChoisi === ajd) chargerForme();
 }
@@ -1117,46 +1124,30 @@ function afficherPlan() {
 
 $('#btnRafraichir').onclick = async () => { await synchroniser(); toutAfficher(); };
 
-/* ---------- Onglet Journal ---------- */
+/* ---------- Séance sans montre (journal) ---------- */
+// Les activités Garmin arrivent seules ; le journal ne sert qu'aux séances faites sans montre,
+// ajoutées depuis le jour choisi dans le Calendrier.
 $('#j-sport').innerHTML = Object.entries(SPORTS).map(([k, s]) => `<option value="${k}">${s.icone} ${esc(s.nom)}</option>`).join('');
 
-function afficherJournal() {
-  $('#noteJournal').textContent = etat.garmin.connecte
-    ? 'Tes activités Garmin arrivent toutes seules : coche ta séance dans le Calendrier (« À faire ») ou touche 💬 sur une activité pour ajouter ressenti et commentaire. Le journal ne sert que pour une séance faite sans montre.'
-    : 'Note tes séances et ton ressenti : Claude s\'en sert pour adapter le plan. Tu peux aussi les lui raconter, il les notera.';
-  const liste = [...etat.journal].sort((a, b) => b.date.localeCompare(a.date));
-  $('#listeJournal').innerHTML = liste.length ? liste.map((s) => {
-    const sport = SPORTS[s.sport] || SPORTS.autre;
-    const meta = [dateLisible(s.date), dureeLisible(s.duree), s.distance ? `${String(s.distance).replace('.', ',')} km` : '', s.ressenti ? `ressenti ${s.ressenti}/5` : '']
-      .filter(Boolean).map(esc).join(' · ');
-    return `<div class="seance">
-      <div class="icone">${sport.icone}</div>
-      <div><div class="titre">${esc(sport.nom)}</div><div class="meta">${meta}</div>${s.notes ? `<div class="details">${esc(s.notes)}</div>` : ''}</div>
-      <div><button class="btn danger" type="button" data-supprimer="${esc(s.id)}" aria-label="Supprimer">✕</button></div>
-    </div>`;
-  }).join('') : '<div class="vide">Aucune séance notée pour l\'instant.</div>';
+function ouvrirJournal() {
+  $('#formJournal').reset();
+  $('#dateJournal').textContent = dateLisible(jourChoisi).replace(/^./, (c) => c.toUpperCase());
+  $('#dlgJournal').showModal();
 }
-
-$('#listeJournal').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-supprimer]');
-  if (!b || !confirm('Supprimer cette séance du journal ?')) return;
-  const id = b.dataset.supprimer;
-  modifier(() => { etat.journal = etat.journal.filter((s) => s.id !== id); });
-});
+$('#btnJournalAnnuler').onclick = () => $('#dlgJournal').close();
 
 $('#formJournal').onsubmit = (e) => {
   e.preventDefault();
   const s = {
     id: idNeuf(),
-    date: $('#j-date').value,
+    date: jourChoisi,
     sport: $('#j-sport').value,
     duree: Number($('#j-duree').value) || 0,
     distance: Number($('#j-distance').value) || null,
     ressenti: Number($('#j-ressenti').value) || null,
     notes: $('#j-notes').value.trim(),
   };
-  e.target.reset();
-  $('#j-date').value = jourISO();
+  $('#dlgJournal').close();
   modifier(() => {
     etat.journal.push(s);
     // Coche la séance du plan prévue ce jour-là pour ce sport
@@ -1164,6 +1155,13 @@ $('#formJournal').onsubmit = (e) => {
     if (prevue) prevue.etat = 'fait';
   });
 };
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-supprimer-note]');
+  if (!b || !confirm('Supprimer cette séance du journal ?')) return;
+  const id = b.dataset.supprimerNote;
+  modifier(() => { etat.journal = etat.journal.filter((x) => x.id !== id); });
+});
 
 /* ---------- Onglet Profil ---------- */
 $('#p-sports').innerHTML = Object.entries(SPORTS).filter(([k]) => k !== 'autre')
@@ -1519,7 +1517,85 @@ function afficherStats() {
     if (j >= debut && (i % pasForme === 0 || j === fin)) serie.push({ libelle: versDate(j).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' }), a: forme, b: fatigue });
   }
   graphLignes($('#graphForme'), serie, ['Forme', 'Fatigue']);
+  afficherRecords(choisies, periode);
 }
+
+/* ---------- Records (période et sport choisis) ---------- */
+function allure(a) {
+  const km = Number(a.distance_km), min = Number(a.duree_min);
+  return km > 0 && min > 0 ? min / km : null;
+}
+const formatAllure = (minParKm) => `${Math.floor(minParKm)}:${String(Math.round((minParKm % 1) * 60)).padStart(2, '0')} /km`;
+
+function afficherRecords(liste, periode) {
+  $('#carteRecords').hidden = !liste.length;
+  if (!liste.length) return;
+  $('#periodeRecords').textContent = periode.cle === 'tout' ? 'depuis toujours' : `sur ${periode.nom}`;
+  const meilleur = (sel, valeur, sens = 1) => sel.filter((a) => valeur(a) != null && valeur(a) > 0)
+    .reduce((m, a) => (!m || sens * valeur(a) > sens * valeur(m) ? a : m), null);
+  const ligne = (nom, a, texte) => (a ? `<button type="button" class="record" data-aller-jour="${esc(a.jour)}">
+      <span>${esc(nom)}</span><span class="valeur">${esc(texte)}</span>
+      <span class="quand">${esc(dateLisible(a.jour, false))} ${esc(a.jour.slice(0, 4))}${a.nom ? ' · ' + esc(a.nom) : ''}</span></button>` : '');
+  const blocs = [];
+  const pied = liste.filter((a) => GROUPES.pied.includes(a.sport));
+  if (pied.length) {
+    // Allure : sorties d'au moins 5 km, en écartant les valeurs impossibles (GPS)
+    const rapide = meilleur(pied.filter((a) => Number(a.distance_km) >= 5 && allure(a) >= 2.5), allure, -1);
+    blocs.push(`<h4 class="famille-records">🏃 Course + trail</h4>`
+      + ligne('Plus longue sortie', meilleur(pied, (a) => Number(a.distance_km)), `${nombre(Number(meilleur(pied, (a) => Number(a.distance_km))?.distance_km || 0), 1)} km`)
+      + ligne('Plus gros dénivelé', meilleur(pied, (a) => Number(a.denivele_m)), `${nombre(Number(meilleur(pied, (a) => Number(a.denivele_m))?.denivele_m || 0))} m D+`)
+      + ligne('Plus longue durée', meilleur(pied, (a) => Number(a.duree_min)), dureeLisible(Math.round(meilleur(pied, (a) => Number(a.duree_min))?.duree_min || 0)))
+      + (rapide ? ligne('Allure la plus rapide (5 km et plus)', rapide, `${formatAllure(allure(rapide))} sur ${nombre(Number(rapide.distance_km), 1)} km`) : ''));
+  }
+  const velo = liste.filter((a) => a.sport === 'velo');
+  if (velo.length) {
+    const vitesse = (a) => (allure(a) ? 60 / allure(a) : null);
+    const rapide = meilleur(velo.filter((a) => Number(a.distance_km) >= 20 && vitesse(a) <= 70), vitesse);
+    blocs.push(`<h4 class="famille-records">🚴 Vélo</h4>`
+      + ligne('Plus longue sortie', meilleur(velo, (a) => Number(a.distance_km)), `${nombre(Number(meilleur(velo, (a) => Number(a.distance_km))?.distance_km || 0), 1)} km`)
+      + ligne('Plus gros dénivelé', meilleur(velo, (a) => Number(a.denivele_m)), `${nombre(Number(meilleur(velo, (a) => Number(a.denivele_m))?.denivele_m || 0))} m D+`)
+      + ligne('Plus longue durée', meilleur(velo, (a) => Number(a.duree_min)), dureeLisible(Math.round(meilleur(velo, (a) => Number(a.duree_min))?.duree_min || 0)))
+      + (rapide ? ligne('Vitesse moyenne la plus élevée (20 km et plus)', rapide, `${nombre(vitesse(rapide), 1)} km/h sur ${nombre(Number(rapide.distance_km))} km`) : ''));
+  }
+  const autres = liste.filter((a) => !GROUPES.pied.includes(a.sport) && a.sport !== 'velo');
+  if (autres.length) {
+    blocs.push(`<h4 class="famille-records">✨ Autres sports</h4>`
+      + ligne('Plus longue durée', meilleur(autres, (a) => Number(a.duree_min)), dureeLisible(Math.round(meilleur(autres, (a) => Number(a.duree_min))?.duree_min || 0))));
+  }
+  // Volume : meilleure semaine, meilleur mois, plus longue série de jours actifs
+  const sommePar = (cle) => {
+    const t = {};
+    for (const a of liste) {
+      const k = cle(a.jour);
+      t[k] = t[k] || { km: 0, min: 0, jour: k.length === 7 ? k + '-01' : k };
+      t[k].km += Number(a.distance_km) || 0;
+      t[k].min += Number(a.duree_min) || 0;
+    }
+    return Object.values(t);
+  };
+  const semaineMax = sommePar(lundiDe).reduce((m, x) => (!m || x.km > m.km ? x : m), null);
+  const moisMax = sommePar((j) => j.slice(0, 7)).reduce((m, x) => (!m || x.km > m.km ? x : m), null);
+  const jours = [...new Set(liste.map((a) => a.jour))].sort();
+  let serie = { long: 0 }, courante = { long: 0 };
+  for (const j of jours) {
+    courante = courante.long && decaler(courante.fin, 1) === j ? { ...courante, long: courante.long + 1, fin: j } : { long: 1, debut: j, fin: j };
+    if (courante.long > serie.long) serie = courante;
+  }
+  blocs.push(`<h4 class="famille-records">📈 Volume</h4>`
+    + (semaineMax ? `<button type="button" class="record" data-aller-jour="${esc(semaineMax.jour)}"><span>Plus grosse semaine</span><span class="valeur">${nombre(semaineMax.km)} km</span><span class="quand">semaine du ${esc(dateLisible(semaineMax.jour, false))} ${esc(semaineMax.jour.slice(0, 4))} · ${esc(dureeLisible(Math.round(semaineMax.min)))}</span></button>` : '')
+    + (moisMax ? `<button type="button" class="record" data-aller-jour="${esc(moisMax.jour)}"><span>Plus gros mois</span><span class="valeur">${nombre(moisMax.km)} km</span><span class="quand">${esc(versDate(moisMax.jour).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }))} · ${esc(dureeLisible(Math.round(moisMax.min)))}</span></button>` : '')
+    + (serie.long > 1 ? `<button type="button" class="record" data-aller-jour="${esc(serie.debut)}"><span>Plus longue série de jours actifs</span><span class="valeur">${serie.long} jours</span><span class="quand">du ${esc(dateLisible(serie.debut, false))} au ${esc(dateLisible(serie.fin, false))} ${esc(serie.fin.slice(0, 4))}</span></button>` : ''));
+  $('#records').innerHTML = blocs.join('');
+}
+
+// Toucher un record ouvre ce jour dans le Calendrier
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-aller-jour]');
+  if (!b) return;
+  jourChoisi = b.dataset.allerJour;
+  allerA('jour');
+  afficherJour();
+});
 
 /* ---------- Graphiques (SVG) ---------- */
 const H_GRAPH = 180, MARGE = { haut: 10, droite: 8, bas: 22, gauche: 36 };
@@ -1573,22 +1649,36 @@ function graphBarres(conteneur, points, series, format) {
   }).join('');
   conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${H_GRAPH}" role="img" aria-label="Graphique en barres">${grilleEtAxes(l, h, ech)}${barres}${etiquettes(points, x, l)}</svg>`;
   const bulle = infobulle(conteneur), svg = conteneur.querySelector('svg');
-  const survoler = (e) => {
-    const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) * (L / rect.width);
-    const i = Math.max(0, Math.min(points.length - 1, Math.floor((px - MARGE.gauche) / larg)));
+  const detail = document.createElement('p');
+  detail.className = 'detail-graph';
+  conteneur.appendChild(detail);
+  // Le détail de la barre choisie s'affiche sous le graphique : un simple toucher suffit sur téléphone
+  const montrer = (i) => {
     for (const el of svg.querySelectorAll('.barre')) el.classList.toggle('survol', Number(el.dataset.i) === i);
     const p = points[i];
+    detail.innerHTML = `<span><b>${esc(format(p.valeur))}</b> <span class="muted">${esc(p.libelle)}</span></span>`
+      + (series.length > 1 ? series.map((sr, j) => (p.parts[j] ? `<span><i class="cle carre ${sr.classe}"></i>${esc(format(p.parts[j]))} <span class="muted">${esc(sr.nom.toLowerCase())}</span></span>` : '')).join('') : '');
+  };
+  const indexDe = (e) => {
+    const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) * (L / rect.width);
+    return Math.max(0, Math.min(points.length - 1, Math.floor((px - MARGE.gauche) / larg)));
+  };
+  const survoler = (e) => {
+    const i = indexDe(e);
+    montrer(i);
+    // L'info-bulle flottante n'apparaît qu'à la souris
+    if (e.pointerType !== 'mouse') return;
+    const rect = svg.getBoundingClientRect();
     bulle.hidden = false;
-    bulle.innerHTML = series.length > 1
-      ? `<div><b>${esc(format(p.valeur))}</b> <span class="muted">${esc(p.libelle)}</span></div>`
-        + series.map((sr, j) => `<div><i class="cle ${sr.classe}"></i><b>${esc(format(p.parts[j]))}</b> <span class="muted">${esc(sr.nom)}</span></div>`).join('')
-      : `<b>${esc(format(p.valeur))}</b> <span class="muted">${esc(p.libelle)}</span>`;
+    bulle.innerHTML = `<b>${esc(format(points[i].valeur))}</b> <span class="muted">${esc(points[i].libelle)}</span>`;
     bulle.style.left = `${Math.min(Math.max((x(i) / L) * rect.width, 80), rect.width - 80)}px`;
-    bulle.style.top = `${Math.max(((base - (p.valeur / ech.max) * h) / H_GRAPH) * rect.height - 6, series.length > 1 ? 70 : 30)}px`;
+    bulle.style.top = `${Math.max(((base - (points[i].valeur / ech.max) * h) / H_GRAPH) * rect.height - 6, 30)}px`;
   };
   svg.addEventListener('pointermove', survoler);
   svg.addEventListener('pointerdown', survoler);
-  svg.addEventListener('pointerleave', () => { bulle.hidden = true; for (const el of svg.querySelectorAll('.barre')) el.classList.remove('survol'); });
+  svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') bulle.hidden = true; });
+  svg.addEventListener('contextmenu', (e) => e.preventDefault());
+  montrer(points.length - 1); // par défaut : la période en cours
 }
 
 function graphLignes(conteneur, points, noms) {
@@ -1600,19 +1690,23 @@ function graphLignes(conteneur, points, noms) {
   conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${H_GRAPH}" role="img" aria-label="Forme et fatigue">${grilleEtAxes(l, h, ech)}
     <path class="ligne-1" d="${trace('a')}"/><path class="ligne-2" d="${trace('b')}"/>
     <line class="repere" y1="${MARGE.haut}" y2="${MARGE.haut + h}" visibility="hidden"/>${etiquettes(points, x, l)}</svg>`;
-  const bulle = infobulle(conteneur), svg = conteneur.querySelector('svg'), repere = svg.querySelector('.repere');
+  const svg = conteneur.querySelector('svg'), repere = svg.querySelector('.repere');
+  const detail = document.createElement('p');
+  detail.className = 'detail-graph';
+  conteneur.appendChild(detail);
+  // Le repère et les valeurs du jour choisi s'affichent sous le graphique : un toucher suffit
+  const montrer = (i) => {
+    repere.setAttribute('x1', x(i)); repere.setAttribute('x2', x(i)); repere.setAttribute('visibility', 'visible');
+    detail.innerHTML = `<span class="muted">${esc(points[i].libelle)}</span><span><i class="cle s1"></i><b>${nombre(points[i].a)}</b> ${esc(noms[0].toLowerCase())}</span><span><i class="cle s2"></i><b>${nombre(points[i].b)}</b> ${esc(noms[1].toLowerCase())}</span>`;
+  };
   const survoler = (e) => {
     const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) * (L / rect.width);
-    const i = Math.max(0, Math.min(points.length - 1, Math.round(((px - MARGE.gauche) / l) * (points.length - 1))));
-    repere.setAttribute('x1', x(i)); repere.setAttribute('x2', x(i)); repere.setAttribute('visibility', 'visible');
-    bulle.hidden = false;
-    bulle.innerHTML = `<div class="muted">${esc(points[i].libelle)}</div><div><i class="cle s1"></i><b>${nombre(points[i].a)}</b> ${esc(noms[0])}</div><div><i class="cle s2"></i><b>${nombre(points[i].b)}</b> ${esc(noms[1])}</div>`;
-    bulle.style.left = `${Math.min(Math.max((x(i) / L) * rect.width, 70), rect.width - 70)}px`;
-    bulle.style.top = `${(MARGE.haut / H_GRAPH) * rect.height + 50}px`;
+    montrer(Math.max(0, Math.min(points.length - 1, Math.round(((px - MARGE.gauche) / l) * (points.length - 1)))));
   };
   svg.addEventListener('pointermove', survoler);
   svg.addEventListener('pointerdown', survoler);
-  svg.addEventListener('pointerleave', () => { bulle.hidden = true; repere.setAttribute('visibility', 'hidden'); });
+  svg.addEventListener('contextmenu', (e) => e.preventDefault());
+  if (points.length) montrer(points.length - 1);
 }
 // Les graphiques suivent la largeur de l'écran
 let minuteurRedim = null;
@@ -1634,7 +1728,6 @@ $('#onglets').addEventListener('click', (e) => {
 function toutAfficher() {
   afficherJour();
   afficherPlan();
-  afficherJournal();
   afficherProfil();
   afficherGarmin();
   afficherStats();
@@ -1667,9 +1760,9 @@ if (location.protocol.startsWith('http')) verifierMiseAJour();
 
 /* ---------- Démarrage ---------- */
 (async () => {
-  $('#j-date').value = jourISO();
   let vue = 'jour';
   try { vue = sessionStorage.getItem('cloach-vue') || 'jour'; } catch {}
+  if (!document.querySelector(`[data-vue="${vue}"]`)) vue = 'jour';
   allerA(vue);
   afficherCompte();
   toutAfficher();

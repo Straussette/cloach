@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.4">
+<meta name="app-version" content="2026-10-24.5">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1517,7 +1517,8 @@ function afficherStats() {
     if (j >= debut && (i % pasForme === 0 || j === fin)) serie.push({ libelle: versDate(j).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' }), a: forme, b: fatigue });
   }
   graphLignes($('#graphForme'), serie, ['Forme', 'Fatigue']);
-  afficherRecords(choisies, periode);
+  // Les records sont de tous les temps : seul le filtre de sport s'applique
+  afficherRecords(activites.filter(garder));
 }
 
 /* ---------- Records (période et sport choisis) ---------- */
@@ -1554,10 +1555,31 @@ function allure(a) {
 }
 const formatAllure = (minParKm) => `${Math.floor(minParKm)}:${String(Math.round((minParKm % 1) * 60)).padStart(2, '0')} /km`;
 
-function afficherRecords(liste, periode) {
-  $('#carteRecords').hidden = !liste.length;
-  if (!liste.length) return;
-  $('#periodeRecords').textContent = periode.cle === 'tout' ? 'depuis toujours' : `sur ${periode.nom}`;
+// Une sortie enregistrée en plusieurs morceaux (montre arrêtée puis relancée moins de 30 min plus tard,
+// même jour, même famille de sport) compte comme une seule sortie pour les records.
+function sorties(liste) {
+  const fin = (a) => new Date(a.debut.replace(' ', 'T')).getTime() + (Number(a.duree_min) || 0) * 60000;
+  const triees = liste.filter((a) => a.debut?.length >= 16).sort((a, b) => a.debut.localeCompare(b.debut));
+  const resultat = [];
+  for (const a of triees) {
+    const prec = resultat[resultat.length - 1];
+    const ecart = prec ? new Date(a.debut.replace(' ', 'T')).getTime() - prec._fin : Infinity;
+    if (prec && prec.jour === a.jour && memeFamille(prec.sport, a.sport) && ecart >= 0 && ecart <= 30 * 60000) {
+      for (const k of ['distance_km', 'duree_min', 'denivele_m', 'charge']) prec[k] = (Number(prec[k]) || 0) + (Number(a[k]) || 0);
+      prec.nom = `${prec.nom} + ${a.nom}`;
+      prec._fin = fin(a);
+    } else {
+      resultat.push({ ...a, _fin: fin(a) });
+    }
+  }
+  return [...resultat, ...liste.filter((a) => !(a.debut?.length >= 16))];
+}
+
+function afficherRecords(toutes) {
+  $('#carteRecords').hidden = !toutes.length;
+  if (!toutes.length) return;
+  const liste = sorties(toutes);
+  $('#periodeRecords').textContent = 'depuis toujours';
   const meilleur = (sel, valeur, sens = 1) => sel.filter((a) => valeur(a) != null && valeur(a) > 0)
     .reduce((m, a) => (!m || sens * valeur(a) > sens * valeur(m) ? a : m), null);
   const ligne = (nom, a, texte) => (a ? `<button type="button" class="record" data-aller-jour="${esc(a.jour)}">

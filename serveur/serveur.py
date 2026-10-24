@@ -410,6 +410,29 @@ async def historique(debut: str | None = None, fin: str | None = None, sport: Sp
     }
 
 
+def _sorties(activites: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Recolle une sortie enregistrée en plusieurs morceaux (même jour, même famille de sport, relancée
+    moins de 30 min après la fin du morceau précédent) : utile pour les records."""
+    famille = lambda s: "pied" if s in ("course", "trail") else s
+    triees = sorted((a for a in activites if len(str(a.get("debut") or "")) >= 16), key=lambda a: a["debut"])
+    resultat: list[dict[str, Any]] = []
+    for a in triees:
+        debut = datetime.fromisoformat(str(a["debut"]))
+        fin = debut + timedelta(minutes=float(a.get("duree_min") or 0))
+        prec = resultat[-1] if resultat else None
+        if (prec and prec["jour"] == a["jour"] and famille(prec["sport"]) == famille(a["sport"])
+                and timedelta(0) <= debut - prec["_fin"] <= timedelta(minutes=30)):
+            for k in ("distance_km", "duree_min", "denivele_m", "charge"):
+                prec[k] = float(prec.get(k) or 0) + float(a.get(k) or 0)
+            prec["nom"] = f"{prec.get('nom', '')} + {a.get('nom', '')}"
+            prec["_fin"] = fin
+        else:
+            resultat.append({**a, "_fin": fin})
+    for a in resultat:
+        a.pop("_fin", None)
+    return resultat + [a for a in activites if len(str(a.get("debut") or "")) < 16]
+
+
 def _ajouter(total: dict[str, Any], a: dict[str, Any]) -> None:
     total["seances"] += 1
     total["km"] += float(a.get("distance_km") or 0)
@@ -444,8 +467,9 @@ async def statistiques(
                else j.isoformat()[:7] if regroupement == "mois" else str(j.year))
         _ajouter(periodes.setdefault(cle, _vide()), a)
         _ajouter(par_sport.setdefault(a["sport"], _vide()), a)
+    entieres = _sorties(activites)
     record = lambda champ, filtre=None: max(
-        (a for a in activites if a.get(champ) and (filtre is None or a["sport"] in filtre)),
+        (a for a in entieres if a.get(champ) and (filtre is None or a["sport"] in filtre)),
         key=lambda a: float(a[champ]), default=None)
     records = {
         "plus_longue_course": record("distance_km", {"course", "trail"}),

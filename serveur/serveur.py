@@ -68,7 +68,7 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan : le jour J, vérifie avec forme_du_jour si la séance prévue reste pertinente, puis enregistre ton verdict avec avis_du_jour (garder, alléger, remplacer ou repos), avec la séance de remplacement s'il y en a une. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
 
 mcp = MCPServer(
     name="cloach",
@@ -172,7 +172,7 @@ async def contexte_du_jour() -> dict[str, Any]:
         "plan_resume": (etat.get("plan") or {}).get("resume", ""),
         "seances_prevues": [s for s in _seances(etat) if debut <= s.get("jour", "") <= fin],
         "journal": [s for s in etat.get("journal", []) if s.get("date", "") >= (ajd - timedelta(days=14)).isoformat()],
-        "activites_14_jours": [_compacte(a) for a in activites],
+        "activites_14_jours": [_compacte(a, etat.get("commentaires")) for a in activites],
         "garmin_branche": garmin,
     }
 
@@ -365,8 +365,14 @@ CHAMPS_HISTORIQUE = ("id", "debut", "sport", "type", "nom", "distance_km", "dure
                      "fc_moy", "fc_max", "charge", "te_aerobie", "te_anaerobie", "puissance_moy", "puissance_norm")
 
 
-def _compacte(a: dict[str, Any]) -> dict[str, Any]:
-    return {k: a[k] for k in CHAMPS_HISTORIQUE if a.get(k) not in (None, "")}
+def _compacte(a: dict[str, Any], commentaires: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Activité sans les champs vides, avec le ressenti et le commentaire laissés par l'utilisateur dans l'app."""
+    compacte = {k: a[k] for k in CHAMPS_HISTORIQUE if a.get(k) not in (None, "")}
+    avis = (commentaires or {}).get(str(a.get("id")))
+    if avis:
+        compacte["ressenti"] = avis.get("ressenti")
+        compacte["commentaire"] = avis.get("notes")
+    return compacte
 
 
 async def _activites(uid: str, debut: str | None, fin: str | None, sport: str | None) -> list[dict[str, Any]]:
@@ -380,11 +386,13 @@ async def _activites(uid: str, debut: str | None, fin: str | None, sport: str | 
 async def historique(debut: str | None = None, fin: str | None = None, sport: Sport | None = None) -> dict[str, Any]:
     """Détail des activités importées entre deux dates (AAAA-MM-JJ, incluses), éventuellement pour un sport.
     Au plus 300 activités (les plus récentes) : pour une longue période, commence par statistiques."""
-    activites = await _activites(_uid(), debut, fin, sport)
+    uid = _uid()
+    activites = await _activites(uid, debut, fin, sport)
+    commentaires = (await _lire(uid)).get("commentaires")
     return {
         "nombre": len(activites),
         "tronque": len(activites) > 300,
-        "activites": [_compacte(a) for a in activites[-300:]],
+        "activites": [_compacte(a, commentaires) for a in activites[-300:]],
     }
 
 

@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.1">
+<meta name="app-version" content="2026-10-24.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -147,6 +147,12 @@
   .etat-alerte { color:var(--alerte); }
   .avis { margin:12px 0 4px; padding:12px; border-radius:12px; border:1px solid var(--border); }
   .avis .verdict { font-weight:700; }
+  .lien-garmin { margin-top:6px; font-size:.85rem; color:var(--muted); }
+  .commentaire { margin-top:4px; font-size:.9rem; font-style:italic; }
+  .choix-activite { display:grid; gap:6px; }
+  .choix-activite label { display:flex; gap:8px; align-items:flex-start; color:var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; cursor:pointer; }
+  .choix-activite label:has(input:checked) { border-color:var(--accent); background:var(--accent-doux); }
+  .choix-activite input { width:auto; margin-top:3px; }
   details.alternatives { margin-top:8px; font-size:.88rem; }
   details.alternatives summary { color:var(--accent); cursor:pointer; font-weight:600; }
   .alternative { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:start; padding:8px 0; border-top:1px dashed var(--border); }
@@ -398,6 +404,32 @@
   <button type="button" data-onglet="profil"><span>👤</span>Profil</button>
 </nav>
 
+<!-- Séance faite : activité Garmin et commentaire -->
+<dialog id="dlgSeance">
+  <form class="dlg" id="formSeance">
+    <h2 id="titreDlgSeance">Séance faite</h2>
+    <div id="activiteDlgSeance"></div>
+    <label>Ressenti
+      <select id="s-ressenti">
+        <option value="">—</option>
+        <option value="1">1 · très dur, épuisé</option>
+        <option value="2">2 · dur</option>
+        <option value="3">3 · correct</option>
+        <option value="4">4 · bien</option>
+        <option value="5">5 · excellent, plein d'énergie</option>
+      </select>
+    </label>
+    <label>Commentaire<textarea id="s-commentaire" placeholder="Sensations, douleurs, météo, ce qui a marché ou pas…"></textarea></label>
+    <p class="statut" id="statutSeance"></p>
+    <button class="btn large" type="submit" id="btnSeanceValider">✓ C'est fait</button>
+    <div class="rangee" style="justify-content:space-between">
+      <button class="btn discret" type="button" id="btnSeanceSautee">Séance sautée</button>
+      <button class="btn discret" type="button" id="btnSeanceRemettre">Remettre « à faire »</button>
+      <button class="btn discret" type="button" id="btnSeanceAnnuler">Annuler</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- Import de l'historique -->
 <dialog id="dlgImport">
   <form class="dlg" id="formImport">
@@ -490,7 +522,7 @@ function statut(el, texte, erreur = false) {
 /* ---------- État de l'app ---------- */
 // { maj, profil, plan: { cree, resume, conseils, semaines: [{ debut, theme, seances: [...] }] }, journal: [...], garmin: { connecte, nom } }
 // Il est partagé avec le serveur MCP : Claude y écrit le plan, le journal et le profil.
-const ETAT_VIDE = () => ({ maj: 0, profil: {}, plan: null, journal: [], garmin: { connecte: false } });
+const ETAT_VIDE = () => ({ maj: 0, profil: {}, plan: null, journal: [], commentaires: {}, garmin: { connecte: false } });
 let etat = Object.assign(ETAT_VIDE(), lireLocal(CLE_ETAT) || {});
 
 const toutesSeances = () => (etat.plan?.semaines || []).flatMap((w) => w.seances);
@@ -711,7 +743,7 @@ function majLiensClaude() {
 $('#demandePlan').addEventListener('input', majLiensClaude);
 
 /* ---------- Affichage d'une séance ---------- */
-function htmlSeance(s, { avecDate = false } = {}) {
+function htmlSeance(s, { avecDate = false, lien = true } = {}) {
   const sport = SPORTS[s.sport] || SPORTS.autre;
   const meta = [
     avecDate ? esc(dateLisible(s.jour)) : '',
@@ -723,7 +755,8 @@ function htmlSeance(s, { avecDate = false } = {}) {
     <div>
       <div class="titre">${esc(s.titre || sport.nom)}</div>
       <div class="meta">${meta}</div>
-      ${s.details ? `<div class="details">${esc(s.details)}</div>` : ''}
+      ${s.details && s.etat !== 'fait' ? `<div class="details">${esc(s.details)}</div>` : ''}
+      ${s.etat === 'fait' && lien ? htmlLienGarmin(s) : ''}
       ${s.etat !== 'fait' && s.alternatives?.length ? `<details class="alternatives"><summary>${s.alternatives.length} alternative${s.alternatives.length > 1 ? 's' : ''}</summary>
         ${s.alternatives.map((a, i) => `<div class="alternative"><div>
           <div class="pour">${esc(a.pour)}</div>
@@ -754,15 +787,12 @@ document.addEventListener('click', (e) => {
   });
 });
 
-// À faire → fait → sauté → à faire
+// Le bouton d'état d'une séance ouvre la fenêtre « Séance faite » (activité Garmin et commentaire)
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-seance]');
-  if (!b) return;
-  const id = b.dataset.seance;
-  modifier(() => {
-    const s = toutesSeances().find((x) => x.id === id);
-    if (s) s.etat = !s.etat ? 'fait' : s.etat === 'fait' ? 'saute' : '';
-  });
+  if (b) ouvrirSeance(b.dataset.seance);
+  const c = e.target.closest('[data-commenter]');
+  if (c) ouvrirSeance(null, c.dataset.commenter);
 });
 
 /* ---------- Onglet Calendrier ---------- */
@@ -788,6 +818,15 @@ function realiseDuJour(jour) {
   return { acts, seules };
 }
 
+// Rappel, sous une séance faite, de l'activité Garmin liée et du commentaire
+function htmlLienGarmin(s) {
+  const a = s.activite && activites.find((x) => x.id === s.activite);
+  const c = (s.activite && etat.commentaires?.[s.activite]) || { ressenti: s.ressenti, notes: s.commentaire };
+  const ligne = a ? `<div class="lien-garmin">⌚ ${esc([a.nom, a.distance_km ? `${nombre(Number(a.distance_km), 1)} km` : '', a.duree_min ? dureeLisible(Math.round(a.duree_min)) : ''].filter(Boolean).join(' · '))}</div>` : '';
+  const avis = c.ressenti || c.notes ? `<div class="commentaire">${c.ressenti ? `Ressenti ${esc(c.ressenti)}/5. ` : ''}${esc(c.notes || '')}</div>` : '';
+  return ligne + avis;
+}
+
 function htmlActivite(a) {
   const sport = SPORTS[a.sport] || SPORTS.autre;
   const meta = [
@@ -801,10 +840,12 @@ function htmlActivite(a) {
   ].filter(Boolean).map(esc).join(' · ');
   // Les notes qui ne font que recopier l'activité (son nom) ne sont pas répétées
   const notes = a.note?.notes && !(a.nom && a.note.notes.includes(a.nom)) ? `<div class="details">${esc(a.note.notes)}</div>` : '';
+  const c = etat.commentaires?.[a.id];
+  const avis = c ? `<div class="commentaire">${c.ressenti ? `Ressenti ${esc(c.ressenti)}/5. ` : ''}${esc(c.notes || '')}</div>` : '';
   return `<div class="seance fait-garmin">
     <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
-    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div>${notes}</div>
-    <div class="muted petit" title="Enregistrée par Garmin">⌚</div>
+    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div>${notes}${avis}</div>
+    <div><button class="etat-seance" type="button" data-commenter="${esc(a.id)}" title="Ajouter un commentaire">💬</button></div>
   </div>`;
 }
 
@@ -913,7 +954,7 @@ function afficherJour() {
   const titre = dateLisible(jourChoisi).replace(/^./, (c) => c.toUpperCase()) + (jourChoisi === ajd ? ' · aujourd\'hui' : '');
   let html = `<h2>${esc(titre)}</h2>`;
   if (jourChoisi === ajd) html += htmlForme() + htmlAvis();
-  if (prevues.length) html += `<h3 style="margin:12px 0 4px">${jourChoisi < ajd ? 'Prévu' : 'Au programme'}</h3>` + prevues.map((x) => htmlSeance(x)).join('');
+  if (prevues.length) html += `<h3 style="margin:12px 0 4px">${jourChoisi < ajd ? 'Prévu' : 'Au programme'}</h3>` + prevues.map((x) => htmlSeance(x, { lien: false })).join('');
   if (faites.length || notes.length) html += '<h3 style="margin:12px 0 4px">Réalisé</h3>' + faites.map(htmlActivite).join('') + notes.map(htmlNote).join('');
   if (!prevues.length && !faites.length && !notes.length) {
     html += `<p class="muted">${jourChoisi < ajd ? 'Aucune activité enregistrée : jour de repos.'
@@ -947,6 +988,108 @@ $('#bandeau').addEventListener('touchend', (e) => {
   if (Math.abs(dx) > 50) choisirJour(decaler(jourChoisi, dx > 0 ? -7 : 7));
 }, { passive: true });
 
+/* ---------- Séance faite (activité Garmin et commentaire) ---------- */
+// Cliquer sur « À faire » récupère la séance sur Garmin : on choisit l'activité, on ajoute son ressenti
+// et un commentaire. Le commentaire est rattaché à l'activité (etat.commentaires), pas au journal.
+let seanceOuverte = null, activiteOuverte = null;
+
+function candidates(jour, sport) {
+  const liste = activites.filter((a) => a.jour === jour);
+  // La meilleure correspondance d'abord : même famille de sport
+  return liste.sort((a, b) => Number(memeFamille(b.sport, sport)) - Number(memeFamille(a.sport, sport)));
+}
+
+function afficherChoixActivite(jour, sport, choisie) {
+  const liste = candidates(jour, sport);
+  const zone = $('#activiteDlgSeance');
+  if (!liste.length) {
+    zone.innerHTML = `<p class="muted petit">${etat.garmin.connecte ? 'Aucune activité Garmin ce jour-là. Synchronise ta montre puis rouvre cette fenêtre, ou valide quand même.' : 'Garmin n\'est pas branché : la séance sera simplement cochée.'}</p>`;
+    return;
+  }
+  const actuelle = choisie || liste[0].id;
+  zone.innerHTML = `<div class="choix-activite">${liste.map((a) => `<label><input type="radio" name="activite" value="${esc(a.id)}" ${a.id === actuelle ? 'checked' : ''}>
+    <span>${(SPORTS[a.sport] || SPORTS.autre).icone} <b>${esc(a.nom || SPORTS[a.sport]?.nom || '')}</b><br><span class="muted petit">${esc([
+      a.debut?.length >= 16 ? a.debut.slice(11, 16).replace(':', ' h ') : '', a.distance_km ? `${nombre(Number(a.distance_km), 1)} km` : '',
+      a.duree_min ? dureeLisible(Math.round(a.duree_min)) : '', a.denivele_m ? `${nombre(Number(a.denivele_m))} m D+` : '', a.fc_moy ? `FC ${nombre(Number(a.fc_moy))}` : '',
+    ].filter(Boolean).join(' · '))}</span></span></label>`).join('')}
+    <label><input type="radio" name="activite" value="" ${actuelle === '' ? 'checked' : ''}><span class="muted">Aucune de ces activités</span></label></div>`;
+}
+
+function remplirCommentaire(idActivite) {
+  const c = (idActivite && etat.commentaires?.[idActivite]) || (seanceOuverte ? { ressenti: seanceOuverte.ressenti, notes: seanceOuverte.commentaire } : {});
+  $('#s-ressenti').value = c?.ressenti || '';
+  $('#s-commentaire').value = c?.notes || '';
+}
+
+async function ouvrirSeance(idSeance, idActivite = null) {
+  seanceOuverte = idSeance ? toutesSeances().find((x) => x.id === idSeance) : null;
+  activiteOuverte = idActivite ? activites.find((a) => a.id === idActivite) : null;
+  const jour = seanceOuverte?.jour || activiteOuverte?.jour;
+  if (!jour) return;
+  $('#titreDlgSeance').textContent = seanceOuverte ? seanceOuverte.titre || 'Séance' : 'Commenter l\'activité';
+  $('#btnSeanceValider').textContent = seanceOuverte ? '✓ C\'est fait' : 'Enregistrer';
+  $('#btnSeanceSautee').hidden = !seanceOuverte || seanceOuverte.etat === 'saute';
+  $('#btnSeanceRemettre').hidden = !seanceOuverte || !seanceOuverte.etat;
+  statut($('#statutSeance'), '');
+  if (activiteOuverte) {
+    afficherChoixActivite(jour, activiteOuverte.sport, activiteOuverte.id);
+    $('#activiteDlgSeance').querySelector('.choix-activite').hidden = true;
+  } else {
+    afficherChoixActivite(jour, seanceOuverte.sport, seanceOuverte.activite);
+  }
+  remplirCommentaire(activiteOuverte?.id || seanceOuverte?.activite || $('#formSeance input[name="activite"]:checked')?.value);
+  $('#dlgSeance').showModal();
+
+  // Séance du jour ou passée : on va chercher sur Garmin ce qui n'est pas encore importé
+  if (seanceOuverte && etat.garmin.connecte && jour <= jourISO() && session()) {
+    statut($('#statutSeance'), '⌚ Je récupère ta séance sur Garmin…');
+    try {
+      await appelerGarmin('importer', { debut: jour, fin: jour });
+      await chargerActivites();
+      if (!$('#dlgSeance').open) return;
+      afficherChoixActivite(jour, seanceOuverte.sport, seanceOuverte.activite);
+      remplirCommentaire(seanceOuverte.activite || $('#formSeance input[name="activite"]:checked')?.value);
+      statut($('#statutSeance'), '');
+    } catch (err) {
+      statut($('#statutSeance'), 'Garmin ne répond pas : ' + err.message, true);
+    }
+  }
+}
+
+$('#activiteDlgSeance').addEventListener('change', (e) => { if (e.target.name === 'activite') remplirCommentaire(e.target.value); });
+$('#btnSeanceAnnuler').onclick = () => $('#dlgSeance').close();
+$('#btnSeanceSautee').onclick = () => {
+  const id = seanceOuverte?.id;
+  $('#dlgSeance').close();
+  modifier(() => { const s = toutesSeances().find((x) => x.id === id); if (s) { s.etat = 'saute'; delete s.activite; } });
+};
+$('#btnSeanceRemettre').onclick = () => {
+  const id = seanceOuverte?.id;
+  $('#dlgSeance').close();
+  modifier(() => { const s = toutesSeances().find((x) => x.id === id); if (s) { s.etat = ''; delete s.activite; } });
+};
+$('#formSeance').onsubmit = (e) => {
+  e.preventDefault();
+  const idSeance = seanceOuverte?.id;
+  const idActivite = activiteOuverte?.id ?? ($('#formSeance input[name="activite"]:checked')?.value || '');
+  const ressenti = Number($('#s-ressenti').value) || null;
+  const notes = $('#s-commentaire').value.trim();
+  $('#dlgSeance').close();
+  modifier(() => {
+    if (idActivite) {
+      etat.commentaires = etat.commentaires || {};
+      if (ressenti || notes) etat.commentaires[idActivite] = { ressenti, notes, date: jourISO() };
+      else delete etat.commentaires[idActivite];
+    }
+    const s = idSeance && toutesSeances().find((x) => x.id === idSeance);
+    if (s) {
+      s.etat = 'fait';
+      if (idActivite) { s.activite = idActivite; delete s.ressenti; delete s.commentaire; }
+      else { delete s.activite; s.ressenti = ressenti; s.commentaire = notes; }
+    }
+  });
+};
+
 /* ---------- Onglet Plan ---------- */
 function afficherPlan() {
   const p = etat.plan;
@@ -979,7 +1122,7 @@ $('#j-sport').innerHTML = Object.entries(SPORTS).map(([k, s]) => `<option value=
 
 function afficherJournal() {
   $('#noteJournal').textContent = etat.garmin.connecte
-    ? 'Claude lit tes activités Garmin tout seul. Note ici ton ressenti ou ce que la montre n\'a pas enregistré.'
+    ? 'Tes activités Garmin arrivent toutes seules : coche ta séance dans le Calendrier (« À faire ») ou touche 💬 sur une activité pour ajouter ressenti et commentaire. Le journal ne sert que pour une séance faite sans montre.'
     : 'Note tes séances et ton ressenti : Claude s\'en sert pour adapter le plan. Tu peux aussi les lui raconter, il les notera.';
   const liste = [...etat.journal].sort((a, b) => b.date.localeCompare(a.date));
   $('#listeJournal').innerHTML = liste.length ? liste.map((s) => {
@@ -1156,7 +1299,7 @@ async function chargerActivites() {
   try {
     const lignes = [];
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
-      const page = await sbFetch(`/rest/v1/activites?select=jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge&order=jour.asc&limit=1000&offset=${lignes.length}`);
+      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge&order=jour.asc&limit=1000&offset=${lignes.length}`);
       lignes.push(...(page || []));
       if (!page || page.length < 1000) break;
     }

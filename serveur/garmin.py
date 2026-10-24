@@ -23,6 +23,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from donnees import Supabase
+import vap
 
 DUREE_ATTENTE_CODE = 5 * 60
 
@@ -187,6 +188,15 @@ class Garmins:
             })
         return records
 
+    def vap(self, uid: str, id_activite: str) -> dict[str, Any]:
+        """Calcule la VAP d'une sortie à partir de son profil détaillé, et l'enregistre avec l'activité."""
+        details = self.appeler(uid, "get_activity_details", str(int(id_activite)), 4000, 0)
+        resultat = vap.calculer(details or {})
+        if not resultat:
+            return {"vap_min_km": None}
+        self.base.completer_activite(uid, str(id_activite), resultat)
+        return resultat
+
     def branche(self, uid: str) -> bool:
         return self.base.lire_jetons_garmin(uid) is not None
 
@@ -233,6 +243,11 @@ class Garmins:
                 return repondre(*await asyncio.to_thread(self._connexion, uid, corps))
             if action == "code":
                 return repondre(*await asyncio.to_thread(self._code, uid, corps))
+            if action == "vap":
+                id_activite = str(corps.get("id", ""))
+                if not id_activite.isdigit():
+                    return repondre({"erreur": "Activité inconnue"}, 400)
+                return repondre(await asyncio.to_thread(self.vap, uid, id_activite))
             if action == "records":
                 return repondre({"records": await asyncio.to_thread(self.records, uid)})
             if action == "forme":

@@ -86,6 +86,12 @@ class Supabase:
             )
             r.raise_for_status()
 
+    def completer_activite(self, uid: str, id_activite: str, champs: dict[str, Any]) -> None:
+        """Ajoute des valeurs calculées à une activité (VAP…)."""
+        r = requests.patch(f"{self.url}/rest/v1/activites", headers={**self.entetes, "Prefer": "return=minimal"},
+                           timeout=10, params={"user_id": f"eq.{uid}", "id": f"eq.{id_activite}"}, json=champs)
+        r.raise_for_status()
+
     def lire_activites(self, uid: str, debut: str | None = None, fin: str | None = None,
                        sport: str | None = None) -> list[dict[str, Any]]:
         """Activités de l'utilisateur, de la plus ancienne à la plus récente."""

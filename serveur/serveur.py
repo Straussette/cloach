@@ -257,6 +257,19 @@ async def forme_du_jour() -> dict[str, Any]:
 
 
 @mcp.tool()
+async def vap_activite(id_activite: str) -> dict[str, Any]:
+    """Garmin : VAP (allure ajustée à la pente, comme Strava) et allure en mouvement d'une sortie de course
+    ou de trail, en minutes par km, calculées à partir de son profil détaillé et gardées avec l'activité."""
+    uid = _uid()
+    try:
+        return await anyio.to_thread.run_sync(garmins.vap, uid, id_activite)
+    except CompteAbsent as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        raise ToolError(_causes(exc)) from exc
+
+
+@mcp.tool()
 async def records_garmin() -> list[dict[str, Any]]:
     """Garmin : records personnels (meilleurs efforts) : meilleurs temps sur 1 km, 1 mile, 5 km, 10 km,
     semi-marathon et marathon (valeur en secondes), plus longues sorties (valeur en mètres), avec la date
@@ -383,18 +396,18 @@ async def modifier_profil(
 # ---------- Historique des activités (table activites) ----------
 
 CHAMPS_HISTORIQUE = ("id", "debut", "sport", "type", "nom", "distance_km", "duree_min", "denivele_m",
-                     "fc_moy", "fc_max", "charge", "te_aerobie", "te_anaerobie", "puissance_moy", "puissance_norm")
+                     "fc_moy", "fc_max", "charge", "te_aerobie", "te_anaerobie", "puissance_moy", "puissance_norm",
+                     "vap_min_km", "allure_mouvement_min_km")
 
 
 def _compacte(a: dict[str, Any], commentaires: dict[str, Any] | None = None) -> dict[str, Any]:
     """Activité sans les champs vides, avec le ressenti et le commentaire laissés par l'utilisateur dans l'app."""
     compacte = {k: a[k] for k in CHAMPS_HISTORIQUE if a.get(k) not in (None, "")}
-    # Allure moyenne (course, trail) et allure au kilomètre-effort (trail : 100 m D+ = 1 km), en min/km
-    km, minutes, dplus = float(a.get("distance_km") or 0), float(a.get("duree_min") or 0), float(a.get("denivele_m") or 0)
+    # Allure moyenne (course, trail) en min/km ; la VAP (allure ajustée à la pente) est calculée à la
+    # demande à partir du profil de la sortie (outil vap_activite) et gardée avec l'activité
+    km, minutes = float(a.get("distance_km") or 0), float(a.get("duree_min") or 0)
     if km > 0 and minutes > 0 and a.get("sport") in ("course", "trail"):
         compacte["allure_min_km"] = round(minutes / km, 2)
-        if a.get("sport") == "trail" and dplus > 0:
-            compacte["vap_min_km"] = round(minutes / (km + dplus / 100), 2)
     avis = (commentaires or {}).get(str(a.get("id")))
     if avis:
         compacte["ressenti"] = avis.get("ressenti")

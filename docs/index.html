@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.8">
+<meta name="app-version" content="2026-10-24.9">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -519,14 +519,15 @@ function formatAllure(minParKm) {
   const s = Math.round(minParKm * 60);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} /km`;
 }
-// Allure moyenne (course, trail), VAP en trail, vitesse moyenne à vélo
-// VAP : allure ajustée à la pente, estimée au kilomètre-effort (100 m de D+ comptent comme 1 km)
+// Allure moyenne (course, trail), VAP, vitesse moyenne à vélo.
+// VAP : allure ajustée à la pente, calculée par le serveur à partir du profil de la sortie (comme Strava)
+const vapUtile = (a) => (a.sport === 'trail' || a.sport === 'course') && Number(a.denivele_m) >= 50 && Number(a.distance_km) > 0;
 function vitessesActivite(a) {
-  const km = Number(a.distance_km), min = Number(a.duree_min), dplus = Number(a.denivele_m) || 0;
+  const km = Number(a.distance_km), min = Number(a.duree_min);
   if (!(km > 0 && min > 0)) return [];
   if (a.sport === 'course' || a.sport === 'trail') {
     const textes = [formatAllure(min / km)];
-    if (a.sport === 'trail' && dplus > 0) textes.push(`VAP ${formatAllure(min / (km + dplus / 100))}`);
+    if (a.vap_min_km) textes.push(`VAP ${formatAllure(Number(a.vap_min_km))}`);
     return textes;
   }
   if (a.sport === 'velo') return [`${nombre((km / min) * 60, 1)} km/h`];
@@ -860,6 +861,20 @@ function htmlLienGarmin(s) {
   return ligne + avis;
 }
 
+// VAP calculée à la demande (une fois par activité, puis gardée en base) pour les sorties affichées
+const vapsEnCours = new Set();
+async function calculerVaps(liste) {
+  if (etat.garmin?.connecte !== true || !session()) return;
+  for (const a of liste.filter((x) => vapUtile(x) && !x.vap_min_km && /^\d+$/.test(x.id) && !vapsEnCours.has(x.id))) {
+    vapsEnCours.add(a.id);
+    try {
+      const r = await appelerGarmin('vap', { id: a.id });
+      const ici = activites.find((x) => x.id === a.id);
+      if (ici && r.vap_min_km) { ici.vap_min_km = r.vap_min_km; afficherJour(); }
+    } catch (e) { console.warn('VAP', e); }
+  }
+}
+
 function htmlActivite(a) {
   const sport = SPORTS[a.sport] || SPORTS.autre;
   const meta = [
@@ -997,6 +1012,7 @@ function afficherJour() {
   }
   if (jourChoisi <= ajd) html += '<button class="btn discret" type="button" id="btnAjoutJournal" style="margin-top:8px">+ Ajouter une séance sans montre</button>';
   $('#carteJour').innerHTML = html;
+  calculerVaps(faites);
   const ajout = $('#btnAjoutJournal');
   if (ajout) ajout.onclick = ouvrirJournal;
   $('#carteCoach').hidden = jourChoisi !== ajd;
@@ -1389,7 +1405,7 @@ async function chargerActivites() {
   try {
     const lignes = [];
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
-      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge&order=jour.asc&limit=1000&offset=${lignes.length}`);
+      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km&order=jour.asc&limit=1000&offset=${lignes.length}`);
       lignes.push(...(page || []));
       if (!page || page.length < 1000) break;
     }

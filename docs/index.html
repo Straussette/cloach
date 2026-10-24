@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.10">
+<meta name="app-version" content="2026-10-24.11">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -147,6 +147,9 @@
   .etat-alerte { color:var(--alerte); }
   .avis { margin:12px 0 4px; padding:12px; border-radius:12px; border:1px solid var(--border); }
   .avis .verdict { font-weight:700; }
+  .avis-coach { margin-top:8px; padding:8px 10px; border-radius:10px; background:var(--accent-doux); font-size:.88rem; line-height:1.45; white-space:pre-line; }
+  .avis-coach b { display:block; font-size:.78rem; color:var(--muted); font-weight:600; margin-bottom:2px; }
+  .lien-avis { display:inline-block; margin-top:6px; font-size:.85rem; color:var(--accent); font-weight:600; text-decoration:none; }
   .lien-garmin { margin-top:6px; font-size:.85rem; color:var(--muted); }
   .commentaire { margin-top:4px; font-size:.9rem; font-style:italic; }
   .choix-activite { display:grid; gap:6px; }
@@ -799,6 +802,7 @@ function htmlSeance(s, { avecDate = false, lien = true } = {}) {
       <div class="meta">${meta}</div>
       ${s.details && s.etat !== 'fait' ? `<div class="details">${esc(s.details)}</div>` : ''}
       ${s.etat === 'fait' && lien ? htmlLienGarmin(s) : ''}
+      ${s.etat === 'fait' && !lien && !s.activite ? htmlAvisCoach(null, null, s) : ''}
       ${s.etat !== 'fait' ? htmlStructure(s) : ''}
       ${s.etat !== 'fait' && s.alternatives?.length ? `<details class="alternatives"><summary>${s.alternatives.length} alternative${s.alternatives.length > 1 ? 's' : ''}</summary>
         ${s.alternatives.map((a, i) => `<div class="alternative"><div>
@@ -973,12 +977,26 @@ function realiseDuJour(jour) {
 }
 
 // Rappel, sous une séance faite, de l'activité Garmin liée et du commentaire
+// Avis du coach après une séance : écrit par Claude (outil avis_seance) dans etat.avisSeances,
+// sous la clé de l'activité Garmin, ou « seance:<id> » pour une séance faite sans activité
+function questionAvis(a, s) {
+  const prevue = s || toutesSeances().find((x) => x.activite && x.activite === a?.id);
+  const quoi = a ? `ma séance du ${dateLisible(a.jour)} « ${a.nom || ''} » (activité Garmin ${a.id})` : `ma séance du ${dateLisible(s.jour)} « ${s.titre} » (séance ${s.id})`;
+  return `Donne-moi ton avis de coach sur ${quoi}${a && prevue ? `, prévue comme « ${prevue.titre} » (séance ${prevue.id})` : ''}. `
+    + 'Regarde son détail (tours, FC, allure, VAP), compare avec ce qui était prévu, mon ressenti et ma forme, puis enregistre ton avis pour l\'app.';
+}
+function htmlAvisCoach(idActivite, a, s) {
+  const avis = etat.avisSeances?.[idActivite || `seance:${s?.id}`];
+  if (avis) return `<div class="avis-coach"><b>Avis du coach · ${esc(dateLisible(avis.date, false))}</b>${esc(avis.texte)}</div>`;
+  return `<a class="lien-avis" href="${esc(lienClaude(questionAvis(a, s)))}" target="_blank" rel="noopener">🗣️ Demander l'avis du coach</a>`;
+}
+
 function htmlLienGarmin(s) {
   const a = s.activite && activites.find((x) => x.id === s.activite);
   const c = (s.activite && etat.commentaires?.[s.activite]) || { ressenti: s.ressenti, notes: s.commentaire };
   const ligne = a ? `<div class="lien-garmin">⌚ ${esc([a.nom, a.distance_km ? `${nombre(Number(a.distance_km), 1)} km` : '', a.duree_min ? dureeLisible(Math.round(a.duree_min)) : ''].filter(Boolean).join(' · '))}</div>` : '';
   const avis = c.ressenti || c.notes ? `<div class="commentaire">${c.ressenti ? `Ressenti ${esc(c.ressenti)}/5. ` : ''}${esc(c.notes || '')}</div>` : '';
-  return ligne + avis;
+  return ligne + avis + htmlAvisCoach(s.activite, a, a ? null : s);
 }
 
 // VAP calculée à la demande (une fois par activité, puis gardée en base) pour les sorties affichées
@@ -1013,7 +1031,7 @@ function htmlActivite(a) {
   const avis = c ? `<div class="commentaire">${c.ressenti ? `Ressenti ${esc(c.ressenti)}/5. ` : ''}${esc(c.notes || '')}</div>` : '';
   return `<div class="seance fait-garmin">
     <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
-    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div>${notes}${avis}</div>
+    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div>${notes}${avis}${htmlAvisCoach(a.id, a)}</div>
     <div><button class="etat-seance" type="button" data-commenter="${esc(a.id)}" title="Ajouter un commentaire">💬</button></div>
   </div>`;
 }

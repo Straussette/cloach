@@ -74,7 +74,7 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan : le jour J, vérifie avec forme_du_jour si la séance prévue reste pertinente, puis enregistre ton verdict avec avis_du_jour (garder, alléger, remplacer ou repos), avec la séance de remplacement s'il y en a une. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app."""
 
 mcp = MCPServer(
     name="cloach",
@@ -178,7 +178,7 @@ async def contexte_du_jour() -> dict[str, Any]:
         "plan_resume": (etat.get("plan") or {}).get("resume", ""),
         "seances_prevues": [s for s in _seances(etat) if debut <= s.get("jour", "") <= fin],
         "journal": [s for s in etat.get("journal", []) if s.get("date", "") >= (ajd - timedelta(days=14)).isoformat()],
-        "activites_14_jours": [_compacte(a, etat.get("commentaires")) for a in activites],
+        "activites_14_jours": [_compacte(a, etat.get("commentaires"), etat.get("avisSeances")) for a in activites],
         "garmin_branche": garmin,
         "strava_branche": await anyio.to_thread.run_sync(lambda: bool(base.lire_jetons_strava(uid))),
     }
@@ -458,7 +458,8 @@ CHAMPS_HISTORIQUE = ("id", "debut", "sport", "type", "nom", "distance_km", "dure
                      "vap_min_km", "allure_mouvement_min_km")
 
 
-def _compacte(a: dict[str, Any], commentaires: dict[str, Any] | None = None) -> dict[str, Any]:
+def _compacte(a: dict[str, Any], commentaires: dict[str, Any] | None = None,
+              avis_coachs: dict[str, Any] | None = None) -> dict[str, Any]:
     """Activité sans les champs vides, avec le ressenti et le commentaire laissés par l'utilisateur dans l'app."""
     compacte = {k: a[k] for k in CHAMPS_HISTORIQUE if a.get(k) not in (None, "")}
     # Allure moyenne (course, trail) en min/km ; la VAP (allure ajustée à la pente) est calculée à la
@@ -467,6 +468,9 @@ def _compacte(a: dict[str, Any], commentaires: dict[str, Any] | None = None) -> 
     if km > 0 and minutes > 0 and a.get("sport") in ("course", "trail"):
         compacte["allure_min_km"] = round(minutes / km, 2)
     avis = (commentaires or {}).get(str(a.get("id")))
+    avis_coach = (avis_coachs or {}).get(str(a.get("id")))
+    if avis_coach:
+        compacte["avis_coach"] = avis_coach.get("texte")
     if avis:
         compacte["ressenti"] = avis.get("ressenti")
         compacte["commentaire"] = avis.get("notes")
@@ -486,11 +490,11 @@ async def historique(debut: str | None = None, fin: str | None = None, sport: Sp
     Au plus 300 activités (les plus récentes) : pour une longue période, commence par statistiques."""
     uid = _uid()
     activites = await _activites(uid, debut, fin, sport)
-    commentaires = (await _lire(uid)).get("commentaires")
+    etat = await _lire(uid)
     return {
         "nombre": len(activites),
         "tronque": len(activites) > 300,
-        "activites": [_compacte(a, commentaires) for a in activites[-300:]],
+        "activites": [_compacte(a, etat.get("commentaires"), etat.get("avisSeances")) for a in activites[-300:]],
     }
 
 
@@ -569,6 +573,25 @@ async def statistiques(
         "par_sport": {k: _arrondir(v) for k, v in par_sport.items()},
         "records": {k: _compacte(v) for k, v in records.items() if v},
     }
+
+
+@mcp.tool()
+async def avis_seance(texte: str, id_activite: str | None = None, id_seance: str | None = None) -> str:
+    """Enregistre ton avis de coach sur une séance réalisée (quelques phrases : ce qui s'est bien passé, ce
+    qui interroge, ce que ça change pour la suite) ; il s'affiche dans l'app sous l'activité ou la séance.
+    id_activite : l'activité Garmin (historique, contexte_du_jour) ; id_seance : la séance du plan, si elle
+    a été faite sans activité enregistrée. Remplace l'avis précédent sur la même séance."""
+    uid = _uid()
+    if not id_activite and not id_seance:
+        raise ToolError("Indique l'activité (id_activite) ou la séance (id_seance) concernée.")
+
+    def changer(etat: dict[str, Any]) -> str:
+        cle = str(id_activite) if id_activite else f"seance:{id_seance}"
+        etat.setdefault("avisSeances", {})[cle] = {"date": _aujourdhui().isoformat(), "texte": texte[:3000],
+                                                   "seance": id_seance}
+        return "Avis enregistré : il s'affiche dans l'app sous la séance."
+
+    return await _modifier(uid, changer)
 
 
 @mcp.tool()
@@ -754,6 +777,13 @@ def analyse_historique() -> str:
             "derniers mois), mes records et la répartition par sport. Commente le volume, la régularité, la "
             "progression, l'équilibre entre intensité et endurance, et les points d'attention, en lien avec mon "
             "objectif. Puis enregistre ce commentaire avec enregistrer_analyse.")
+
+
+@mcp.prompt(title="Avis sur ma dernière séance")
+def avis_derniere_seance() -> str:
+    """Le coach analyse ta dernière séance et enregistre son avis dans l'app."""
+    return ("Donne-moi ton avis de coach sur ma dernière séance : regarde son détail (tours, FC, allure, VAP), "
+            "compare avec ce qui était prévu, mon ressenti et ma forme, puis enregistre ton avis avec avis_seance.")
 
 
 @mcp.prompt(title="Bilan de la semaine")

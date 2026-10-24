@@ -389,6 +389,12 @@ CHAMPS_HISTORIQUE = ("id", "debut", "sport", "type", "nom", "distance_km", "dure
 def _compacte(a: dict[str, Any], commentaires: dict[str, Any] | None = None) -> dict[str, Any]:
     """Activité sans les champs vides, avec le ressenti et le commentaire laissés par l'utilisateur dans l'app."""
     compacte = {k: a[k] for k in CHAMPS_HISTORIQUE if a.get(k) not in (None, "")}
+    # Allure moyenne (course, trail) et allure au kilomètre-effort (trail : 100 m D+ = 1 km), en min/km
+    km, minutes, dplus = float(a.get("distance_km") or 0), float(a.get("duree_min") or 0), float(a.get("denivele_m") or 0)
+    if km > 0 and minutes > 0 and a.get("sport") in ("course", "trail"):
+        compacte["allure_min_km"] = round(minutes / km, 2)
+        if a.get("sport") == "trail" and dplus > 0:
+            compacte["vap_min_km"] = round(minutes / (km + dplus / 100), 2)
     avis = (commentaires or {}).get(str(a.get("id")))
     if avis:
         compacte["ressenti"] = avis.get("ressenti")

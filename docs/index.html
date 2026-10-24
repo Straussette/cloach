@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.7">
+<meta name="app-version" content="2026-10-24.8">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -514,6 +514,24 @@ function versDate(iso) { const [a, m, j] = iso.split('-').map(Number); return ne
 function decaler(iso, jours) { const d = versDate(iso); d.setDate(d.getDate() + jours); return jourISO(d); }
 const lundiDe = (iso) => decaler(iso, -((versDate(iso).getDay() + 6) % 7));
 const nombre = (x, d = 0) => x.toLocaleString('fr-FR', { maximumFractionDigits: d, minimumFractionDigits: 0 });
+// Allure en min/km → « 6:14 /km » (arrondie à la seconde, sans « 6:60 »)
+function formatAllure(minParKm) {
+  const s = Math.round(minParKm * 60);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} /km`;
+}
+// Allure moyenne (course, trail), VAP en trail, vitesse moyenne à vélo
+// VAP : allure ajustée à la pente, estimée au kilomètre-effort (100 m de D+ comptent comme 1 km)
+function vitessesActivite(a) {
+  const km = Number(a.distance_km), min = Number(a.duree_min), dplus = Number(a.denivele_m) || 0;
+  if (!(km > 0 && min > 0)) return [];
+  if (a.sport === 'course' || a.sport === 'trail') {
+    const textes = [formatAllure(min / km)];
+    if (a.sport === 'trail' && dplus > 0) textes.push(`VAP ${formatAllure(min / (km + dplus / 100))}`);
+    return textes;
+  }
+  if (a.sport === 'velo') return [`${nombre((km / min) * 60, 1)} km/h`];
+  return [];
+}
 function dateLisible(iso, avecJour = true) {
   return versDate(iso).toLocaleDateString('fr-FR', avecJour ? { weekday: 'long', day: 'numeric', month: 'long' } : { day: 'numeric', month: 'short' });
 }
@@ -848,6 +866,7 @@ function htmlActivite(a) {
     a.debut?.length >= 16 ? a.debut.slice(11, 16).replace(':', ' h ') : '',
     a.distance_km ? `${nombre(Number(a.distance_km), 1)} km` : '',
     a.duree_min ? dureeLisible(Math.round(a.duree_min)) : '',
+    ...vitessesActivite(a),
     a.denivele_m ? `${nombre(Number(a.denivele_m))} m D+` : '',
     a.fc_moy ? `FC ${nombre(Number(a.fc_moy))}` : '',
     a.charge ? `charge ${nombre(Number(a.charge))}` : '',
@@ -1028,7 +1047,7 @@ function afficherChoixActivite(jour, sport, choisie) {
   zone.innerHTML = `<div class="choix-activite">${liste.map((a) => `<label><input type="radio" name="activite" value="${esc(a.id)}" ${a.id === actuelle ? 'checked' : ''}>
     <span>${(SPORTS[a.sport] || SPORTS.autre).icone} <b>${esc(a.nom || SPORTS[a.sport]?.nom || '')}</b><br><span class="muted petit">${esc([
       a.debut?.length >= 16 ? a.debut.slice(11, 16).replace(':', ' h ') : '', a.distance_km ? `${nombre(Number(a.distance_km), 1)} km` : '',
-      a.duree_min ? dureeLisible(Math.round(a.duree_min)) : '', a.denivele_m ? `${nombre(Number(a.denivele_m))} m D+` : '', a.fc_moy ? `FC ${nombre(Number(a.fc_moy))}` : '',
+      a.duree_min ? dureeLisible(Math.round(a.duree_min)) : '', ...vitessesActivite(a), a.denivele_m ? `${nombre(Number(a.denivele_m))} m D+` : '', a.fc_moy ? `FC ${nombre(Number(a.fc_moy))}` : '',
     ].filter(Boolean).join(' · '))}</span></span></label>`).join('')}
     <label><input type="radio" name="activite" value="" ${actuelle === '' ? 'checked' : ''}><span class="muted">Aucune de ces activités</span></label></div>`;
 }
@@ -1630,7 +1649,6 @@ function allure(a) {
   const km = Number(a.distance_km), min = Number(a.duree_min);
   return km > 0 && min > 0 ? min / km : null;
 }
-const formatAllure = (minParKm) => `${Math.floor(minParKm)}:${String(Math.round((minParKm % 1) * 60)).padStart(2, '0')} /km`;
 
 // Une sortie enregistrée en plusieurs morceaux (montre arrêtée puis relancée moins de 30 min plus tard,
 // même jour, même famille de sport) compte comme une seule sortie pour les records.

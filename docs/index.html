@@ -10,14 +10,14 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-23.7">
+<meta name="app-version" content="2026-10-24.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
   :root {
     --bg:#f3f6f5; --surface:#ffffff; --text:#14211f; --muted:#62716e; --border:#dfe7e5;
     --accent:#0f6b63; --on-accent:#ffffff; --accent-doux:#e1f0ee; --vif:#e8692c;
-    --ok:#2f7d4f; --alerte:#b42a2a;
+    --ok:#276b43; --alerte:#b42a2a; --attention:#94510e;
     --i-repos:#8a9593; --i-facile:#2f9e5b; --i-modere:#2a7fb8; --i-soutenu:#e8862c; --i-tres-soutenu:#c9372c;
     --shadow:0 1px 3px rgba(20,33,31,.08), 0 4px 14px rgba(20,33,31,.06);
     --voile-clair:rgba(255,255,255,.16); --voile:rgba(0,0,0,.45);
@@ -28,14 +28,14 @@
     :root:not([data-theme="light"]) {
       --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
       --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
-      --ok:#4fb378; --alerte:#e0605a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
+      --ok:#4fb378; --alerte:#f07b74; --attention:#e3a25a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
       --serie-1:#1f9e91; --serie-2:#e0703a; --serie-autre:#6f7c79;
     }
   }
   :root[data-theme="dark"] {
     --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
     --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
-    --ok:#4fb378; --alerte:#e0605a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
+    --ok:#4fb378; --alerte:#f07b74; --attention:#e3a25a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
     --serie-1:#1f9e91; --serie-2:#e0703a; --serie-autre:#6f7c79;
   }
 
@@ -138,6 +138,20 @@
   .bandeau button .prevu { opacity:.45; }
   .bandeau button.ajd .num { color:var(--accent); }
   .bandeau button.choisi { outline:2px solid var(--accent); background:var(--surface); }
+  .forme-jour { display:grid; gap:6px; margin:12px 0 4px; padding:12px; border-radius:12px; background:var(--accent-doux); }
+  .forme-jour .synthese { font-weight:700; }
+  .signal { display:grid; grid-template-columns:20px 1fr auto; gap:8px; align-items:baseline; font-size:.88rem; }
+  .signal b { font-variant-numeric:tabular-nums; }
+  .etat-ok { color:var(--ok); }
+  .etat-attention { color:var(--attention); }
+  .etat-alerte { color:var(--alerte); }
+  .avis { margin:12px 0 4px; padding:12px; border-radius:12px; border:1px solid var(--border); }
+  .avis .verdict { font-weight:700; }
+  details.alternatives { margin-top:8px; font-size:.88rem; }
+  details.alternatives summary { color:var(--accent); cursor:pointer; font-weight:600; }
+  .alternative { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:start; padding:8px 0; border-top:1px dashed var(--border); }
+  .alternative:first-of-type { border-top:0; }
+  .alternative .pour { font-size:.78rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
   .resume-semaine { margin:10px 0 0; font-size:.85rem; color:var(--muted); text-align:center; font-variant-numeric:tabular-nums; }
   .outils-cal { display:flex; justify-content:center; gap:8px; margin-top:8px; }
   .outils-cal input { width:auto; padding:6px 10px; font-size:.85rem; }
@@ -229,7 +243,8 @@
       <h2>Demander au coach</h2>
       <p class="muted petit">Ouvre ton Claude avec la question déjà écrite. Le connecteur Cloach doit être branché (onglet Profil).</p>
       <div class="pile">
-        <a class="btn large" target="_blank" rel="noopener" data-question="jour">☀️ Que faire aujourd'hui ?</a>
+        <a class="btn large" target="_blank" rel="noopener" data-question="verifier">✅ Ma séance tient-elle ?</a>
+        <a class="btn secondaire large" target="_blank" rel="noopener" data-question="jour">☀️ Que faire aujourd'hui ?</a>
         <a class="btn secondaire large" target="_blank" rel="noopener" data-question="bilan">📊 Bilan de ma semaine</a>
       </div>
     </div>
@@ -682,6 +697,7 @@ function lienClaude(question) {
   return 'https://claude.ai/new?q=' + encodeURIComponent(question + ' (Utilise le connecteur Cloach.)');
 }
 const QUESTIONS = {
+  verifier: () => 'Vérifie si ma séance prévue aujourd\'hui reste pertinente : regarde ma forme du jour (sommeil, VFC, Body Battery, FC de repos) et ma charge récente. Dis-moi s\'il faut la garder, l\'alléger, la remplacer ou me reposer, puis enregistre ton avis.',
   jour: () => 'Que dois-je faire aujourd\'hui ? Regarde mon contexte du jour et ma forme, dis-moi si je garde, allège ou décale la séance prévue, puis détaille la séance.',
   analyse: () => 'Analyse mon historique d\'activités : volume, régularité, progression, répartition par sport, équilibre endurance / intensité et points d\'attention, en lien avec mon objectif. Puis enregistre ton commentaire pour l\'app.',
   bilan: () => 'Fais le bilan de ma semaine : séances prévues et faites, charge, forme, points positifs, points d\'attention, et ce que je dois ajuster.',
@@ -708,10 +724,35 @@ function htmlSeance(s, { avecDate = false } = {}) {
       <div class="titre">${esc(s.titre || sport.nom)}</div>
       <div class="meta">${meta}</div>
       ${s.details ? `<div class="details">${esc(s.details)}</div>` : ''}
+      ${s.etat !== 'fait' && s.alternatives?.length ? `<details class="alternatives"><summary>${s.alternatives.length} alternative${s.alternatives.length > 1 ? 's' : ''}</summary>
+        ${s.alternatives.map((a, i) => `<div class="alternative"><div>
+          <div class="pour">${esc(a.pour)}</div>
+          <div class="titre">${(SPORTS[a.sport] || SPORTS.autre).icone} ${esc(a.titre)}</div>
+          <div class="meta">${[a.duree ? dureeLisible(a.duree) : '', esc(INTENSITES[a.intensite] || a.intensite || '')].filter(Boolean).join(' · ')}</div>
+          ${a.details ? `<div class="details">${esc(a.details)}</div>` : ''}
+        </div><button class="btn secondaire" type="button" data-alternative="${esc(s.id)}" data-index="${i}">Choisir</button></div>`).join('')}
+      </details>` : ''}
     </div>
     <div><button class="etat-seance ${s.etat === 'fait' ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'fait' ? '✓ Fait' : s.etat === 'saute' ? 'Sauté' : 'À faire'}</button></div>
   </div>`;
 }
+
+// Choisir une alternative : elle prend la place de la séance, qui devient une alternative
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-alternative]');
+  if (!b) return;
+  const id = b.dataset.alternative, i = Number(b.dataset.index);
+  modifier(() => {
+    const s = toutesSeances().find((x) => x.id === id);
+    const alt = s?.alternatives?.[i];
+    if (!alt) return;
+    // Une seule « Prévu initialement » : la séance remplacée prend ce nom s'il est libre
+    const initialeAilleurs = s.alternatives.some((x, j) => j !== i && x.pour === 'Prévu initialement');
+    const ancienne = { pour: initialeAilleurs ? 'Option précédente' : 'Prévu initialement', sport: s.sport, titre: s.titre, duree: s.duree, intensite: s.intensite, details: s.details };
+    Object.assign(s, { sport: alt.sport, titre: alt.titre, duree: alt.duree, intensite: alt.intensite, details: alt.details });
+    s.alternatives.splice(i, 1, ancienne);
+  });
+});
 
 // À faire → fait → sauté → à faire
 document.addEventListener('click', (e) => {
@@ -778,6 +819,61 @@ function htmlNote(n) {
   </div>`;
 }
 
+// Forme du jour (Garmin, via le serveur) : lue une fois par jour et par ouverture
+let formeDuJour = null;
+let formeEnCours = false;
+async function chargerForme() {
+  const ajd = jourISO();
+  if (!session() || !etat.garmin.connecte || formeEnCours || formeDuJour?.jour === ajd) return;
+  formeEnCours = true;
+  try {
+    formeDuJour = await appelerGarmin('forme', { jour: ajd });
+    afficherJour();
+  } catch (e) { console.warn('Forme du jour', e); } finally { formeEnCours = false; }
+}
+
+// Chaque signal est classé ok / attention / alerte, avec une icône et un mot : jamais la couleur seule
+const ETATS = { ok: ['✓', 'bon'], attention: ['!', 'moyen'], alerte: ['✕', 'faible'] };
+function signauxForme(f) {
+  const liste = [];
+  const ajouter = (nom, valeur, etatSignal) => liste.push({ nom, valeur, etat: etatSignal });
+  if (f.sommeil?.score) ajouter('Sommeil', `${f.sommeil.score}/100${f.sommeil.duree_h ? ` · ${nombre(f.sommeil.duree_h, 1)} h` : ''}`, f.sommeil.score >= 80 ? 'ok' : f.sommeil.score >= 60 ? 'attention' : 'alerte');
+  if (f.vfc?.statut) {
+    const statuts = { BALANCED: ['équilibrée', 'ok'], UNBALANCED: ['déséquilibrée', 'attention'], LOW: ['basse', 'alerte'], POOR: ['faible', 'alerte'] };
+    const [mot, e] = statuts[f.vfc.statut] || [f.vfc.statut.toLowerCase(), 'attention'];
+    ajouter('VFC', `${mot}${f.vfc.nuit ? ` · ${f.vfc.nuit} ms` : ''}`, e);
+  }
+  const bb = f.body_battery?.reveil ?? f.body_battery?.actuel;
+  if (bb != null) ajouter('Body Battery', `${bb}${f.body_battery?.reveil != null ? ' au réveil' : ''}`, bb >= 70 ? 'ok' : bb >= 40 ? 'attention' : 'alerte');
+  if (f.fc_repos?.jour) {
+    const ecart = f.fc_repos.moyenne_7j ? f.fc_repos.jour - f.fc_repos.moyenne_7j : 0;
+    ajouter('FC de repos', `${f.fc_repos.jour} bpm${ecart ? ` (${ecart > 0 ? '+' : ''}${ecart} sur 7 j)` : ''}`, ecart <= 2 ? 'ok' : ecart <= 5 ? 'attention' : 'alerte');
+  }
+  if (f.disponibilite?.score != null) ajouter('Disponibilité', `${f.disponibilite.score}/100`, f.disponibilite.score >= 70 ? 'ok' : f.disponibilite.score >= 40 ? 'attention' : 'alerte');
+  return liste;
+}
+
+function htmlForme() {
+  if (!etat.garmin.connecte) return '';
+  if (!formeDuJour || formeDuJour.jour !== jourISO()) return '<div class="forme-jour"><span class="muted petit">Forme du jour : lecture de ta montre…</span></div>';
+  const signaux = signauxForme(formeDuJour);
+  if (!signaux.length) return '<div class="forme-jour"><span class="muted petit">Pas encore de données de récupération aujourd\'hui (synchronise ta montre).</span></div>';
+  const alertes = signaux.filter((x) => x.etat === 'alerte').length, attentions = signaux.filter((x) => x.etat === 'attention').length;
+  const [classe, texte] = alertes ? ['alerte', '✕ Fatigue probable : vérifie ta séance'] : attentions >= 2 ? ['attention', '! À surveiller'] : ['ok', '✓ Signaux au vert'];
+  return `<div class="forme-jour">
+    <div class="synthese etat-${classe}">${texte}</div>
+    ${signaux.map((x) => `<div class="signal"><span class="etat-${x.etat}" aria-label="${ETATS[x.etat][1]}">${ETATS[x.etat][0]}</span><span>${esc(x.nom)}</span><b>${esc(x.valeur)}</b></div>`).join('')}
+  </div>`;
+}
+
+const VERDICTS = { garder: ['ok', '✓ Séance maintenue'], alleger: ['attention', '! Séance allégée'], remplacer: ['attention', '↺ Séance remplacée'], repos: ['alerte', '✕ Repos conseillé'] };
+function htmlAvis() {
+  const a = etat.avisDuJour;
+  if (!a || a.date !== jourISO()) return '';
+  const [classe, texte] = VERDICTS[a.verdict] || ['attention', a.verdict];
+  return `<div class="avis"><div class="verdict etat-${classe}">${esc(texte)}</div><div class="petit" style="margin-top:4px">${esc(a.explication)}</div><div class="muted petit" style="margin-top:4px">Avis de Claude</div></div>`;
+}
+
 function afficherJour() {
   const ajd = jourISO();
   const lundi = lundiDe(jourChoisi);
@@ -816,6 +912,7 @@ function afficherJour() {
   const { acts: faites, seules: notes } = realiseDuJour(jourChoisi);
   const titre = dateLisible(jourChoisi).replace(/^./, (c) => c.toUpperCase()) + (jourChoisi === ajd ? ' · aujourd\'hui' : '');
   let html = `<h2>${esc(titre)}</h2>`;
+  if (jourChoisi === ajd) html += htmlForme() + htmlAvis();
   if (prevues.length) html += `<h3 style="margin:12px 0 4px">${jourChoisi < ajd ? 'Prévu' : 'Au programme'}</h3>` + prevues.map((x) => htmlSeance(x)).join('');
   if (faites.length || notes.length) html += '<h3 style="margin:12px 0 4px">Réalisé</h3>' + faites.map(htmlActivite).join('') + notes.map(htmlNote).join('');
   if (!prevues.length && !faites.length && !notes.length) {
@@ -825,6 +922,7 @@ function afficherJour() {
   }
   $('#carteJour').innerHTML = html;
   $('#carteCoach').hidden = jourChoisi !== ajd;
+  if (jourChoisi === ajd) chargerForme();
 }
 
 function choisirJour(jour) {

@@ -120,6 +120,39 @@ class Garmins:
         except Exception as e:  # un échec ici ne doit pas faire échouer la requête
             print(f"Sauvegarde des jetons Garmin impossible : {e}", flush=True)
 
+    def forme(self, uid: str, jour: str) -> dict[str, Any]:
+        """Signaux de récupération du jour, chacun lu à part : une donnée absente ne bloque pas les autres."""
+        def lire(nom: str, *args: Any) -> Any:
+            try:
+                return self.appeler(uid, nom, *args)
+            except CompteAbsent:
+                raise
+            except Exception:
+                return None
+
+        forme: dict[str, Any] = {"jour": jour}
+        sommeil = (lire("get_sleep_data", jour) or {}).get("dailySleepDTO") or {}
+        score = (sommeil.get("sleepScores") or {}).get("overall") or {}
+        if score.get("value") or sommeil.get("sleepTimeSeconds"):
+            forme["sommeil"] = {"score": score.get("value"), "qualite": score.get("qualifierKey"),
+                                "duree_h": round((sommeil.get("sleepTimeSeconds") or 0) / 3600, 1) or None}
+        vfc = (lire("get_hrv_data", jour) or {}).get("hrvSummary") or {}
+        if vfc.get("status"):
+            base = vfc.get("baseline") or {}
+            forme["vfc"] = {"statut": vfc.get("status"), "nuit": vfc.get("lastNightAvg"), "semaine": vfc.get("weeklyAvg"),
+                            "normale_basse": base.get("balancedLow"), "normale_haute": base.get("balancedUpper")}
+        resume = lire("get_user_summary", jour) or {}
+        if resume.get("bodyBatteryMostRecentValue") is not None:
+            forme["body_battery"] = {"actuel": resume.get("bodyBatteryMostRecentValue"), "reveil": resume.get("bodyBatteryAtWakeTime")}
+        if resume.get("restingHeartRate"):
+            forme["fc_repos"] = {"jour": resume.get("restingHeartRate"), "moyenne_7j": resume.get("lastSevenDaysAvgRestingHeartRate")}
+        if resume.get("averageStressLevel") is not None and resume.get("averageStressLevel") >= 0:
+            forme["stress_moyen"] = resume.get("averageStressLevel")
+        dispo = lire("get_training_readiness", jour) or []
+        if isinstance(dispo, list) and dispo and dispo[0].get("score") is not None:
+            forme["disponibilite"] = {"score": dispo[0].get("score"), "niveau": dispo[0].get("level")}
+        return forme
+
     def branche(self, uid: str) -> bool:
         return self.base.lire_jetons_garmin(uid) is not None
 
@@ -166,6 +199,9 @@ class Garmins:
                 return repondre(*await asyncio.to_thread(self._connexion, uid, corps))
             if action == "code":
                 return repondre(*await asyncio.to_thread(self._code, uid, corps))
+            if action == "forme":
+                jour = str(corps.get("jour") or date.today().isoformat())[:10]
+                return repondre(await asyncio.to_thread(self.forme, uid, jour))
             if action == "importer":
                 return repondre(*await asyncio.to_thread(self._importer, uid, corps))
         except Exception as e:

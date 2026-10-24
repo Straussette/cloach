@@ -66,9 +66,9 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 - pour le passé plus lointain, utilise statistiques (totaux par semaine, mois ou année, records) puis historique (le détail d'une période) : l'historique importé est plus rapide que les outils Garmin ;
 - si Garmin est branché, consulte ce qui est utile, sans excès : activités récentes, disponibilite_entrainement, statut_entrainement, sommeil, vfc, body_battery. Cite brièvement les chiffres.
 
-Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
+Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan : le jour J, vérifie avec forme_du_jour si la séance prévue reste pertinente, puis enregistre ton verdict avec avis_du_jour (garder, alléger, remplacer ou repos), avec la séance de remplacement s'il y en a une. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi) ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app."""
 
 mcp = MCPServer(
     name="cloach",
@@ -183,6 +183,15 @@ async def plan() -> dict[str, Any] | None:
     return (await _lire(_uid())).get("plan")
 
 
+class Alternative(BaseModel):
+    pour: str = Field(description="Dans quel cas la choisir, ex. « Si fatigue », « Si peu de temps », « En intérieur »")
+    sport: Sport
+    titre: str = Field(description="Titre court")
+    duree: int = Field(ge=0, le=600, description="Durée en minutes")
+    intensite: Intensite
+    details: str = Field(description="Contenu précis de la séance")
+
+
 class Seance(BaseModel):
     jour: str = Field(description="Date AAAA-MM-JJ")
     sport: Sport
@@ -190,6 +199,7 @@ class Seance(BaseModel):
     duree: int = Field(ge=0, le=600, description="Durée en minutes")
     intensite: Intensite
     details: str = Field(description="Contenu précis : échauffement, corps de séance, retour au calme, allures ou zones")
+    alternatives: list[Alternative] = Field(default_factory=list, description="1 à 3 variantes que l'utilisateur peut choisir à la place")
 
 
 class Semaine(BaseModel):
@@ -214,6 +224,7 @@ async def enregistrer_plan(resume: str, semaines: list[Semaine], conseils: list[
             seances = []
             for s in w.seances[:14]:
                 seance = {"id": _id(), **s.model_dump()}
+                seance["alternatives"] = seance["alternatives"][:3]
                 avant = next((x for x in anciennes if x.get("jour") == s.jour and x.get("sport") == s.sport), None)
                 if avant:
                     seance["etat"] = avant["etat"]
@@ -221,6 +232,50 @@ async def enregistrer_plan(resume: str, semaines: list[Semaine], conseils: list[
             nouvelles.append({"debut": w.debut, "theme": w.theme, "seances": seances})
         etat["plan"] = {"cree": _aujourdhui().isoformat(), "resume": resume, "conseils": conseils[:6], "semaines": nouvelles}
         return f"Plan enregistré : {sum(len(w['seances']) for w in nouvelles)} séances sur {len(nouvelles)} semaines."
+
+    return await _modifier(uid, changer)
+
+
+@mcp.tool()
+async def forme_du_jour() -> dict[str, Any]:
+    """Garmin, en un appel : les signaux de récupération du jour (score de sommeil, statut de VFC, Body Battery,
+    FC de repos et sa moyenne sur 7 jours, stress, Training Readiness si la montre le fournit)."""
+    uid = _uid()
+    try:
+        return await anyio.to_thread.run_sync(garmins.forme, uid, _aujourdhui().isoformat())
+    except CompteAbsent as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        raise ToolError(_causes(exc)) from exc
+
+
+@mcp.tool()
+async def avis_du_jour(
+    verdict: Literal["garder", "alleger", "remplacer", "repos"], explication: str,
+    id_seance: str | None = None, remplacement: Alternative | None = None,
+) -> str:
+    """Enregistre ton verdict sur la séance du jour, affiché dans le Calendrier de l'app : garder, alleger,
+    remplacer ou repos, avec une explication courte qui cite les données de forme. Avec id_seance et
+    remplacement (pour alleger ou remplacer), la séance prévue est remplacée ; elle reste disponible dans
+    ses alternatives (« Prévu initialement ») si l'utilisateur préfère la faire quand même."""
+    uid = _uid()
+
+    def changer(etat: dict[str, Any]) -> str:
+        message = "Avis enregistré"
+        if id_seance and remplacement:
+            seance = next((x for x in _seances(etat) if x.get("id") == id_seance), None)
+            if not seance:
+                raise ToolError("Séance introuvable dans le plan.")
+            initiale = {k: seance.get(k) for k in ("sport", "titre", "duree", "intensite", "details")}
+            nouvelle = remplacement.model_dump()
+            nouvelle.pop("pour", None)
+            seance.update(nouvelle)
+            alternatives = [a for a in seance.get("alternatives") or [] if a.get("pour") != "Prévu initialement"]
+            seance["alternatives"] = [{"pour": "Prévu initialement", **initiale}, *alternatives][:4]
+            message += f" ; séance remplacée par « {remplacement.titre} »"
+        etat["avisDuJour"] = {"date": _aujourdhui().isoformat(), "verdict": verdict,
+                              "explication": explication[:1500], "id": id_seance}
+        return message + "."
 
     return await _modifier(uid, changer)
 
@@ -469,7 +524,8 @@ async def sommeil(jour: str | None = None) -> dict[str, Any]:
     # Les courbes minute par minute sont très longues et peu utiles ici.
     for cle in ("sleepMovement", "sleepLevels", "sleepRestlessMoments",
                 "sleepHeartRate", "sleepStress", "sleepBodyBattery", "hrvData",
-                "wellnessEpochRespirationDataDTOList", "sleepRespirationData"):
+                "wellnessEpochRespirationDataDTOList", "sleepRespirationData",
+                "wellnessEpochSPO2DataDTOList", "wellnessEpochRespirationAveragesList"):
         donnees.pop(cle, None)
     return donnees
 
@@ -543,6 +599,14 @@ def seance_du_jour() -> str:
     return ("Que dois-je faire aujourd'hui ? Regarde mon contexte du jour et, si Garmin est branché, ma forme "
             "(sommeil, VFC, Body Battery, disponibilité). Dis-moi si je garde, allège ou décale la séance prévue, "
             "puis détaille la séance.")
+
+
+@mcp.prompt(title="Ma séance tient-elle ?")
+def verifier_seance() -> str:
+    """Le coach vérifie, d'après ta récupération, si la séance du jour reste pertinente."""
+    return ("Vérifie si ma séance prévue aujourd'hui reste pertinente : regarde ma forme du jour (sommeil, VFC, "
+            "Body Battery, FC de repos) et ma charge récente. Dis-moi s'il faut la garder, l'alléger, la remplacer "
+            "ou me reposer, puis enregistre ton avis (avec la séance de remplacement s'il y en a une).")
 
 
 @mcp.prompt(title="Créer ou réajuster mon plan")

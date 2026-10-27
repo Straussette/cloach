@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-24.15">
+<meta name="app-version" content="2026-10-27.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -160,6 +160,13 @@
   .actions-seance { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .actions-seance .btn { padding:7px 12px; font-size:.85rem; }
   .actions-seance .ok { font-size:.82rem; color:var(--ok); align-self:center; }
+  .semaines-plan { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; margin-bottom:12px; }
+  .seance.compacte { cursor:pointer; }
+  .seance.compacte .objectif { font-size:.88rem; color:var(--muted); margin-top:2px; }
+  .seance.compacte .deplier { font-size:.8rem; color:var(--accent); margin-top:4px; }
+  .seance .jour-court { font-size:.78rem; color:var(--muted); }
+  .seance .jour-court::first-letter { text-transform:uppercase; }
+  details.logique summary { cursor:pointer; color:var(--accent); font-weight:600; font-size:.9rem; }
   details.alternatives { margin-top:8px; font-size:.88rem; }
   details.alternatives summary { color:var(--accent); cursor:pointer; font-weight:600; }
   .alternative { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:start; padding:8px 0; border-top:1px dashed var(--border); }
@@ -791,17 +798,44 @@ function majLiensClaude() {
 $('#demandePlan').addEventListener('input', majLiensClaude);
 
 /* ---------- Affichage d'une séance ---------- */
-function htmlSeance(s, { avecDate = false, lien = true } = {}) {
+// Intérêt de la séance en une phrase : champ objectif (écrit par Claude), sinon début des détails
+function objectifSeance(s) {
+  if (s.objectif) return s.objectif;
+  const phrase = (s.details || '').split(/(?<=[.!?])\s|\n/)[0] || '';
+  return phrase.length > 110 ? phrase.slice(0, 107) + '…' : phrase;
+}
+// Séances dépliées dans l'onglet Plan (gardées d'un affichage à l'autre)
+const seancesOuvertes = new Set();
+
+// compacte : une ligne (jour, titre, intérêt) qui se déplie au toucher pour montrer détails, déroulé et alternatives
+function htmlSeance(s, { avecDate = false, lien = true, compacte = false } = {}) {
   const sport = SPORTS[s.sport] || SPORTS.autre;
+  const ouverte = !compacte || seancesOuvertes.has(s.id);
   const meta = [
-    avecDate ? esc(dateLisible(s.jour)) : '',
+    avecDate && !compacte ? esc(dateLisible(s.jour)) : '',
     s.duree ? dureeLisible(s.duree) : '',
     `<span class="intensite ${esc(s.intensite)}"></span>${esc(INTENSITES[s.intensite] || s.intensite || '')}`,
   ].filter(Boolean).join(' · ');
-  return `<div class="seance ${s.etat === 'fait' ? 'fait' : s.etat === 'saute' ? 'saute' : ''}">
+  const etatBouton = `<button class="etat-seance ${s.etat === 'fait' ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'fait' ? '✓ Fait' : s.etat === 'saute' ? 'Sauté' : 'À faire'}</button>`;
+  if (!ouverte) {
+    return `<div class="seance compacte ${s.etat === 'fait' ? 'fait' : s.etat === 'saute' ? 'saute' : ''}" data-ouvrir="${esc(s.id)}">
+      <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
+      <div>
+        <div class="jour-court">${esc(dateLisible(s.jour))}</div>
+        <div class="titre">${esc(s.titre || sport.nom)}</div>
+        ${objectifSeance(s) ? `<div class="objectif">${esc(objectifSeance(s))}</div>` : ''}
+        <div class="meta">${meta}</div>
+        <div class="deplier">Détails${s.alternatives?.length ? ` et ${s.alternatives.length} alternative${s.alternatives.length > 1 ? 's' : ''}` : ''} ▾</div>
+      </div>
+      <div>${etatBouton}</div>
+    </div>`;
+  }
+  return `<div class="seance ${s.etat === 'fait' ? 'fait' : s.etat === 'saute' ? 'saute' : ''} ${compacte ? 'compacte' : ''}" ${compacte ? `data-ouvrir="${esc(s.id)}"` : ''}>
     <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
     <div>
+      ${compacte ? `<div class="jour-court">${esc(dateLisible(s.jour))}</div>` : ''}
       <div class="titre">${esc(s.titre || sport.nom)}</div>
+      ${compacte && s.objectif ? `<div class="objectif">${esc(s.objectif)}</div>` : ''}
       <div class="meta">${meta}</div>
       ${s.details && s.etat !== 'fait' ? `<div class="details">${esc(s.details)}</div>` : ''}
       ${s.etat === 'fait' && lien ? htmlLienGarmin(s) : ''}
@@ -816,10 +850,20 @@ function htmlSeance(s, { avecDate = false, lien = true } = {}) {
           ${htmlStructure(a, i, s.id)}
         </div><button class="btn secondaire" type="button" data-alternative="${esc(s.id)}" data-index="${i}">Choisir</button></div>`).join('')}
       </details>` : ''}
+      ${compacte ? '<div class="deplier">Replier ▴</div>' : ''}
     </div>
-    <div><button class="etat-seance ${s.etat === 'fait' ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'fait' ? '✓ Fait' : s.etat === 'saute' ? 'Sauté' : 'À faire'}</button></div>
+    <div>${etatBouton}</div>
   </div>`;
 }
+
+// Toucher une séance compacte la déplie ou la replie (sauf sur ses boutons, liens et alternatives)
+document.addEventListener('click', (e) => {
+  const zone = e.target.closest('[data-ouvrir]');
+  if (!zone || e.target.closest('button, a, summary, details, input, select, textarea')) return;
+  const id = zone.dataset.ouvrir;
+  if (seancesOuvertes.has(id)) seancesOuvertes.delete(id); else seancesOuvertes.add(id);
+  afficherPlan();
+});
 
 /* ---------- Séances structurées : montre Garmin et Zwift ---------- */
 // Étapes écrites par Claude : { type, duree_s | distance_m, cible: { type, min, max, zone }, repetitions, etapes }
@@ -1299,20 +1343,34 @@ function afficherPlan() {
     $('#semaines').innerHTML = '';
     return;
   }
-  const seances = toutesSeances();
-  const faites = seances.filter((s) => s.etat === 'fait').length;
+  // Une semaine à la fois : par défaut celle d'aujourd'hui (ou la prochaine)
+  const ajd = jourISO();
+  const finSemaine = (w) => w.seances.reduce((m, s) => (s.jour > m ? s.jour : m), w.debut || '');
+  if (semainePlan == null || semainePlan >= p.semaines.length) {
+    const i = p.semaines.findIndex((w) => finSemaine(w) >= ajd);
+    semainePlan = i >= 0 ? i : p.semaines.length - 1;
+  }
+  const w = p.semaines[semainePlan];
+  const faitesSemaine = w.seances.filter((s) => s.etat === 'fait').length;
+  const total = w.seances.reduce((n, s) => n + (Number(s.duree) || 0), 0);
   $('#enTetePlan').innerHTML = `<div class="semaine-h"><h2>Mon plan</h2><span>créé le ${esc(dateLisible(p.cree, false))}</span></div>
-    ${p.resume ? `<p>${esc(p.resume)}</p>` : ''}
-    <p class="muted petit">${faites} séance${faites > 1 ? 's' : ''} faite${faites > 1 ? 's' : ''} sur ${seances.length}. Touche « À faire » pour cocher une séance (un second appui la marque comme sautée).</p>
-    ${(p.conseils || []).length ? `<ul class="petit">${p.conseils.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}`;
-  $('#semaines').innerHTML = p.semaines.map((w, i) => {
-    const total = w.seances.reduce((n, s) => n + (Number(s.duree) || 0), 0);
-    return `<div class="carte">
-      <div class="semaine-h"><h3>Semaine ${i + 1}${w.theme ? ' · ' + esc(w.theme) : ''}</h3><span>${dureeLisible(total)}</span></div>
-      ${w.seances.map((s) => htmlSeance(s, { avecDate: true })).join('')}
+    <div class="semaines-plan">${p.semaines.map((x, i) => `<button type="button" class="puce ${i === semainePlan ? 'actif' : ''}" data-semaine-plan="${i}">Semaine ${i + 1}</button>`).join('')}</div>
+    ${p.resume || (p.conseils || []).length ? `<details class="logique"><summary>Logique du plan et conseils</summary>
+      ${p.resume ? `<p class="petit">${esc(p.resume)}</p>` : ''}
+      ${(p.conseils || []).length ? `<ul class="petit">${p.conseils.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}</details>` : ''}`;
+  $('#semaines').innerHTML = `<div class="carte">
+      <div class="semaine-h"><h3>${w.theme ? esc(w.theme) : `Semaine ${semainePlan + 1}`}</h3><span>${faitesSemaine}/${w.seances.length} faites · ${dureeLisible(total)}</span></div>
+      <p class="muted petit" style="margin:0 0 6px">Touche une séance pour voir son déroulé et ses alternatives.</p>
+      ${w.seances.map((s) => htmlSeance(s, { compacte: true })).join('')}
     </div>`;
-  }).join('');
 }
+let semainePlan = null;
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-semaine-plan]');
+  if (!b) return;
+  semainePlan = Number(b.dataset.semainePlan);
+  afficherPlan();
+});
 
 $('#btnRafraichir').onclick = async () => { await synchroniser(); toutAfficher(); };
 

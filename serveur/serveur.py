@@ -37,7 +37,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse, Response
 
 from acces import Acces
 from donnees import Supabase
@@ -822,6 +822,36 @@ async def route_strava_retour(request: Request):
 async def route_strava(request: Request):
     """Branchement et import Strava depuis l'app (voir strava.py)."""
     return await stravas.route(request)
+
+
+@mcp.custom_route("/compte/supprimer", methods=["POST", "OPTIONS"])
+async def supprimer_compte(request: Request):
+    """Suppression du compte depuis l'app : accès Strava retiré, session Garmin fermée,
+    puis compte supprimé avec toutes ses données (profil, plan, journal, activités, jetons)."""
+    cors = {"Access-Control-Allow-Origin": ORIGINE_APP, "Access-Control-Allow-Headers": "authorization, content-type",
+            "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin"}
+    if request.method == "OPTIONS":
+        return Response(status_code=204, headers=cors)
+    if request.headers.get("origin", "") != ORIGINE_APP:
+        return JSONResponse({"erreur": "Origine non autorisée"}, 403, headers=cors)
+    jeton = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    uid = await anyio.to_thread.run_sync(base.utilisateur, jeton)
+    if not uid:
+        return JSONResponse({"erreur": "Connecte-toi à Cloach"}, 401, headers=cors)
+
+    def supprimer() -> None:
+        if stravas.configure and base.lire_jetons_strava(uid):
+            stravas._debrancher(uid)
+        garmins.oublier(uid)
+        base.supprimer_utilisateur(uid)
+
+    try:
+        await anyio.to_thread.run_sync(supprimer)
+    except Exception as e:
+        print(f"Suppression du compte : {type(e).__name__} : {e}", flush=True)
+        return JSONResponse({"erreur": "La suppression a échoué, réessaie dans un moment."}, 500, headers=cors)
+    print("Compte supprimé", flush=True)
+    return JSONResponse({"supprime": True}, headers=cors)
 
 
 @mcp.custom_route("/sante", methods=["GET"])

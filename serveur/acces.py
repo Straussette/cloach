@@ -33,6 +33,8 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
+from freins import Frein
+
 DUREE_CODE = 5 * 60
 DUREE_ACCES = 60 * 60
 DUREE_RENOUVELLEMENT = 365 * 24 * 3600
@@ -40,6 +42,9 @@ DUREE_RENOUVELLEMENT = 365 * 24 * 3600
 # Seules les applications Claude peuvent recevoir un code : un tiers ne peut pas
 # fabriquer un lien de connexion qui renverrait le code chez lui.
 HOTES_AUTORISES = {"claude.ai", "claude.com"}
+
+# Échecs de connexion tolérés par adresse e-mail et par adresse IP, sur 15 minutes
+ECHECS_CONNEXION = Frein(8, 15 * 60)
 
 
 def _b64(donnees: bytes) -> str:
@@ -149,8 +154,12 @@ class Acces:
             return _page("Lien expiré", "Relance la connexion depuis claude.ai.", None, 400)
         email = str(formulaire.get("email", "")).strip()
         mot_de_passe = str(formulaire.get("mot_de_passe", ""))
+        cles = ("email:" + email.lower(), "ip:" + (request.client.host if request.client else ""))
+        if ECHECS_CONNEXION.bloque(*cles):
+            return _page(titre, "Trop d'essais : réessaie dans 15 minutes.", demande, 429)
         uid = await asyncio.to_thread(self.verifier_compte, email, mot_de_passe) if email and mot_de_passe else None
         if not uid:
+            ECHECS_CONNEXION.noter(*cles)
             await asyncio.sleep(2)  # freine les essais à la chaîne
             return _page(titre, "E-mail ou mot de passe incorrect, réessaie.", demande, 401)
 
@@ -259,4 +268,8 @@ def _page(titre: str, message: str, demande: str | None, statut: int = 200) -> H
   button {{ border: 0; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }}
 </style></head>
 <body><main><h1>{html.escape(titre)}</h1><p>{html.escape(message)}</p>{formulaire}
-</main></body></html>""", status_code=statut)
+</main></body></html>""", status_code=statut, headers={
+        # La page ne doit pas pouvoir être affichée dans le cadre d'un autre site (vol de clics)
+        "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'",
+        "Referrer-Policy": "no-referrer", "Cache-Control": "no-store",
+    })

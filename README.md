@@ -45,6 +45,15 @@ Sur l'offre gratuite de Render, le service s'endort après 15 min d'inactivité 
 ### GitHub Pages
 Settings → Pages → « Deploy from a branch » → `main`, dossier `/docs`.
 
+## Version d'essai
+
+- Les messages « Donner mon avis » arrivent dans la table `retours`. Pour les lire (Supabase → SQL Editor) :
+  ```sql
+  select r.cree, u.email, r.version, r.texte from retours r join auth.users u on u.id = r.user_id order by r.cree desc;
+  ```
+- « Supprimer mon compte » passe par le serveur (`/compte/supprimer`) : accès Strava retiré, puis compte supprimé par l'API d'administration de Supabase Auth, avec toutes ses données (cascade).
+- La politique de confidentialité est dans `docs/confidentialite.html`.
+
 ## En local
 
 ```bash

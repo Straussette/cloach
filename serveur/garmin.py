@@ -23,6 +23,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from donnees import Supabase
+from freins import Frein
 import vap
 from entrainements import vers_garmin
 
@@ -83,6 +84,10 @@ def vers_activite(a: dict[str, Any]) -> dict[str, Any] | None:
 
 class CompteAbsent(RuntimeError):
     """L'utilisateur n'a pas encore branché son compte Garmin."""
+
+
+# Connexions à Garmin (identifiants ou code) tolérées par compte Cloach, sur 15 minutes
+ESSAIS_CONNEXION = Frein(6, 15 * 60)
 
 
 class Garmins:
@@ -267,15 +272,14 @@ class Garmins:
             if action == "etat":
                 return repondre({"connecte": await asyncio.to_thread(self.branche, uid)})
             if action == "deconnexion":
-                with self._verrou:
-                    self._clients.pop(uid, None)
-                    self._derniers_sauves.pop(uid, None)
+                self.oublier(uid)
                 await asyncio.to_thread(self.base.supprimer_jetons_garmin, uid)
                 return repondre({"connecte": False})
-            if action == "connexion":
-                return repondre(*await asyncio.to_thread(self._connexion, uid, corps))
-            if action == "code":
-                return repondre(*await asyncio.to_thread(self._code, uid, corps))
+            if action in ("connexion", "code"):
+                if ESSAIS_CONNEXION.bloque(uid):
+                    return repondre({"erreur": "Trop d'essais de connexion à Garmin : réessaie dans 15 minutes."}, 429)
+                ESSAIS_CONNEXION.noter(uid)
+                return repondre(*await asyncio.to_thread(self._connexion if action == "connexion" else self._code, uid, corps))
             if action == "entrainement":
                 try:
                     alt = corps.get("alternative")
@@ -345,6 +349,13 @@ class Garmins:
         if activites:
             self.base.ecrire_activites(uid, activites)
         return {"nombre": len(activites)}, 200
+
+    def oublier(self, uid: str) -> None:
+        """Ferme la session Garmin gardée en mémoire (déconnexion, suppression du compte)."""
+        with self._verrou:
+            self._clients.pop(uid, None)
+            self._derniers_sauves.pop(uid, None)
+            self._attente = {k: v for k, v in self._attente.items() if v[0] != uid}
 
     def _terminer(self, uid: str, g: Garmin) -> dict[str, Any]:
         jetons = g.client.dumps()

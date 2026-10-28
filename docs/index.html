@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-27.1">
+<meta name="app-version" content="2026-10-28.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -233,6 +233,21 @@
   .record .valeur { font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
   .record .quand { grid-column:1 / -1; font-size:.8rem; color:var(--muted); }
 
+  /* ---------- Guide de démarrage ---------- */
+  ol.guide { list-style:none; margin:4px 0 8px; padding:0; }
+  ol.guide li { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:start; padding:10px 0; border-top:1px solid var(--border); }
+  ol.guide li:first-child { border-top:0; }
+  ol.guide .coche { width:22px; height:22px; border-radius:50%; border:2px solid var(--border); display:grid; place-items:center; font-size:.8rem; font-weight:700; margin-top:1px; }
+  ol.guide li.fait .coche { background:var(--ok); border-color:var(--ok); color:var(--on-accent); }
+  ol.guide li.fait .titre { color:var(--muted); }
+  ol.guide li.prochaine .coche { border-color:var(--accent); }
+  ol.guide li.prochaine .titre { font-weight:600; }
+  ol.guide .actions { grid-column:2; display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+  ol.guide .actions .btn { padding:7px 12px; font-size:.88rem; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .pied { text-align:center; margin:4px 0 0; }
+  .btn.supprimer { background:var(--alerte); color:var(--on-accent); }
+
   /* ---------- Fenêtres ---------- */
   dialog { border:0; border-radius:16px; padding:0; width:min(440px, calc(100% - 32px)); background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
   dialog::backdrop { background:var(--voile); }
@@ -254,6 +269,7 @@
 <main class="wrap">
   <!-- Calendrier -->
   <section data-vue="jour">
+    <div class="carte" id="carteGuide" hidden></div>
     <div class="carte">
       <div class="nav-semaine">
         <button class="fleche" type="button" id="semainePrecedente" aria-label="Semaine précédente">‹</button>
@@ -368,7 +384,7 @@
       </form>
     </div>
 
-    <div class="carte">
+    <div class="carte" id="carteClaude">
       <h2>Brancher Claude</h2>
       <p class="petit">Le coaching se passe dans <b>ton</b> Claude (claude.ai, appli mobile ou de bureau), sur ton propre abonnement. Ajoute Cloach comme connecteur, une seule fois :</p>
       <ol class="etapes petit">
@@ -395,6 +411,18 @@
       <h2>Strava</h2>
       <div id="blocStrava"></div>
     </div>
+
+    <div class="carte" id="carteAvis">
+      <h2>Donner mon avis</h2>
+      <p class="muted petit">Cloach est en version d'essai. Un bug, une idée, quelque chose de pas clair ? Ton message arrive directement à l'équipe Cloach.</p>
+      <form class="champs" id="formAvis">
+        <textarea id="texteAvis" maxlength="4000" required placeholder="Ce qui marche, ce qui coince, ce qui te manque…"></textarea>
+        <p class="statut" id="statutAvis"></p>
+        <button class="btn large" type="submit">Envoyer</button>
+      </form>
+    </div>
+
+    <p class="muted petit pied"><a href="confidentialite.html">Confidentialité</a> · <button class="btn discret" type="button" id="btnAfficherGuide">Guide de démarrage</button></p>
   </section>
 </main>
 
@@ -475,6 +503,21 @@
       <button class="btn discret" type="button" id="btnImportFermer">Plus tard</button>
     </div>
     <a class="btn secondaire" id="lienAnalyseImport" target="_blank" rel="noopener" data-question="analyse" hidden>🔎 Demander à Claude de commenter</a>
+  </form>
+</dialog>
+
+<!-- Suppression du compte -->
+<dialog id="dlgSupprimer">
+  <form class="dlg" id="formSupprimer">
+    <h2>Supprimer mon compte</h2>
+    <p class="petit" style="margin:0">Tout sera effacé, définitivement : profil, plan, journal, historique d'activités, avis du coach et jetons d'accès Garmin. Ton compte Garmin lui-même n'est pas touché.</p>
+    <p class="muted petit" style="margin:0">Pense aussi à retirer le connecteur Cloach dans les réglages de Claude.</p>
+    <label>Pour confirmer, écris SUPPRIMER<input id="confirmSupprimer" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+    <p class="statut" id="statutSupprimer"></p>
+    <div class="rangee">
+      <button class="btn supprimer" type="submit" id="btnSupprimerValider">Supprimer définitivement</button>
+      <button class="btn discret" type="button" id="btnSupprimerAnnuler">Annuler</button>
+    </div>
   </form>
 </dialog>
 
@@ -647,8 +690,12 @@ function afficherCompte(message = '', erreur = true) {
   if (s && modeCompte !== 'nouveau') {
     bloc.innerHTML = `<p>Connecté en tant que <b>${esc(s.user.email)}</b>. Ton profil, ton plan et ton journal suivent ce compte d'un appareil à l'autre, et Claude y accède quand tu branches le connecteur.</p>
       <p class="statut" id="statutCompte"></p>
-      <button class="btn danger" type="button" id="btnDeconnexion">Se déconnecter</button>`;
+      <div class="rangee" style="justify-content:space-between">
+        <button class="btn danger" type="button" id="btnDeconnexion">Se déconnecter</button>
+        <button class="btn danger" type="button" id="btnSupprimer">Supprimer mon compte</button>
+      </div>`;
     $('#btnDeconnexion').onclick = seDeconnecter;
+    $('#btnSupprimer').onclick = ouvrirSuppression;
     statut($('#statutCompte'), message, erreur);
     return;
   }
@@ -657,6 +704,7 @@ function afficherCompte(message = '', erreur = true) {
       ${modeCompte === 'nouveau' ? '' : '<label>E-mail<input type="email" id="c-email" autocomplete="username" required></label>'}
       ${modeCompte === 'oubli' ? '' : `<label>${modeCompte === 'nouveau' ? 'Nouveau mot de passe' : 'Mot de passe'}<input type="password" id="c-mdp" minlength="8" autocomplete="${modeCompte === 'connexion' ? 'current-password' : 'new-password'}" required></label>`}
       ${['inscription', 'nouveau'].includes(modeCompte) ? '<label>Retape le mot de passe<input type="password" id="c-mdp2" minlength="8" autocomplete="new-password" required></label>' : ''}
+      ${modeCompte === 'inscription' ? '<p class="muted petit" style="margin:0">En créant un compte, tu acceptes <a href="confidentialite.html">la façon dont Cloach traite tes données</a>.</p>' : ''}
       <p class="statut" id="statutCompte"></p>
       <button class="btn large" type="submit">${titres[modeCompte]}</button>
       <div class="rangee" style="justify-content:space-between">
@@ -712,6 +760,40 @@ function seDeconnecter() {
   afficherCompte();
   toutAfficher();
 }
+
+// Suppression du compte : le serveur retire les accès (Strava, session Garmin) puis efface le compte et ses données
+function ouvrirSuppression() {
+  $('#formSupprimer').reset();
+  $('#btnSupprimerValider').disabled = false;
+  statut($('#statutSupprimer'), '');
+  fetch(SERVEUR + '/sante').catch(() => {}); // réveille le serveur pendant la saisie
+  $('#dlgSupprimer').showModal();
+}
+$('#btnSupprimerAnnuler').onclick = () => $('#dlgSupprimer').close();
+$('#formSupprimer').onsubmit = async (e) => {
+  e.preventDefault();
+  if ($('#confirmSupprimer').value.trim().toUpperCase() !== 'SUPPRIMER') {
+    statut($('#statutSupprimer'), 'Écris SUPPRIMER pour confirmer.', true);
+    return;
+  }
+  $('#btnSupprimerValider').disabled = true;
+  statut($('#statutSupprimer'), 'Suppression en cours…');
+  try { await appelerServeur('compte/supprimer'); }
+  catch (err) {
+    statut($('#statutSupprimer'), 'Échec : ' + err.message, true);
+    $('#btnSupprimerValider').disabled = false;
+    return;
+  }
+  $('#dlgSupprimer').close();
+  ecrireLocal(CLE_SESSION, null);
+  etat = ETAT_VIDE();
+  ecrireLocal(CLE_ETAT, null);
+  ecrireLocal(CLE_GUIDE, null);
+  activites = [];
+  modeCompte = 'connexion';
+  afficherCompte('✓ Ton compte et toutes tes données ont été supprimés.', false);
+  toutAfficher();
+};
 
 async function apresConnexion() {
   afficherCompte();
@@ -888,7 +970,7 @@ function texteEtape(e) {
 function htmlStructure(s, index = null, idSeance = s.id) {
   if (!s.etapes?.length) return '';
   const lignes = s.etapes.map((e) => (e.type === 'repetition'
-    ? `<li>${e.repetitions || 1} × (${(e.etapes || []).map((x) => esc(texteEtape(x))).join(' + ')})</li>`
+    ? `<li>${esc(e.repetitions || 1)} × (${(e.etapes || []).map((x) => esc(texteEtape(x))).join(' + ')})</li>`
     : `<li>${esc(NOMS_ETAPES[e.type] || e.type)} : ${esc(texteEtape(e))}</li>`)).join('');
   const surMontre = ['course', 'trail', 'velo'].includes(s.sport) && etat.garmin?.connecte;
   const garmin = s.garmin?.workoutId
@@ -1617,6 +1699,7 @@ async function chargerActivites() {
   } catch (e) { console.warn('Activités', e); }
   afficherStats();
   afficherJour();
+  afficherGuide();
 }
 
 // Importe année par année, pour suivre l'avancement et rester sous les délais du serveur
@@ -2085,6 +2168,85 @@ function graphLignes(conteneur, points, noms) {
 let minuteurRedim = null;
 window.addEventListener('resize', () => { clearTimeout(minuteurRedim); minuteurRedim = setTimeout(afficherStats, 200); });
 
+/* ---------- Guide de démarrage ---------- */
+// Les étapes se cochent d'elles-mêmes d'après l'état ; le guide disparaît quand tout est fait, ou à la demande.
+// Seules « Brancher Claude » et « écran d'accueil » ne se détectent pas toujours : l'utilisateur peut les cocher.
+const CLE_GUIDE = 'cloach-guide';
+const appInstallee = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+function voirDansProfil(id) {
+  allerA('profil');
+  requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+}
+function etapesGuide() {
+  const p = etat.profil || {};
+  const guide = lireLocal(CLE_GUIDE) || {};
+  const cocher = (id) => () => { ecrireLocal(CLE_GUIDE, { ...(lireLocal(CLE_GUIDE) || {}), [id]: true }); afficherGuide(); };
+  return [
+    { titre: 'Créer ton compte Cloach', fait: !!session(), actions: [['Créer mon compte', () => voirDansProfil('blocCompte')]] },
+    { titre: 'Remplir ton profil sportif', sous: 'Objectif, sports, jours disponibles : ton coach s\'en sert pour tout.',
+      fait: !!(p.objectif || (p.sports || []).length), actions: [['Remplir', () => voirDansProfil('formProfil')]] },
+    { titre: 'Brancher ta montre Garmin', fait: !!etat.garmin?.connecte, actions: [['Brancher', () => voirDansProfil('blocGarmin')]] },
+    { titre: 'Importer ton historique', sous: 'Pour tes statistiques, et pour que Claude connaisse ton passé sportif.',
+      fait: activites.length > 0, actions: [['Importer', () => (sourceActive() ? ouvrirImport() : voirDansProfil('blocGarmin'))]] },
+    { titre: 'Brancher Cloach dans ton Claude', sous: 'Une seule fois, dans les réglages de Claude (il faut une offre qui permet les connecteurs personnalisés).',
+      fait: !!(guide.claude || etat.plan || etat.analyse || etat.avisDuJour),
+      actions: [['Voir comment', () => voirDansProfil('carteClaude')], ['C\'est fait', cocher('claude')]] },
+    { titre: 'Demander ton premier plan', fait: !!etat.plan, actions: [['Demander', () => allerA('plan')]] },
+    { titre: 'Mettre Cloach sur ton écran d\'accueil', sous: 'Sur iPhone : dans Safari, bouton Partager puis « Sur l\'écran d\'accueil ».',
+      fait: !!(guide.ecran || appInstallee()), actions: [['C\'est fait', cocher('ecran')]] },
+  ];
+}
+function afficherGuide() {
+  const carte = $('#carteGuide');
+  const etapes = etapesGuide();
+  const reste = etapes.filter((e) => !e.fait);
+  carte.hidden = !!(lireLocal(CLE_GUIDE) || {}).masque || !reste.length;
+  if (carte.hidden) return;
+  carte.innerHTML = `<div class="semaine-h"><h2>Bien démarrer</h2><span>${etapes.length - reste.length} / ${etapes.length}</span></div>
+    <ol class="guide">${etapes.map((e, i) => `<li class="${e.fait ? 'fait' : ''}${e === reste[0] ? ' prochaine' : ''}">
+      <span class="coche" aria-hidden="true">${e.fait ? '✓' : i + 1}</span>
+      <div><div class="titre">${esc(e.titre)}<span class="sr">${e.fait ? ' : fait' : ' : à faire'}</span></div>
+        ${!e.fait && e.sous ? `<div class="muted petit">${esc(e.sous)}</div>` : ''}</div>
+      ${e.fait ? '' : `<div class="actions">${e.actions.map(([texte], j) => `<button class="btn ${j ? 'discret' : e === reste[0] ? '' : 'secondaire'}" type="button" data-etape="${i}" data-action="${j}">${esc(texte)}</button>`).join('')}</div>`}
+    </li>`).join('')}</ol>
+    <div class="rangee" style="justify-content:space-between">
+      <button class="btn discret" type="button" id="btnGuideAvis">💬 Une question, un bug ?</button>
+      <button class="btn discret" type="button" id="btnGuideMasquer">Masquer le guide</button>
+    </div>`;
+  for (const b of carte.querySelectorAll('[data-etape]')) b.onclick = () => etapes[b.dataset.etape].actions[b.dataset.action][1]();
+  $('#btnGuideAvis').onclick = () => { voirDansProfil('carteAvis'); setTimeout(() => $('#texteAvis').focus(), 400); };
+  $('#btnGuideMasquer').onclick = () => { ecrireLocal(CLE_GUIDE, { ...(lireLocal(CLE_GUIDE) || {}), masque: true }); afficherGuide(); };
+}
+$('#btnAfficherGuide').onclick = () => {
+  ecrireLocal(CLE_GUIDE, { ...(lireLocal(CLE_GUIDE) || {}), masque: false });
+  afficherGuide();
+  allerA('jour');
+  if ($('#carteGuide').hidden) alert('Tout est fait : bravo, tu es prêt !');
+};
+
+/* ---------- Avis des testeurs (table retours) ---------- */
+// Chaque message est ajouté à la table retours (l'app peut écrire, pas relire) ; l'équipe les lit dans Supabase.
+$('#formAvis').onsubmit = async (e) => {
+  e.preventDefault();
+  const texte = $('#texteAvis').value.trim();
+  if (!texte) return;
+  if (!session()) { statut($('#statutAvis'), 'Connecte-toi d\'abord à Cloach (en haut de cette page).', true); return; }
+  statut($('#statutAvis'), '…');
+  try {
+    await sbFetch('/rest/v1/retours', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        texte,
+        version: document.querySelector('meta[name="app-version"]').content,
+        appareil: navigator.userAgent.slice(0, 300),
+      }),
+    });
+    $('#texteAvis').value = '';
+    statut($('#statutAvis'), '✓ Merci, c\'est bien reçu !');
+  } catch (err) { statut($('#statutAvis'), 'Envoi impossible : ' + err.message, true); }
+};
+
 /* ---------- Navigation ---------- */
 function allerA(vue) {
   for (const s of document.querySelectorAll('[data-vue]')) s.hidden = s.dataset.vue !== vue;
@@ -2105,6 +2267,7 @@ function toutAfficher() {
   afficherGarmin();
   afficherStrava();
   afficherStats();
+  afficherGuide();
   majLiensClaude();
 }
 

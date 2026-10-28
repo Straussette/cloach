@@ -6,6 +6,7 @@
   document JSON partagé avec l'app.
 - Historique des activités (table activites), importé depuis Garmin.
 - Jetons Garmin (table garmin_comptes) et Strava (table strava_comptes), chiffrés avant d'être envoyés.
+- Suppression d'un compte et de tout ce qui s'y rattache (API d'administration de Supabase Auth).
 
 La clé secrète (SUPABASE_CLE_SECRETE) passe outre les règles RLS : chaque fonction
 ci-dessous filtre donc elle-même sur l'identifiant de l'utilisateur.
@@ -55,6 +56,12 @@ class Supabase:
             return r.json().get("id") if r.ok else None
         except (requests.RequestException, ValueError):
             return None
+
+    def supprimer_utilisateur(self, uid: str) -> None:
+        """Supprime le compte. Ses lignes (données, activités, jetons, retours) partent avec
+        lui : toutes les tables référencent auth.users avec « on delete cascade »."""
+        r = requests.delete(f"{self.url}/auth/v1/admin/users/{uid}", headers=self.entetes, timeout=15)
+        r.raise_for_status()
 
     # ---------- Données du compte ----------
 

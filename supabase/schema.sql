@@ -68,3 +68,22 @@ create table if not exists public.strava_comptes (
 );
 alter table public.strava_comptes enable row level security;
 revoke all on public.strava_comptes from anon, authenticated;
+
+-- retours : messages « Donner mon avis » des testeurs. L'app peut en ajouter mais pas les relire ;
+--           on les lit dans le tableau de bord Supabase (jointure sur auth.users pour l'e-mail).
+create table if not exists public.retours (
+  id         bigint generated always as identity primary key,
+  user_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  texte      text not null check (char_length(texte) between 1 and 4000),
+  version    text check (char_length(version) <= 40),
+  appareil   text check (char_length(appareil) <= 300),
+  cree       timestamptz not null default now()
+);
+alter table public.retours enable row level security;
+revoke all on public.retours from anon;
+revoke update, delete, truncate on public.retours from authenticated;
+create policy "retours_ajouter" on public.retours
+  for insert to authenticated with check (user_id = (select auth.uid()));
+
+-- Suppression d'un compte (route /compte/supprimer du serveur) : toutes les tables ci-dessus
+-- référencent auth.users avec « on delete cascade », tout part avec le compte.

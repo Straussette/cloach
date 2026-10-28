@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f6b63">
+<link rel="icon" href="icones/icone-192.png">
+<title>Confidentialité · Cloach</title>
+<style>
+  /* ---------- Couleurs (clair / sombre) ---------- */
+  :root {
+    --bg:#f3f6f5; --surface:#ffffff; --text:#14211f; --muted:#62716e; --border:#dfe7e5;
+    --accent:#0f6b63; --on-accent:#ffffff; --vif:#e8692c;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
+      --accent:#3fb3a6; --on-accent:#06201d; --vif:#f08a52; color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0e1514; --surface:#18211f; --text:#e9f1ef; --muted:#93a29f; --border:#2b3735;
+    --accent:#3fb3a6; --on-accent:#06201d; --vif:#f08a52; color-scheme:dark;
+  }
+
+  /* ---------- Mise en page ---------- */
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--text); line-height:1.55;
+    font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size:16px;
+  }
+  .top { background:var(--accent); color:var(--on-accent); padding:calc(16px + env(safe-area-inset-top)) 16px 16px; }
+  .top h1 { margin:0; font-size:1.5rem; }
+  .top h1 span { color:var(--vif); }
+  .wrap { max-width:720px; margin:0 auto; }
+  main { padding:16px; }
+  .carte { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:14px; }
+  .carte > :first-child { margin-top:0; }
+  .carte > :last-child { margin-bottom:0; }
+  h2 { font-size:1.15rem; margin:0 0 8px; }
+  ul { padding-left:20px; margin:8px 0; }
+  li { margin:4px 0; }
+  a { color:var(--accent); }
+  .muted { color:var(--muted); font-size:.9rem; }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap"><h1>Clo<span>a</span>ch · Confidentialité</h1></div></header>
+<main class="wrap">
+  <p><a href="./">← Revenir à Cloach</a></p>
+
+  <div class="carte">
+    <h2>En bref</h2>
+    <ul>
+      <li>Cloach garde ce qu'il faut pour te coacher : ton profil, ton plan, ton journal et l'historique de tes activités.</li>
+      <li>Ton mot de passe Garmin n'est jamais conservé. Seuls les jetons d'accès Garmin le sont, chiffrés.</li>
+      <li>Rien n'est vendu ni partagé, et il n'y a ni publicité ni pisteur.</li>
+      <li>Tu peux tout effacer à tout moment : Profil → Compte → « Supprimer mon compte ».</li>
+    </ul>
+  </div>
+
+  <div class="carte">
+    <h2>Ce que Cloach conserve</h2>
+    <ul>
+      <li><b>Ton compte</b> : ton adresse e-mail et ton mot de passe Cloach. Le mot de passe est géré par Supabase Auth, qui ne le garde que sous une forme illisible (hachée).</li>
+      <li><b>Ton coaching</b> : ton profil sportif (objectif, sports, disponibilités, contraintes et blessures que tu indiques), ton plan d'entraînement, ton journal, tes ressentis et commentaires, et les avis écrits par ton coach.</li>
+      <li><b>L'historique de tes activités</b>, importé de Garmin : date, sport, nom, distance, durée, dénivelé, fréquence cardiaque moyenne et maximale, charge d'entraînement, puissance, calories, allures.</li>
+      <li><b>Tes jetons d'accès Garmin</b>, chiffrés : ils permettent à Cloach de lire tes données Garmin et d'envoyer tes séances sur ta montre sans redemander ton mot de passe.</li>
+      <li><b>Tes messages « Donner mon avis »</b>, avec la version de l'app et le type de navigateur, pour pouvoir corriger les bugs.</li>
+      <li><b>Sur ton appareil</b> : une copie de ton plan et de ton profil, pour que l'app s'ouvre vite et marche hors ligne. Elle est effacée quand tu te déconnectes.</li>
+    </ul>
+  </div>
+
+  <div class="carte">
+    <h2>Ce que Cloach ne conserve pas</h2>
+    <ul>
+      <li>Ton mot de passe Garmin : il sert une seule fois, à ouvrir la connexion.</li>
+      <li>Tes données de santé quotidiennes (sommeil, VFC, Body Battery, stress, fréquence cardiaque de repos) : elles sont lues chez Garmin au moment où tu les consultes, dans l'app ou par Claude, sans être copiées dans la base. Seul un avis du coach qui les cite peut en garder la trace.</li>
+      <li>Tes conversations avec Claude : elles restent dans ton compte Claude.</li>
+    </ul>
+  </div>
+
+  <div class="carte">
+    <h2>Où sont tes données</h2>
+    <ul>
+      <li><b>Supabase</b> (base de données et comptes), hébergé en Irlande, dans l'Union européenne.</li>
+      <li><b>Render</b> : le serveur qui relie Cloach à Garmin et à Claude, aux États-Unis. Il ne garde rien sur disque : il lit et écrit dans la base Supabase.</li>
+      <li><b>GitHub Pages</b> sert la page de l'app. Elle ne reçoit pas tes données.</li>
+    </ul>
+  </div>
+
+  <div class="carte">
+    <h2>Claude et Garmin</h2>
+    <ul>
+      <li><b>Claude</b> : Cloach n'appelle pas Claude lui-même. Quand tu branches le connecteur Cloach dans ton Claude, c'est toi qui autorises Claude (Anthropic) à lire et à modifier ton profil, ton plan, ton journal, ton historique et tes données Garmin pendant tes conversations. Ces échanges sont soumis à ton compte Claude et aux règles de confidentialité d'Anthropic. Tu peux retirer le connecteur à tout moment dans les réglages de Claude.</li>
+      <li><b>Garmin</b> : la connexion passe par un accès non officiel à Garmin Connect, avec tes identifiants. Cloach lit tes activités et tes indicateurs, et ne crée des entraînements dans ton calendrier Garmin que quand tu le demandes. Tu peux débrancher Garmin à tout moment (Profil → Garmin). Les jetons sont alors supprimés.</li>
+    </ul>
+  </div>
+
+  <div class="carte">
+    <h2>Qui peut voir tes données</h2>
+    <ul>
+      <li>Toi, depuis l'app ou ton Claude. Chaque compte ne voit que ses propres données.</li>
+      <li>La personne qui gère Cloach a techniquement accès à la base pour la maintenance. Elle ne la consulte que pour corriger un problème ou lire les messages « Donner mon avis ».</li>
+      <li>Personne d'autre : pas de revente, pas de publicité, pas de partage avec des tiers en dehors des hébergeurs cités plus haut.</li>
+    </ul>
+  </div>
+
+  <div class="carte">
+    <h2>Combien de temps, et tes droits</h2>
+    <ul>
+      <li>Tes données restent tant que ton compte existe.</li>
+      <li>« Supprimer mon compte » efface tout, immédiatement et définitivement : compte, profil, plan, journal, activités, avis, jetons Garmin et messages.</li>
+      <li>Tu peux consulter et corriger tes données dans l'app, ou poser une question par « Donner mon avis » (onglet Profil).</li>
+    </ul>
+  </div>
+
+  <div class="carte">
+    <h2>Version d'essai</h2>
+    <p>Cloach est un projet personnel en version d'essai, fourni sans garantie. Les conseils d'entraînement ne remplacent pas un avis médical : en cas de douleur ou de doute, consulte un professionnel de santé.</p>
+  </div>
+
+  <p class="muted">Dernière mise à jour : 28 octobre 2026.</p>
+</main>
+</body>
+</html>

@@ -2,7 +2,7 @@ FROM python:3.13-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY serveur.py acces.py donnees.py freins.py garmin.py strava.py vap.py entrainements.py ./
+COPY serveur.py acces.py donnees.py freins.py garmin.py strava.py terrains.py vap.py entrainements.py ./
 RUN useradd --create-home appli
 USER appli
 ENV PORT=8000

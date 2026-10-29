@@ -24,6 +24,7 @@ from starlette.responses import JSONResponse, Response
 
 from donnees import Supabase
 from freins import Frein
+import terrains
 import vap
 from entrainements import vers_garmin
 
@@ -227,13 +228,15 @@ class Garmins:
         return seance["garmin"]
 
     def vap(self, uid: str, id_activite: str) -> dict[str, Any]:
-        """Calcule la VAP d'une sortie à partir de son profil détaillé, et l'enregistre avec l'activité."""
-        details = self.appeler(uid, "get_activity_details", str(int(id_activite)), 4000, 0)
-        resultat = vap.calculer(details or {})
-        if not resultat:
-            return {"vap_min_km": None}
-        self.base.completer_activite(uid, str(id_activite), resultat)
-        return resultat
+        """Calcule la VAP et l'analyse par terrain d'une sortie à partir de son profil détaillé (un seul
+        appel à Garmin), et les enregistre avec l'activité."""
+        details = self.appeler(uid, "get_activity_details", str(int(id_activite)), 4000, 0) or {}
+        resultat: dict[str, Any] = vap.calculer(details) or {}
+        analyse = terrains.analyser(details)
+        # Même sans profil exploitable, on note la version : l'app ne redemandera pas l'analyse
+        champs = {**resultat, "terrains": analyse or {"v": terrains.VERSION, "vide": True}}
+        self.base.completer_activite(uid, str(id_activite), champs)
+        return {"vap_min_km": None, **resultat, "terrains": terrains.VERSION}
 
     def branche(self, uid: str) -> bool:
         return self.base.lire_jetons_garmin(uid) is not None

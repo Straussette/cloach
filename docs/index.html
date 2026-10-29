@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-28.1">
+<meta name="app-version" content="2026-10-29.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -233,6 +233,16 @@
   .record .valeur { font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
   .record .quand { grid-column:1 / -1; font-size:.8rem; color:var(--muted); }
 
+  /* ---------- Par terrain ---------- */
+  table.terrains { width:100%; border-collapse:collapse; font-size:.88rem; font-variant-numeric:tabular-nums; }
+  table.terrains th, table.terrains td { padding:6px 4px; border-bottom:1px solid var(--border); text-align:right; }
+  table.terrains th:first-child, table.terrains td:first-child { text-align:left; color:var(--muted); font-weight:400; }
+  table.terrains thead th { color:var(--text); font-weight:600; }
+  .montee { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:8px 0; border-top:1px solid var(--border); font-size:.9rem; }
+  .montee .quand { grid-column:1 / -1; font-size:.8rem; color:var(--muted); }
+  .montee .fin { font-weight:600; white-space:nowrap; }
+  .sous-titre-carte { margin:14px 0 4px; font-size:.95rem; }
+
   /* ---------- Guide de démarrage ---------- */
   ol.guide { list-style:none; margin:4px 0 8px; padding:0; }
   ol.guide li { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:start; padding:10px 0; border-top:1px solid var(--border); }
@@ -336,6 +346,14 @@
     <div class="carte" id="carteRecords" hidden>
       <div class="semaine-h"><h3>Records</h3><span id="periodeRecords"></span></div>
       <div id="records"></div>
+    </div>
+    <div class="carte" id="carteTerrain" hidden>
+      <div class="semaine-h"><h3>Par terrain</h3><span>course et trail</span></div>
+      <div class="puces" id="filtreTerrain" style="margin-bottom:10px"></div>
+      <div id="terrain"></div>
+      <h4 class="sous-titre-carte">Le diagnostic du coach <span class="muted petit" id="dateTerrain"></span></h4>
+      <div id="texteTerrain" class="analyse"></div>
+      <a class="btn large" target="_blank" rel="noopener" data-question="terrain" style="margin-top:12px">🗣️ Demander l'analyse du coach</a>
     </div>
     <div class="carte">
       <div class="semaine-h"><h2>L'avis du coach</h2><span id="dateAnalyse"></span></div>
@@ -869,6 +887,7 @@ const QUESTIONS = {
   verifier: () => 'Vérifie si ma séance prévue aujourd\'hui reste pertinente : regarde ma forme du jour (sommeil, VFC, Body Battery, FC de repos) et ma charge récente. Dis-moi s\'il faut la garder, l\'alléger, la remplacer ou me reposer, puis enregistre ton avis.',
   jour: () => 'Que dois-je faire aujourd\'hui ? Regarde mon contexte du jour et ma forme, dis-moi si je garde, allège ou décale la séance prévue, puis détaille la séance.',
   analyse: () => 'Analyse mon historique d\'activités : volume, régularité, progression, répartition par sport, équilibre endurance / intensité et points d\'attention, en lien avec mon objectif. Puis enregistre ton commentaire pour l\'app.',
+  terrain: () => 'Analyse mon profil par terrain : comment je cours à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP), comment je gère mes montées et ce qui évolue. Dis-moi mon terrain le plus faible au regard de mon objectif, propose une ou deux séances ciblées par terrain, puis enregistre ton diagnostic pour l\'app.',
   bilan: () => 'Fais le bilan de ma semaine : séances prévues et faites, charge, forme, points positifs, points d\'attention, et ce que je dois ajuster.',
   plan: () => (etat.plan ? 'Réajuste mon plan d\'entraînement' : 'Construis mon plan d\'entraînement')
     + ' des 3 prochaines semaines d\'après mon profil, ce que j\'ai fait récemment et ma forme, puis enregistre-le.'
@@ -1135,16 +1154,27 @@ function htmlLienGarmin(s) {
 
 // VAP calculée à la demande (une fois par activité, puis gardée en base) pour les sorties affichées
 const vapsEnCours = new Set();
-async function calculerVaps(liste) {
-  if (etat.garmin?.connecte !== true || !session()) return;
-  for (const a of liste.filter((x) => vapUtile(x) && !x.vap_min_km && /^\d+$/.test(x.id) && !vapsEnCours.has(x.id))) {
+// Le même appel au serveur calcule la VAP et l'analyse par terrain (une seule lecture du profil chez Garmin)
+async function calculerVaps(liste, progression) {
+  if (etat.garmin?.connecte !== true || !session()) return 0;
+  const a_faire = liste.filter((x) => analyseAFaire(x) && !vapsEnCours.has(x.id));
+  let faites = 0;
+  for (const a of a_faire) {
     vapsEnCours.add(a.id);
     try {
       const r = await appelerGarmin('vap', { id: a.id });
       const ici = activites.find((x) => x.id === a.id);
-      if (ici && r.vap_min_km) { ici.vap_min_km = r.vap_min_km; afficherJour(); }
-    } catch (e) { console.warn('VAP', e); }
+      if (ici) {
+        if (r.vap_min_km) ici.vap_min_km = r.vap_min_km;
+        ici.tv = r.terrains;
+      }
+      faites++;
+      afficherJour();
+      progression?.(faites, a_faire.length);
+    } catch (e) { console.warn('VAP', e); vapsEnCours.delete(a.id); break; }
   }
+  if (faites) planifierTerrains();
+  return faites;
 }
 
 function htmlActivite(a) {
@@ -1691,12 +1721,13 @@ async function chargerActivites() {
   try {
     const lignes = [];
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
-      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km&order=jour.asc&limit=1000&offset=${lignes.length}`);
+      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,tv:terrains->v&order=jour.asc&limit=1000&offset=${lignes.length}`);
       lignes.push(...(page || []));
       if (!page || page.length < 1000) break;
     }
     activites = lignes;
   } catch (e) { console.warn('Activités', e); }
+  await chargerTerrains();
   afficherStats();
   afficherJour();
   afficherGuide();
@@ -1839,6 +1870,7 @@ function afficherStats() {
   $('#texteAnalyse').textContent = a?.texte || 'Pas encore d\'analyse. Importe ton historique (Profil → Garmin), puis demande à Claude de le commenter : son avis s\'affichera ici.';
   $('#texteAnalyse').classList.toggle('muted', !a?.texte);
   $('#dateAnalyse').textContent = a?.date ? 'le ' + dateLisible(a.date, false) : '';
+  afficherTerrain();
 
   if (!activites.length) {
     $('#statsContenu').hidden = true;
@@ -2052,6 +2084,135 @@ document.addEventListener('click', (e) => {
   allerA('jour');
   afficherJour();
 });
+
+/* ---------- Par terrain (course et trail) ---------- */
+// Le serveur analyse chaque sortie avec sa VAP (serveur/terrains.py, colonne activites.terrains) :
+// plat (pente entre −2 et +2 %), montée, descente, et les montées d'au moins 20 m de D+.
+// L'app agrège ici les sorties de la période, comme terrains.profil() pour Claude.
+const VERSION_TERRAINS = 1;
+const TERRAINS = [['plat', 'Plat'], ['montee', 'Montée'], ['descente', 'Descente']];
+const TRANCHES = ['2-6', '6-12', '12+'];
+const analyseUtile = (a) => (a.sport === 'course' || a.sport === 'trail') && Number(a.distance_km) >= 1 && /^\d+$/.test(a.id);
+const analyseAFaire = (a) => analyseUtile(a) && ((vapUtile(a) && !a.vap_min_km) || Number(a.tv) !== VERSION_TERRAINS);
+let lignesTerrain = []; // sorties analysées des 12 dernières semaines : { id, jour, nom, terrains }
+let analyseTerrainEnCours = false;
+
+async function chargerTerrains() {
+  if (!session()) { lignesTerrain = []; return; }
+  try {
+    lignesTerrain = await sbFetch(`/rest/v1/activites?select=id,jour,nom,terrains&sport=in.(course,trail)&terrains=not.is.null&jour=gte.${decaler(jourISO(), -84)}&order=jour.asc`) || [];
+  } catch (e) { console.warn('Terrains', e); }
+}
+let minuterieTerrains = null;
+function planifierTerrains() {
+  clearTimeout(minuterieTerrains);
+  minuterieTerrains = setTimeout(async () => { await chargerTerrains(); afficherTerrain(); }, 1500);
+}
+
+// Moyennes pondérées par le temps de plusieurs résumés (même calcul que _fusionner() côté serveur)
+function fusionnerTerrains(resumes) {
+  resumes = resumes.filter((r) => r?.temps_s);
+  const total = (liste, champ) => liste.reduce((n, r) => n + (Number(r[champ]) || 0), 0);
+  const temps = total(resumes, 'temps_s');
+  if (!temps) return { temps_s: 0 };
+  const f = { temps_s: temps, distance_m: total(resumes, 'distance_m'), denivele_m: total(resumes, 'denivele_m') };
+  f.vitesse = f.distance_m / temps;
+  for (const c of ['vap_min_km', 'puissance', 'fc', 'cadence', 'contact', 'ratio_vertical']) {
+    const avec = resumes.filter((r) => r[c]);
+    const poids = total(avec, 'temps_s');
+    if (poids >= temps * 0.5) f[c] = avec.reduce((n, r) => n + r[c] * r.temps_s, 0) / poids;
+  }
+  if (f.cadence && f.vitesse) f.foulee_m = (f.vitesse * 60) / f.cadence;
+  return f;
+}
+
+const LIGNES_TERRAIN = [
+  ['Part du temps', (r, total) => (total ? `${nombre((r.temps_s / total) * 100)} %` : '')],
+  ['Distance', (r) => (r.distance_m ? `${nombre(r.distance_m / 1000, 1)} km` : '')],
+  ['Allure', (r) => (r.vitesse ? formatAllure(1000 / 60 / r.vitesse).replace(' /km', '') : '')],
+  ['VAP', (r) => (r.vap_min_km ? formatAllure(r.vap_min_km).replace(' /km', '') : '')],
+  ['Puissance', (r) => (r.puissance ? `${nombre(r.puissance)} W` : '')],
+  ['FC', (r) => (r.fc ? nombre(r.fc) : '')],
+  ['Cadence', (r) => (r.cadence ? nombre(r.cadence) : '')],
+  ['Foulée', (r) => (r.foulee_m ? `${nombre(r.foulee_m, 2)} m` : '')],
+  ['Contact au sol', (r) => (r.contact ? `${nombre(r.contact)} ms` : '')],
+  ['Ratio vertical', (r) => (r.ratio_vertical ? `${nombre(r.ratio_vertical, 1)} %` : '')],
+];
+function tableTerrain(colonnes, total) {
+  const lignes = LIGNES_TERRAIN.map(([nom, f]) => [nom, colonnes.map(([, r]) => f(r, total))]).filter(([, v]) => v.some(Boolean));
+  return `<table class="terrains"><thead><tr><th></th>${colonnes.map(([nom]) => `<th scope="col">${esc(nom)}</th>`).join('')}</tr></thead>
+    <tbody>${lignes.map(([nom, v]) => `<tr><th scope="row">${esc(nom)}</th>${v.map((x) => `<td>${esc(x || '—')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
+const FINS_MONTEE = { flechit: '↘ fléchit', regulier: '→ régulier', accelere: '↗ accélère' };
+function afficherTerrain() {
+  const carte = $('#carteTerrain');
+  carte.hidden = !activites.some((a) => a.sport === 'course' || a.sport === 'trail');
+  if (carte.hidden) return;
+  const semaines = Number(choixStats.terrain) || 8;
+  puces($('#filtreTerrain'), [['4', '4 semaines'], ['8', '8 semaines'], ['12', '12 semaines']], String(semaines), (c) => { choixStats.terrain = c; });
+  const debut = decaler(jourISO(), -7 * semaines);
+  const lignes = lignesTerrain.filter((l) => l.jour >= debut && l.terrains?.v === VERSION_TERRAINS && !l.terrains.vide);
+  const manquantes = activites.filter((a) => a.jour >= debut && analyseAFaire(a));
+  const bloc = $('#terrain');
+
+  let html = '';
+  if (lignes.length) {
+    const total = lignes.reduce((n, l) => n + (l.terrains.temps_s || 0), 0);
+    const parTerrain = TERRAINS.map(([cle, nom]) => [nom, fusionnerTerrains(lignes.map((l) => l.terrains[cle]))]);
+    html += `<p class="muted petit" style="margin:0 0 6px">${lignes.length} sortie${lignes.length > 1 ? 's' : ''} analysée${lignes.length > 1 ? 's' : ''}, ${dureeLisible(Math.round(total / 60))} de course. Plat : pente entre −2 et +2 %.</p>`;
+    html += tableTerrain(parTerrain, total);
+
+    // La foulée selon la pente : cadence, longueur de pas et puissance par tranche
+    const tranches = ['montee', 'descente'].flatMap((t) => TRANCHES.map((tr) => [`${t === 'montee' ? '↗' : '↘'} ${tr} %`,
+      fusionnerTerrains(lignes.map((l) => l.terrains[t]?.tranches?.[tr]))])).filter(([, r]) => r.temps_s >= 60);
+    if (tranches.length) {
+      const lignesTranche = [['Cadence', (r) => (r.cadence ? nombre(r.cadence) : '—')], ['Foulée', (r) => (r.foulee_m ? `${nombre(r.foulee_m, 2)} m` : '—')],
+        ['Puissance', (r) => (r.puissance ? `${nombre(r.puissance)} W` : '—')], ['VAP', (r) => (r.vap_min_km ? formatAllure(r.vap_min_km).replace(' /km', '') : '—')]];
+      html += `<details class="petit" style="margin-top:8px"><summary class="muted">Selon la pente</summary>
+        <table class="terrains"><thead><tr><th scope="col">Pente</th>${lignesTranche.map(([n]) => `<th scope="col">${n}</th>`).join('')}</tr></thead>
+        <tbody>${tranches.map(([nom, r]) => `<tr><th scope="row">${esc(nom)}</th>${lignesTranche.map(([, f]) => `<td>${esc(f(r))}</td>`).join('')}</tr>`).join('')}</tbody></table></details>`;
+    }
+
+    // Les montées : VAM, puissance et ce qui se passe dans le dernier tiers
+    const montees = lignes.flatMap((l) => (l.terrains.montees || []).map((m) => ({ ...m, jour: l.jour, sortie: l.nom })));
+    if (montees.length) {
+      const fins = montees.filter((m) => m.fin);
+      const compte = (k) => fins.filter((m) => m.fin === k).length;
+      html += `<h4 class="sous-titre-carte">Montées <span class="muted petit">(${montees.length}, au moins 20 m de D+)</span></h4>`;
+      if (fins.length) html += `<p class="muted petit" style="margin:0 0 4px">Puissance du dernier tiers par rapport au premier : ${compte('accelere')} accélèrent, ${compte('regulier')} régulières, ${compte('flechit')} fléchissent.</p>`;
+      html += montees.slice(-6).reverse().map((m) => `<div class="montee">
+          <span>${esc(`${nombre(m.denivele_m)} m D+ à ${nombre(m.pente, 1)} % · VAM ${nombre(m.vam)} m/h`)}${m.puissance ? esc(` · ${nombre(m.puissance)} W`) : ''}</span>
+          <span class="fin">${esc(FINS_MONTEE[m.fin] || '')}</span>
+          <span class="quand">${esc(`${dateLisible(m.jour, false)} · ${m.sortie || ''} · km ${nombre(m.debut_km, 1)} · ${dureeLisible(Math.max(1, Math.round(m.duree_s / 60)))}${m.fc_max ? ` · FC max ${m.fc_max}` : ''}`)}</span>
+        </div>`).join('');
+    }
+  } else {
+    html += '<p class="muted">Cloach compare ta course à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP) et repère comment tu gères tes montées. Chaque sortie est analysée une fois, à partir de son profil Garmin.</p>';
+  }
+  if (manquantes.length && etat.garmin?.connecte) {
+    html += `<p class="statut" id="statutTerrain"></p><button class="btn secondaire" type="button" id="btnAnalyserTerrain">Analyser ${manquantes.length} sortie${manquantes.length > 1 ? 's' : ''} de la période</button>`;
+  }
+  bloc.innerHTML = html;
+  const b = $('#btnAnalyserTerrain');
+  if (b) {
+    b.disabled = analyseTerrainEnCours;
+    b.onclick = async () => {
+      analyseTerrainEnCours = true;
+      b.disabled = true;
+      const faites = await calculerVaps(manquantes.slice().reverse(), (n, sur) => statut($('#statutTerrain'), `Analyse ${n} / ${sur}…`));
+      analyseTerrainEnCours = false;
+      if (faites < manquantes.length) statut($('#statutTerrain'), 'Garmin ne répond pas pour le moment : réessaie plus tard.', true);
+      await chargerTerrains();
+      afficherTerrain();
+    };
+  }
+
+  const a = etat.analyseTerrain;
+  $('#texteTerrain').textContent = a?.texte || 'Demande à Claude d\'analyser ton profil par terrain : son diagnostic et les séances qu\'il propose s\'afficheront ici.';
+  $('#texteTerrain').classList.toggle('muted', !a?.texte);
+  $('#dateTerrain').textContent = a?.date ? '· le ' + dateLisible(a.date, false) : '';
+}
 
 /* ---------- Graphiques (SVG) ---------- */
 const H_GRAPH = 180, MARGE = { haut: 10, droite: 8, bas: 22, gauche: 36 };

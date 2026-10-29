@@ -60,6 +60,10 @@ create policy "activites_lire" on public.activites
 create policy "activites_supprimer" on public.activites
   for delete to authenticated using (user_id = (select auth.uid()));
 
+-- Analyse par terrain de chaque sortie de course ou de trail (plat, montée, descente, montées), calculée
+-- par le serveur avec la VAP (serveur/terrains.py) : { v, temps_s, plat, montee, descente, montees }.
+alter table public.activites add column if not exists terrains jsonb;
+
 -- strava_comptes : jetons Strava chiffrés par le serveur, comme garmin_comptes (aucune règle RLS).
 create table if not exists public.strava_comptes (
   user_id uuid primary key references auth.users (id) on delete cascade,

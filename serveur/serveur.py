@@ -43,6 +43,7 @@ from acces import Acces
 from donnees import Supabase
 from garmin import CompteAbsent, Garmins
 from strava import Stravas
+import terrains
 
 # strip() : un copier-coller ajoute souvent un retour à la ligne invisible.
 CLE_SIGNATURE = os.environ.get("CLE_SIGNATURE", "").strip()
@@ -74,7 +75,7 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan : le jour J, vérifie avec forme_du_jour si la séance prévue reste pertinente, puis enregistre ton verdict avec avis_du_jour (garder, alléger, remplacer ou repos), avec la séance de remplacement s'il y en a une. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Pour chaque séance, écris son objectif (son intérêt en une courte phrase) : c'est ce que l'utilisateur voit d'abord dans le plan. Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Pour une séance de course sur tapis, ajoute toujours une alternative structurée « Sur route » (et pour une séance sur route ou sur piste, une alternative « Sur tapis »), qui garde le même effet : allures adaptées, côtes remplacées par l'inclinaison du tapis ou l'inverse. Structure aussi les alternatives. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app."""
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Pour chaque séance, écris son objectif (son intérêt en une courte phrase) : c'est ce que l'utilisateur voit d'abord dans le plan. Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Pour une séance de course sur tapis, ajoute toujours une alternative structurée « Sur route » (et pour une séance sur route ou sur piste, une alternative « Sur tapis »), qui garde le même effet : allures adaptées, côtes remplacées par l'inclinaison du tapis ou l'inverse. Structure aussi les alternatives. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app. Pour la course et le trail, profil_terrain montre comment l'athlète court à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP, montées) : quand tu construis un plan, cible le terrain le plus faible au regard de l'objectif ; quand tu fais ce diagnostic, enregistre-le avec enregistrer_analyse_terrain."""
 
 mcp = MCPServer(
     name="cloach",
@@ -618,6 +619,65 @@ async def enregistrer_analyse(texte: str) -> str:
     return await _modifier(uid, changer)
 
 
+@mcp.tool()
+async def profil_terrain(semaines: int = 8) -> dict[str, Any]:
+    """Profil par terrain (plat, montée, descente) des sorties de course et de trail des dernières semaines :
+    part du temps, vitesse, VAP, puissance, FC, cadence, longueur de foulée (temps de contact et ratio
+    vertical si la montre les mesure), par tranche de pente (2-6 %, 6-12 %, 12 % et plus) ; montées
+    récentes (D+, pente, VAM, puissance par tiers : fléchit, régulier ou accélère) ; évolution de
+    l'efficacité à plat (vitesse pour 100 W) ; constats calculés. Les sorties pas encore analysées le
+    sont au passage (8 au plus par appel, Garmin requis). Sers-t'en pour repérer le terrain le plus
+    faible au regard de l'objectif et cibler les séances, puis enregistre ton commentaire avec
+    enregistrer_analyse_terrain."""
+    uid = _uid()
+    semaines = max(2, min(26, semaines))
+    debut = (_aujourdhui() - timedelta(weeks=semaines)).isoformat()
+
+    async def lire() -> list[dict[str, Any]]:
+        return [a for a in await _activites(uid, debut, None, None) if a.get("sport") in ("course", "trail")]
+
+    a_analyser = lambda lignes: [a for a in lignes if (a.get("terrains") or {}).get("v") != terrains.VERSION
+                                 and str(a.get("id", "")).isdigit() and float(a.get("distance_km") or 0) >= 1]
+    lignes = await lire()
+    probleme = None
+    branche = bool(a_analyser(lignes)) and await anyio.to_thread.run_sync(garmins.branche, uid)
+    if branche:
+        # Les plus récentes d'abord, une à la fois, avec une pause : Garmin n'aime pas les rafales
+        for a in sorted(a_analyser(lignes), key=lambda x: str(x.get("debut") or x["jour"]), reverse=True)[:8]:
+            try:
+                await anyio.to_thread.run_sync(garmins.vap, uid, str(a["id"]))
+            except Exception as exc:
+                probleme = _causes(exc)
+                break
+            await anyio.sleep(1)
+        lignes = await lire()
+    resultat = terrains.profil(lignes)
+    resultat["semaines"] = semaines
+    restant = len(a_analyser(lignes))
+    if restant:
+        resultat["restant_a_analyser"] = restant
+        suite = (" : Garmin n'est pas branché" if not branche else f" (Garmin : {probleme})" if probleme
+                 else " : rappelle profil_terrain pour continuer")
+        resultat["message"] = f"{restant} sortie(s) de la période ne sont pas encore analysées{suite}."
+    if not resultat["sorties"] and not restant:
+        resultat["message"] = "Aucune sortie de course ou de trail sur la période."
+    return resultat
+
+
+@mcp.tool()
+async def enregistrer_analyse_terrain(texte: str) -> str:
+    """Enregistre ton commentaire sur le profil par terrain (diagnostic et séances proposées pour chaque
+    terrain, en texte simple, listes à tirets possibles) ; il s'affiche dans l'onglet Stats de l'app,
+    sous « Par terrain », et remplace le précédent."""
+    uid = _uid()
+
+    def changer(etat: dict[str, Any]) -> str:
+        etat["analyseTerrain"] = {"date": _aujourdhui().isoformat(), "texte": texte[:6000]}
+        return "Analyse par terrain enregistrée : elle apparaît dans l'onglet Stats de l'app."
+
+    return await _modifier(uid, changer)
+
+
 # ---------- Outils Garmin (compte de l'utilisateur) ----------
 
 async def _garmin(nom: str, *args: Any) -> Any:
@@ -788,6 +848,15 @@ def analyse_historique() -> str:
             "derniers mois), mes records et la répartition par sport. Commente le volume, la régularité, la "
             "progression, l'équilibre entre intensité et endurance, et les points d'attention, en lien avec mon "
             "objectif. Puis enregistre ce commentaire avec enregistrer_analyse.")
+
+
+@mcp.prompt(title="Analyser ma foulée par terrain")
+def analyse_terrain() -> str:
+    """Le coach compare ta course à plat, en montée et en descente, et propose des séances par terrain."""
+    return ("Analyse mon profil par terrain (profil_terrain) : comment je cours à plat, en montée et en descente "
+            "(puissance, FC, cadence, foulée, VAP), comment je gère mes montées, et ce qui évolue. Dis-moi mon "
+            "terrain le plus faible au regard de mon objectif, propose une ou deux séances ciblées par terrain, "
+            "puis enregistre ce diagnostic avec enregistrer_analyse_terrain.")
 
 
 @mcp.prompt(title="Avis sur ma dernière séance")

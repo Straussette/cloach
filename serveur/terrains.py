@@ -1,28 +1,34 @@
 """Analyse par terrain d'une sortie de course ou de trail : plat, montée, descente.
 
 Calculée à partir des mêmes détails Garmin que la VAP (un seul appel à Garmin), puis gardée avec
-l'activité (colonne activites.terrains). Pour chaque terrain : temps, distance, vitesse, VAP,
-puissance, fréquence cardiaque, cadence, longueur de foulée, et, si la montre les mesure, temps de
-contact au sol et ratio vertical ; par tranche de pente (2-6 %, 6-12 %, plus de 12 %) pour la
-montée et la descente. Et la liste des montées (au moins 20 m de dénivelé), avec la puissance
-par tiers pour voir si l'athlète fléchit ou accélère en fin de montée.
+l'activité (colonne activites.terrains) :
+- les meilleurs efforts par durée (30 s à 1 h) à plat, en montée et en descente : puissance,
+  vitesse et vitesse verticale (VAM) les plus hautes tenues sur chaque durée ;
+- pour chaque terrain, les moyennes : temps, distance, vitesse, VAP, puissance, fréquence cardiaque,
+  cadence, longueur de foulée, et, si la montre les mesure, temps de contact et ratio vertical ;
+  par tranche de pente (2-6 %, 6-12 %, plus de 12 %) pour la montée et la descente ;
+- les montées (au moins 20 m de dénivelé), avec la puissance par tiers pour voir si l'athlète
+  fléchit ou accélère en fin de montée.
 
-profil() agrège ensuite les analyses de plusieurs sorties et en tire des constats simples, que
-Claude commente (outil profil_terrain). Fonctions pures, sans accès réseau : faciles à tester.
+profil() en fait la synthèse sur une période (records par durée, et leur évolution par rapport à
+la période précédente) et en tire des constats simples, que Claude commente (outil profil_terrain).
+Fonctions pures, sans accès réseau : faciles à tester.
 """
 
+import re
 import statistics
 from typing import Any
 
 from vap import LISSAGE, PAS_M, VITESSE_ARRET, coefficient
 
-VERSION = 1           # à augmenter si la méthode change : l'app et le serveur recalculent alors
+VERSION = 2           # à augmenter si la méthode change : l'app et le serveur recalculent alors
 PLAT_PCT = 2.0        # entre −2 % et +2 % : plat
 TRANCHES = ((2.0, 6.0, "2-6"), (6.0, 12.0, "6-12"), (12.0, 1000.0, "12+"))
 MONTEE_MIN_M = 20.0   # dénivelé minimal d'une montée
 TOLERANCE_M = 5.0     # replat ou petite descente toléré à l'intérieur d'une montée
 PAUSE_S = 10.0        # au-delà, un écart entre deux points est une pause, pas du mouvement
 TERRAINS = ("plat", "montee", "descente")
+DUREES = (30, 60, 120, 300, 600, 1200, 1800, 3600)  # durées des meilleurs efforts, en secondes
 
 # Mesures facultatives : nom → clés possibles dans les détails Garmin, par ordre de préférence
 MESURES = {
@@ -121,12 +127,12 @@ def _mesures(s: dict[str, list[Any]], debut: int, fin: int, mouvement: list[floa
     return resultat
 
 
-def _montees(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float]) -> list[dict[str, Any]]:
-    """Montées d'au moins MONTEE_MIN_M de dénivelé, en tolérant de courts replats."""
-    n = len(lisse)
+def _reperer(lisse: list[float]) -> list[tuple[int, int]]:
+    """Début et fin des montées d'au moins MONTEE_MIN_M de dénivelé, en tolérant de courts replats
+    (pour les descentes : appeler avec l'altitude changée de signe)."""
     trouvees: list[tuple[int, int]] = []
     bas = haut = 0
-    for i in range(1, n):
+    for i in range(1, len(lisse)):
         if lisse[i] >= lisse[haut]:
             haut = i
         elif lisse[haut] - lisse[i] > TOLERANCE_M:
@@ -137,9 +143,55 @@ def _montees(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float]
             bas = haut = i
     if lisse[haut] - lisse[bas] >= MONTEE_MIN_M:
         trouvees.append((bas, haut))
+    return trouvees
 
+
+def _meilleurs_efforts(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float],
+                       segments: list[tuple[int, int]], descente: bool = False) -> dict[str, dict[str, float]]:
+    """Pour chaque durée, la puissance, la vitesse et la VAM les plus hautes tenues d'un seul tenant à
+    l'intérieur des segments d'un terrain (chaque mesure pour elle-même, comme une courbe de puissance)."""
+    meilleurs: dict[str, dict[str, float]] = {}
+    signe = -1 if descente else 1
+    for debut, fin in segments:
+        # Cumuls en temps de mouvement : temps, distance, énergie (et temps où la puissance est connue)
+        temps, dist, energie, connu = [0.0], [0.0], [0.0], [0.0]
+        for i in range(debut + 1, fin + 1):
+            dt = mouvement[i]
+            p = s["puissance"][i] if dt else None
+            temps.append(temps[-1] + dt)
+            dist.append(dist[-1] + (s["dist"][i] - s["dist"][i - 1] if dt else 0))
+            energie.append(energie[-1] + (p * dt if p else 0))
+            connu.append(connu[-1] + (dt if p else 0))
+        alt = lisse[debut:fin + 1]
+        for duree in DUREES:
+            if temps[-1] < duree:
+                break
+            m = meilleurs.setdefault(str(duree), {})
+            gauche = 0
+            for droite in range(1, len(temps)):
+                # Fenêtre la plus courte qui dure au moins `duree`
+                while gauche + 1 < droite and temps[droite] - temps[gauche + 1] >= duree:
+                    gauche += 1
+                duree_fenetre = temps[droite] - temps[gauche]
+                if duree_fenetre < duree or duree_fenetre > duree * 1.1 + 10:
+                    continue
+                vitesse = (dist[droite] - dist[gauche]) / duree_fenetre
+                vam = signe * (alt[droite] - alt[gauche]) / duree_fenetre * 3600
+                if vitesse > m.get("vitesse", 0):
+                    m["vitesse"] = round(vitesse, 3)
+                if vam > m.get("vam", 0):
+                    m["vam"] = round(vam)
+                if connu[droite] - connu[gauche] >= duree_fenetre * 0.9:
+                    puissance = (energie[droite] - energie[gauche]) / (connu[droite] - connu[gauche])
+                    if puissance > m.get("puissance", 0):
+                        m["puissance"] = round(puissance)
+    return meilleurs
+
+
+def _montees(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float]) -> list[dict[str, Any]]:
+    """Montées d'au moins MONTEE_MIN_M de dénivelé, en tolérant de courts replats."""
     montees = []
-    for debut, fin in trouvees:
+    for debut, fin in _reperer(lisse):
         distance = s["dist"][fin] - s["dist"][debut]
         temps = sum(mouvement[debut + 1:fin + 1])
         gain = lisse[fin] - lisse[debut]
@@ -196,6 +248,7 @@ def analyser(details: dict[str, Any]) -> dict[str, Any] | None:
     terrains = {t: _Cumul() for t in TERRAINS}
     tranches = {(t, nom): _Cumul() for t in ("montee", "descente") for _, _, nom in TRANCHES}
     debut = 0
+    plats: list[tuple[int, int]] = []  # tronçons plats qui se suivent, regroupés
     for i in range(1, n):
         # Même découpage que la VAP : pente mesurée par tronçons d'environ PAS_M mètres
         if s["dist"][i] - s["dist"][debut] >= PAS_M or i == n - 1:
@@ -206,6 +259,11 @@ def analyser(details: dict[str, Any]) -> dict[str, Any] | None:
                 terrain, tranche = _classer(pente)
                 mesures = _mesures(s, debut, i, mouvement)
                 terrains[terrain].ajouter(temps, troncon, pente, mesures)
+                if terrain == "plat":
+                    if plats and plats[-1][1] == debut:
+                        plats[-1] = (plats[-1][0], i)
+                    else:
+                        plats.append((debut, i))
                 if tranche:
                     tranches[(terrain, tranche)].ajouter(temps, troncon, pente, mesures)
             debut = i
@@ -220,6 +278,11 @@ def analyser(details: dict[str, Any]) -> dict[str, Any] | None:
             r["tranches"] = {nom: tranches[(t, nom)].resume() for _, _, nom in TRANCHES if tranches[(t, nom)].temps > 0}
         resultat[t] = r
     resultat["montees"] = _montees(s, lisse, mouvement)
+    resultat["efforts"] = {
+        "plat": _meilleurs_efforts(s, lisse, mouvement, plats),
+        "montee": _meilleurs_efforts(s, lisse, mouvement, _reperer(lisse)),
+        "descente": _meilleurs_efforts(s, lisse, mouvement, _reperer([-a for a in lisse]), descente=True),
+    }
     return resultat
 
 
@@ -259,10 +322,28 @@ def _allure(vap: float) -> str:
     return f"{secondes // 60}:{secondes % 60:02d} /km"
 
 
-def profil(lignes: list[dict[str, Any]]) -> dict[str, Any]:
-    """Profil agrégé à partir des lignes { id, jour, nom, sport, terrains } (de la plus ancienne à la plus récente)."""
-    lignes = [l for l in lignes if isinstance(l.get("terrains"), dict) and l["terrains"].get("v") == VERSION
-              and not l["terrains"].get("vide")]
+def _valables(lignes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [l for l in lignes if isinstance(l.get("terrains"), dict) and l["terrains"].get("v") == VERSION
+            and not l["terrains"].get("vide")]
+
+
+def records(lignes: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, dict[str, Any]]]]:
+    """Meilleur effort de la période pour chaque terrain, durée et mesure, avec le jour et la sortie."""
+    rec: dict[str, dict[str, dict[str, dict[str, Any]]]] = {t: {} for t in TERRAINS}
+    for l in _valables(lignes):
+        for t in TERRAINS:
+            for duree, mesures in ((l["terrains"].get("efforts") or {}).get(t) or {}).items():
+                for mesure, valeur in mesures.items():
+                    case = rec[t].setdefault(duree, {})
+                    if valeur > case.get(mesure, {}).get("valeur", 0):
+                        case[mesure] = {"valeur": valeur, "jour": l["jour"], "sortie": l.get("nom")}
+    return rec
+
+
+def profil(lignes: list[dict[str, Any]], precedentes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Synthèse des sorties { id, jour, nom, sport, terrains } d'une période (de la plus ancienne à la plus
+    récente) ; `precedentes` : celles de la période d'avant, de même durée, pour mesurer l'évolution."""
+    lignes, precedentes = _valables(lignes), _valables(precedentes or [])
     if not lignes:
         return {"sorties": 0}
     resultat: dict[str, Any] = {"sorties": len(lignes), "du": lignes[0]["jour"], "au": lignes[-1]["jour"]}
@@ -275,20 +356,34 @@ def profil(lignes: list[dict[str, Any]]) -> dict[str, Any]:
                              for _, _, nom in TRANCHES}
             r["tranches"] = {k: v for k, v in r["tranches"].items() if v["temps_s"] >= 60}
         resultat[t] = r
-    montees = [{"jour": l["jour"], "sortie": l.get("nom"), "id": l.get("id"), **m}
-               for l in lignes for m in l["terrains"].get("montees") or []]
-    resultat["montees"] = {"nombre": len(montees), "dernieres": montees[::-1][:15]}
+
+    # Meilleurs efforts par durée (en secondes) et leur évolution par rapport à la période précédente
+    actuels, avant = records(lignes), records(precedentes)
+    for t in TERRAINS:
+        for duree, mesures in actuels[t].items():
+            for mesure, case in mesures.items():
+                ancien = avant[t].get(duree, {}).get(mesure)
+                if ancien:
+                    case["avant"] = ancien["valeur"]
+                    case["evolution_pct"] = round((case["valeur"] / ancien["valeur"] - 1) * 100, 1)
+        actuels[t] = {d: {m: c for m, c in v.items() if not (t == "plat" and m == "vam")} for d, v in actuels[t].items()}
+    resultat["meilleurs_efforts"] = actuels
+    resultat["periode_precedente"] = {"sorties": len(precedentes)}
+
+    montees = [m for l in lignes for m in l["terrains"].get("montees") or []]
+    resultat["montees"] = {"nombre": len(montees)}
+    if montees:
+        resultat["montees"].update(vam_mediane=round(statistics.median(m["vam"] for m in montees)),
+                                   pente_mediane=round(statistics.median(m["pente"] for m in montees), 1))
     fins = [m["fin"] for m in montees if m.get("fin")]
     if fins:
         resultat["montees"]["fin"] = {k: fins.count(k) for k in ("flechit", "regulier", "accelere")}
 
-    # Efficacité à plat : première moitié de la période contre seconde moitié
-    moitie = len(lignes) // 2
-    if moitie >= 2:
-        avant = _efficacite(_fusionner([l["terrains"].get("plat") for l in lignes[:moitie]]))
-        apres = _efficacite(_fusionner([l["terrains"].get("plat") for l in lignes[moitie:]]))
-        if avant and apres:
-            resultat["efficacite_plat"] = {"avant": avant, "apres": apres, "evolution_pct": round((apres / avant - 1) * 100, 1)}
+    # Efficacité à plat (vitesse pour 100 W) : cette période contre la précédente
+    apres = _efficacite(_fusionner([l["terrains"].get("plat") for l in lignes]))
+    avant_eff = _efficacite(_fusionner([l["terrains"].get("plat") for l in precedentes])) if precedentes else None
+    if avant_eff and apres:
+        resultat["efficacite_plat"] = {"avant": avant_eff, "apres": apres, "evolution_pct": round((apres / avant_eff - 1) * 100, 1)}
     resultat["constats"] = constats(resultat)
     return resultat
 
@@ -326,8 +421,21 @@ def constats(p: dict[str, Any]) -> list[str]:
         elif fins["accelere"] / n >= 0.5:
             phrases.append(f"Tu finis plus fort que tu ne commences ({fins['accelere']} montées sur {n}) : "
                            "tu peux te permettre de partir un peu plus vite.")
+    # Meilleurs efforts qui bougent nettement par rapport à la période précédente
+    reperes = (("montee", "300", "puissance", "ta meilleure puissance sur 5 min en montée", "W"),
+               ("montee", "1200", "puissance", "ta meilleure puissance sur 20 min en montée", "W"),
+               ("montee", "600", "vam", "ta meilleure VAM sur 10 min", "m/h"),
+               ("plat", "1200", "vitesse", "ta meilleure vitesse sur 20 min à plat", None),
+               ("descente", "120", "vitesse", "ta meilleure vitesse sur 2 min en descente", None))
+    efforts = p.get("meilleurs_efforts", {})
+    for terrain, duree, mesure, texte, unite in reperes:
+        case = efforts.get(terrain, {}).get(duree, {}).get(mesure)
+        if case and case.get("evolution_pct") is not None and abs(case["evolution_pct"]) >= 3:
+            valeur = f"{case['valeur']} {unite}" if unite else _allure(1000 / 60 / case["valeur"])
+            phrases.append(f"{texte[0].upper()}{texte[1:]} {'progresse' if case['evolution_pct'] > 0 else 'recule'} "
+                           f"({valeur}, {case['evolution_pct']:+.1f} % par rapport à la période précédente).")
     evolution = p.get("efficacite_plat", {}).get("evolution_pct")
     if evolution is not None and abs(evolution) >= 3:
         phrases.append(f"À plat, tu cours {'plus' if evolution > 0 else 'moins'} vite pour les mêmes watts "
-                       f"({evolution:+.1f} % sur la période).")
-    return phrases
+                       f"({evolution:+.1f} % par rapport à la période précédente).")
+    return [re.sub(r"(\d)\.(\d)", r"\1,\2", f) for f in phrases]  # virgule décimale

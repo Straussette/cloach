@@ -621,20 +621,24 @@ async def enregistrer_analyse(texte: str) -> str:
 
 @mcp.tool()
 async def profil_terrain(semaines: int = 8) -> dict[str, Any]:
-    """Profil par terrain (plat, montée, descente) des sorties de course et de trail des dernières semaines :
-    part du temps, vitesse, VAP, puissance, FC, cadence, longueur de foulée (temps de contact et ratio
-    vertical si la montre les mesure), par tranche de pente (2-6 %, 6-12 %, 12 % et plus) ; montées
-    récentes (D+, pente, VAM, puissance par tiers : fléchit, régulier ou accélère) ; évolution de
-    l'efficacité à plat (vitesse pour 100 W) ; constats calculés. Les sorties pas encore analysées le
+    """Synthèse par terrain (plat, montée, descente) des sorties de course et de trail des dernières semaines :
+    meilleurs efforts par durée (30 s à 1 h, clés en secondes) en puissance, vitesse (m/s) et VAM (m/h,
+    vitesse verticale de descente pour la descente), avec la sortie où chacun a été fait et l'évolution
+    par rapport aux semaines précédentes de même durée ; moyennes par terrain (part du temps, vitesse, VAP,
+    puissance, FC, cadence, foulée, temps de contact et ratio vertical si mesurés) et par tranche de pente ;
+    montées (nombre, VAM et pente médianes, fin : fléchit, régulier ou accélère) ; efficacité à plat
+    (vitesse pour 100 W) ; constats calculés. Les sorties pas encore analysées le
     sont au passage (8 au plus par appel, Garmin requis). Sers-t'en pour repérer le terrain le plus
     faible au regard de l'objectif et cibler les séances, puis enregistre ton commentaire avec
     enregistrer_analyse_terrain."""
     uid = _uid()
     semaines = max(2, min(26, semaines))
     debut = (_aujourdhui() - timedelta(weeks=semaines)).isoformat()
+    debut_avant = (_aujourdhui() - timedelta(weeks=2 * semaines)).isoformat()
 
     async def lire() -> list[dict[str, Any]]:
-        return [a for a in await _activites(uid, debut, None, None) if a.get("sport") in ("course", "trail")]
+        # La période et celle d'avant, de même durée, pour mesurer l'évolution
+        return [a for a in await _activites(uid, debut_avant, None, None) if a.get("sport") in ("course", "trail")]
 
     a_analyser = lambda lignes: [a for a in lignes if (a.get("terrains") or {}).get("v") != terrains.VERSION
                                  and str(a.get("id", "")).isdigit() and float(a.get("distance_km") or 0) >= 1]
@@ -651,7 +655,8 @@ async def profil_terrain(semaines: int = 8) -> dict[str, Any]:
                 break
             await anyio.sleep(1)
         lignes = await lire()
-    resultat = terrains.profil(lignes)
+    resultat = terrains.profil([a for a in lignes if str(a["jour"]) >= debut],
+                               [a for a in lignes if str(a["jour"]) < debut])
     resultat["semaines"] = semaines
     restant = len(a_analyser(lignes))
     if restant:

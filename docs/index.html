@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-29.2">
+<meta name="app-version" content="2026-10-29.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -238,9 +238,9 @@
   table.terrains th, table.terrains td { padding:6px 4px; border-bottom:1px solid var(--border); text-align:right; }
   table.terrains th:first-child, table.terrains td:first-child { text-align:left; color:var(--muted); font-weight:400; }
   table.terrains thead th { color:var(--text); font-weight:600; }
-  .montee { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:8px 0; border-top:1px solid var(--border); font-size:.9rem; }
-  .montee .quand { grid-column:1 / -1; font-size:.8rem; color:var(--muted); }
-  .montee .fin { font-weight:600; white-space:nowrap; }
+  table.terrains tbody tr[data-duree] { cursor:pointer; }
+  table.terrains tbody tr.choisie { background:var(--accent-doux); }
+  .evol { display:block; font-size:.75rem; color:var(--muted); }
   .sous-titre-carte { margin:14px 0 4px; font-size:.95rem; }
 
   /* ---------- Guide de démarrage ---------- */
@@ -349,7 +349,8 @@
     </div>
     <div class="carte" id="carteTerrain" hidden>
       <div class="semaine-h"><h3>Par terrain</h3><span>course et trail</span></div>
-      <div class="puces" id="filtreTerrain" style="margin-bottom:10px"></div>
+      <div class="puces" id="filtreTerrain" style="margin-bottom:8px"></div>
+      <div class="puces" id="vueTerrain" style="margin-bottom:10px"></div>
       <div id="terrain"></div>
       <h4 class="sous-titre-carte">Le diagnostic du coach <span class="muted petit" id="dateTerrain"></span></h4>
       <div id="texteTerrain" class="analyse"></div>
@@ -2087,20 +2088,20 @@ document.addEventListener('click', (e) => {
 
 /* ---------- Par terrain (course et trail) ---------- */
 // Le serveur analyse chaque sortie avec sa VAP (serveur/terrains.py, colonne activites.terrains) :
-// plat (pente entre −2 et +2 %), montée, descente, et les montées d'au moins 20 m de D+.
-// L'app agrège ici les sorties de la période, comme terrains.profil() pour Claude.
-const VERSION_TERRAINS = 1;
+// plat (pente entre −2 et +2 %), montée, descente : meilleurs efforts par durée, moyennes, montées.
+// L'app en fait la synthèse sur la période, comparée à la période d'avant, comme terrains.profil() pour Claude.
+const VERSION_TERRAINS = 2;
 const TERRAINS = [['plat', 'Plat'], ['montee', 'Montée'], ['descente', 'Descente']];
 const TRANCHES = ['2-6', '6-12', '12+'];
 const analyseUtile = (a) => (a.sport === 'course' || a.sport === 'trail') && Number(a.distance_km) >= 1 && /^\d+$/.test(a.id);
 const analyseAFaire = (a) => analyseUtile(a) && ((vapUtile(a) && !a.vap_min_km) || Number(a.tv) !== VERSION_TERRAINS);
-let lignesTerrain = []; // sorties analysées des 12 dernières semaines : { id, jour, nom, terrains }
+let lignesTerrain = []; // sorties analysées des 24 dernières semaines : { id, jour, nom, terrains }
 let analyseTerrainEnCours = false;
 
 async function chargerTerrains() {
   if (!session()) { lignesTerrain = []; return; }
   try {
-    lignesTerrain = await sbFetch(`/rest/v1/activites?select=id,jour,nom,terrains&sport=in.(course,trail)&terrains=not.is.null&jour=gte.${decaler(jourISO(), -84)}&order=jour.asc`) || [];
+    lignesTerrain = await sbFetch(`/rest/v1/activites?select=id,jour,nom,terrains&sport=in.(course,trail)&terrains=not.is.null&jour=gte.${decaler(jourISO(), -168)}&order=jour.asc`) || [];
   } catch (e) { console.warn('Terrains', e); }
 }
 let minuterieTerrains = null;
@@ -2144,24 +2145,86 @@ function tableTerrain(colonnes, total) {
     <tbody>${lignes.map(([nom, v]) => `<tr><th scope="row">${esc(nom)}</th>${v.map((x) => `<td>${esc(x || '—')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
 
-const FINS_MONTEE = { flechit: '↘ fléchit', regulier: '→ régulier', accelere: '↗ accélère' };
+// Meilleur effort de la période pour chaque terrain, durée et mesure (comme records() côté serveur)
+function recordsTerrain(lignes) {
+  const rec = { plat: {}, montee: {}, descente: {} };
+  for (const l of lignes) {
+    for (const t of Object.keys(rec)) {
+      for (const [duree, mesures] of Object.entries(l.terrains.efforts?.[t] || {})) {
+        for (const [mesure, valeur] of Object.entries(mesures)) {
+          const caseRec = (rec[t][duree] ||= {});
+          if (valeur > (caseRec[mesure]?.valeur || 0)) caseRec[mesure] = { valeur, jour: l.jour, sortie: l.nom };
+        }
+      }
+    }
+  }
+  return rec;
+}
+const DUREES_EFFORT = [[30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min'], [600, '10 min'], [1200, '20 min'], [1800, '30 min'], [3600, '1 h']];
+const allureVitesse = (v) => formatAllure(1000 / 60 / v).replace(' /km', '');
+const MESURES_EFFORT = {
+  montee: [['puissance', 'Puissance', (v) => `${nombre(v)} W`], ['vam', 'VAM', (v) => `${nombre(v)} m/h`], ['vitesse', 'Allure', allureVitesse]],
+  plat: [['puissance', 'Puissance', (v) => `${nombre(v)} W`], ['vitesse', 'Allure', allureVitesse]],
+  descente: [['vitesse', 'Allure', allureVitesse], ['vam', 'Descente', (v) => `${nombre(v)} m/h`], ['puissance', 'Puissance', (v) => `${nombre(v)} W`]],
+};
+const NOMS_TERRAINS = { plat: 'à plat', montee: 'en montée', descente: 'en descente' };
+let dureeChoisie = null;
+
 function afficherTerrain() {
   const carte = $('#carteTerrain');
   carte.hidden = !activites.some((a) => a.sport === 'course' || a.sport === 'trail');
   if (carte.hidden) return;
   const semaines = Number(choixStats.terrain) || 8;
+  const vue = choixStats.vueTerrain || 'montee';
   puces($('#filtreTerrain'), [['4', '4 semaines'], ['8', '8 semaines'], ['12', '12 semaines']], String(semaines), (c) => { choixStats.terrain = c; });
+  puces($('#vueTerrain'), TERRAINS.map(([cle, nom]) => [cle, nom]), vue, (c) => { choixStats.vueTerrain = c; dureeChoisie = null; });
   const debut = decaler(jourISO(), -7 * semaines);
-  const lignes = lignesTerrain.filter((l) => l.jour >= debut && l.terrains?.v === VERSION_TERRAINS && !l.terrains.vide);
-  const manquantes = activites.filter((a) => a.jour >= debut && analyseAFaire(a));
+  const debutAvant = decaler(jourISO(), -14 * semaines);
+  const valable = (l) => l.terrains?.v === VERSION_TERRAINS && !l.terrains.vide;
+  const lignes = lignesTerrain.filter((l) => l.jour >= debut && valable(l));
+  const avant = lignesTerrain.filter((l) => l.jour >= debutAvant && l.jour < debut && valable(l));
+  const manquantes = activites.filter((a) => a.jour >= debutAvant && analyseAFaire(a));
   const bloc = $('#terrain');
 
   let html = '';
   if (lignes.length) {
     const total = lignes.reduce((n, l) => n + (l.terrains.temps_s || 0), 0);
+    html += `<p class="muted petit" style="margin:0 0 6px">${lignes.length} sortie${lignes.length > 1 ? 's' : ''} analysée${lignes.length > 1 ? 's' : ''} (${dureeLisible(Math.round(total / 60))} de course)${avant.length ? `, comparée${lignes.length > 1 ? 's' : ''} aux ${semaines} semaines d'avant (${avant.length} sortie${avant.length > 1 ? 's' : ''})` : ''}. Plat : pente entre −2 et +2 %.</p>`;
+
+    // Meilleurs efforts par durée sur ce terrain, et leur évolution
+    const rec = recordsTerrain(lignes)[vue];
+    const recAvant = recordsTerrain(avant)[vue];
+    const mesures = MESURES_EFFORT[vue];
+    const durees = DUREES_EFFORT.filter(([d]) => rec[d]);
+    html += `<h4 class="sous-titre-carte">Meilleurs efforts ${NOMS_TERRAINS[vue]}</h4>`;
+    if (durees.length) {
+      const evolution = (d, m) => {
+        const actuel = rec[d]?.[m]?.valeur, ancien = recAvant[d]?.[m]?.valeur;
+        if (!actuel || !ancien) return '';
+        // Pour l'allure, une vitesse plus haute est un progrès : même sens que les watts
+        const pct = (actuel / ancien - 1) * 100;
+        return `${Math.abs(pct) < 1 ? '→' : pct > 0 ? '↗' : '↘'} ${pct > 0 ? '+' : ''}${nombre(pct)} %`;
+      };
+      html += `<table class="terrains" id="tableEfforts"><thead><tr><th scope="col">Durée</th>${mesures.map(([, nom]) => `<th scope="col">${esc(nom)}</th>`).join('')}</tr></thead><tbody>
+        ${durees.map(([d, nom]) => `<tr data-duree="${d}" class="${dureeChoisie === d ? 'choisie' : ''}"><th scope="row">${esc(nom)}</th>${mesures.map(([m, , f]) => {
+          const v = rec[d][m]?.valeur;
+          const ev = evolution(d, m);
+          return `<td>${v ? esc(f(v)) : '—'}${ev ? `<span class="evol">${esc(ev)}</span>` : ''}</td>`;
+        }).join('')}</tr>`).join('')}</tbody></table>`;
+      const choisie = durees.find(([d]) => d === dureeChoisie);
+      html += `<p class="muted petit" id="detailEffort" style="margin:6px 0 0">${choisie
+        ? esc(mesures.filter(([m]) => rec[choisie[0]][m]).map(([m, nom, f]) => {
+            const c = rec[choisie[0]][m], a = recAvant[choisie[0]]?.[m];
+            return `${nom} sur ${choisie[1]} : ${f(c.valeur)} le ${dateLisible(c.jour, false)}${c.sortie ? ` (${c.sortie})` : ''}${a ? `, avant ${f(a.valeur)}` : ''}`;
+          }).join(' · '))
+        : `Touche une durée pour voir la sortie de chaque record${avant.length ? ' et la valeur d\'avant' : ''}.`}</p>`;
+    } else {
+      html += `<p class="muted petit">Pas encore d'effort de 30 s ou plus ${NOMS_TERRAINS[vue]} sur la période.</p>`;
+    }
+
+    // Moyennes par terrain
     const parTerrain = TERRAINS.map(([cle, nom]) => [nom, fusionnerTerrains(lignes.map((l) => l.terrains[cle]))]);
-    html += `<p class="muted petit" style="margin:0 0 6px">${lignes.length} sortie${lignes.length > 1 ? 's' : ''} analysée${lignes.length > 1 ? 's' : ''}, ${dureeLisible(Math.round(total / 60))} de course. Plat : pente entre −2 et +2 %.</p>`;
-    html += tableTerrain(parTerrain, total);
+    html += '<h4 class="sous-titre-carte">Moyennes</h4>' + tableTerrain(parTerrain, total);
 
     // La foulée selon la pente : cadence, longueur de pas et puissance par tranche
     const tranches = ['montee', 'descente'].flatMap((t) => TRANCHES.map((tr) => [`${t === 'montee' ? '↗' : '↘'} ${tr} %`,
@@ -2174,26 +2237,24 @@ function afficherTerrain() {
         <tbody>${tranches.map(([nom, r]) => `<tr><th scope="row">${esc(nom)}</th>${lignesTranche.map(([, f]) => `<td>${esc(f(r))}</td>`).join('')}</tr>`).join('')}</tbody></table></details>`;
     }
 
-    // Les montées : VAM, puissance et ce qui se passe dans le dernier tiers
-    const montees = lignes.flatMap((l) => (l.terrains.montees || []).map((m) => ({ ...m, jour: l.jour, sortie: l.nom })));
+    // Les montées, en synthèse : combien, à quelle VAM, et ce qui se passe dans le dernier tiers
+    const montees = lignes.flatMap((l) => l.terrains.montees || []);
     if (montees.length) {
+      const mediane = (liste) => { const t = [...liste].sort((x, y) => x - y), m = t.length >> 1; return t.length % 2 ? t[m] : (t[m - 1] + t[m]) / 2; };
       const fins = montees.filter((m) => m.fin);
       const compte = (k) => fins.filter((m) => m.fin === k).length;
-      html += `<h4 class="sous-titre-carte">Montées <span class="muted petit">(${montees.length}, au moins 20 m de D+)</span></h4>`;
-      if (fins.length) html += `<p class="muted petit" style="margin:0 0 4px">Puissance du dernier tiers par rapport au premier : ${compte('accelere')} accélèrent, ${compte('regulier')} régulières, ${compte('flechit')} fléchissent.</p>`;
-      html += montees.slice(-6).reverse().map((m) => `<div class="montee">
-          <span>${esc(`${nombre(m.denivele_m)} m D+ à ${nombre(m.pente, 1)} % · VAM ${nombre(m.vam)} m/h`)}${m.puissance ? esc(` · ${nombre(m.puissance)} W`) : ''}</span>
-          <span class="fin">${esc(FINS_MONTEE[m.fin] || '')}</span>
-          <span class="quand">${esc(`${dateLisible(m.jour, false)} · ${m.sortie || ''} · km ${nombre(m.debut_km, 1)} · ${dureeLisible(Math.max(1, Math.round(m.duree_s / 60)))}${m.fc_max ? ` · FC max ${m.fc_max}` : ''}`)}</span>
-        </div>`).join('');
+      html += `<p class="petit" style="margin:10px 0 0"><b>${montees.length} montée${montees.length > 1 ? 's' : ''}</b> d'au moins 20 m de D+ : VAM médiane ${nombre(mediane(montees.map((m) => m.vam)))} m/h, pente médiane ${nombre(mediane(montees.map((m) => m.pente)), 1)} %.${fins.length ? ` En fin de montée, ta puissance ${compte('accelere')} fois augmente, ${compte('regulier')} fois se maintient, ${compte('flechit')} fois baisse.` : ''}</p>`;
     }
   } else {
-    html += '<p class="muted">Cloach compare ta course à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP) et repère comment tu gères tes montées. Chaque sortie est analysée une fois, à partir de son profil Garmin.</p>';
+    html += '<p class="muted">Cloach fait la synthèse de tes sorties à plat, en montée et en descente : tes meilleurs efforts sur 30 s, 1, 5, 20 min… en puissance, VAM et allure, leur évolution, et tes moyennes (FC, cadence, foulée). Chaque sortie est analysée une fois, à partir de son profil Garmin.</p>';
   }
   if (manquantes.length && etat.garmin?.connecte) {
-    html += `<p class="statut" id="statutTerrain"></p><button class="btn secondaire" type="button" id="btnAnalyserTerrain">Analyser ${manquantes.length} sortie${manquantes.length > 1 ? 's' : ''} de la période</button>`;
+    html += `<p class="statut" id="statutTerrain"></p><button class="btn secondaire" type="button" id="btnAnalyserTerrain">Analyser ${manquantes.length} sortie${manquantes.length > 1 ? 's' : ''}</button>`;
   }
   bloc.innerHTML = html;
+  for (const tr of bloc.querySelectorAll('tr[data-duree]')) {
+    tr.onclick = () => { dureeChoisie = dureeChoisie === Number(tr.dataset.duree) ? null : Number(tr.dataset.duree); afficherTerrain(); };
+  }
   const b = $('#btnAnalyserTerrain');
   if (b) {
     b.disabled = analyseTerrainEnCours;

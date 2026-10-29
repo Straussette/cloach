@@ -63,6 +63,8 @@ create policy "activites_supprimer" on public.activites
 -- Analyse par terrain de chaque sortie de course ou de trail (plat, montée, descente, montées), calculée
 -- par le serveur avec la VAP (serveur/terrains.py) : { v, temps_s, plat, montee, descente, montees, efforts }.
 alter table public.activites add column if not exists terrains jsonb;
+-- Meilleure puissance moyenne par durée (secondes → W) donnée par Garmin dans le résumé (maxAvgPower_N).
+alter table public.activites add column if not exists puissances_max jsonb;
 
 -- strava_comptes : jetons Strava chiffrés par le serveur, comme garmin_comptes (aucune règle RLS).
 create table if not exists public.strava_comptes (

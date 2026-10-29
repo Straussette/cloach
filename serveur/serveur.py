@@ -686,20 +686,24 @@ async def seuils_puissance() -> dict[str, Any]:
     """Seuils de puissance et ratio entre la course et le vélo, pour comparer les deux sports et traduire
     une séance de l'un dans l'autre. La puissance de course Garmin sort bien plus haut qu'un capteur de
     vélo pour le même effort : compare toujours en % du seuil de chaque sport, jamais en watts bruts.
-    Renvoie le seuil course et la FTP vélo (au profil, sinon estimés d'après les meilleurs efforts des 6
-    derniers mois : 1 h, 20 min × 0,95, ou 10 min × 0,90 provisoire ; une estimation tirée de sorties qui
-    n'étaient pas à fond est basse), le ratio seuil course ÷ FTP, et le ratio des watts produits à la
-    même fréquence cardiaque. Les sorties pas encore analysées le sont au passage (8 au plus)."""
+    Renvoie, sur les 6 derniers mois et de tous les temps : le seuil course et la FTP vélo (au profil,
+    sinon estimés d'après les meilleurs efforts : 1 h, 20 min × 0,95, ou 10 min × 0,90 provisoire ; une
+    estimation tirée de sorties qui n'étaient pas à fond est basse), la courbe de puissance de chaque
+    sport (meilleurs 5 s, 1, 5, 20 min, 1 h, avec la date), le ratio seuil course ÷ FTP et le ratio des
+    watts produits à la même fréquence cardiaque. Les sorties récentes pas encore analysées le sont au
+    passage (8 au plus)."""
     uid = _uid()
     debut = (_aujourdhui() - timedelta(weeks=26)).isoformat()
 
     async def lire() -> list[dict[str, Any]]:
-        return [a for a in await _activites(uid, debut, None, None) if a.get("sport") in ("course", "trail", "velo")]
+        return [a for a in await _activites(uid, None, None, None) if a.get("sport") in ("course", "trail", "velo")]
 
-    # Course et trail : toutes ; vélo : seulement les sorties avec puissance (home trainer, capteur)
-    a_analyser = lambda lignes: [a for a in lignes if (a.get("terrains") or {}).get("v") != terrains.VERSION
+    # Sorties récentes sans courbe de puissance : course et trail (aussi pour l'analyse par terrain),
+    # vélo avec puissance seulement si Garmin n'a pas donné sa courbe à l'import
+    a_analyser = lambda lignes: [a for a in lignes if str(a["jour"]) >= debut
+                                 and (a.get("terrains") or {}).get("v") != terrains.VERSION
                                  and str(a.get("id", "")).isdigit() and float(a.get("distance_km") or 0) >= 1
-                                 and (a["sport"] != "velo" or a.get("puissance_moy"))]
+                                 and (a["sport"] != "velo" or (a.get("puissance_moy") and not a.get("puissances_max")))]
     lignes = await lire()
     if a_analyser(lignes) and await anyio.to_thread.run_sync(garmins.branche, uid):
         for a in sorted(a_analyser(lignes), key=lambda x: str(x.get("debut") or x["jour"]), reverse=True)[:8]:
@@ -709,8 +713,17 @@ async def seuils_puissance() -> dict[str, Any]:
                 break
             await anyio.sleep(1)
         lignes = await lire()
-    resultat = puissance.seuils([a for a in lignes if a["sport"] != "velo"], [a for a in lignes if a["sport"] == "velo"],
-                                (await _lire(uid)).get("profil") or {})
+    profil_sportif = (await _lire(uid)).get("profil") or {}
+    recentes = [a for a in lignes if str(a["jour"]) >= debut]
+    resultat = {
+        "six_derniers_mois": puissance.seuils([a for a in recentes if a["sport"] != "velo"],
+                                              [a for a in recentes if a["sport"] == "velo"], profil_sportif),
+        "de_tous_les_temps": puissance.seuils([a for a in lignes if a["sport"] != "velo"],
+                                              [a for a in lignes if a["sport"] == "velo"], profil_sportif, True),
+    }
+    if not any(a.get("puissances_max") for a in lignes):
+        resultat["note"] = ("Courbes de puissance de Garmin pas encore récupérées : l'utilisateur peut réimporter "
+                            "son historique dans l'app (Stats → Course et vélo).")
     if a_analyser(lignes):
         resultat["restant_a_analyser"] = len(a_analyser(lignes))
     return resultat

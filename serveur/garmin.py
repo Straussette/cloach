@@ -62,6 +62,19 @@ def sport_cloach(type_garmin: str) -> str:
     return next((s for s, types in SPORTS_GARMIN.items() if type_garmin in types), "autre")
 
 
+def puissances_max(a: dict[str, Any]) -> dict[str, int] | None:
+    """Meilleure puissance moyenne par durée (secondes → W), que Garmin donne dans le résumé des sorties
+    avec puissance (maxAvgPower_1 … maxAvgPower_18000, ou au moins la meilleure sur 20 min)."""
+    courbe = {}
+    for cle, valeur in a.items():
+        if cle.startswith("maxAvgPower_") and cle[12:].isdigit() and isinstance(valeur, (int, float)) and valeur > 0:
+            courbe[cle[12:]] = round(valeur)
+    vingt = a.get("max20MinPower") or a.get("maxPowerTwentyMinutes")
+    if "1200" not in courbe and isinstance(vingt, (int, float)) and vingt > 0:
+        courbe["1200"] = round(vingt)
+    return courbe or None
+
+
 def vers_activite(a: dict[str, Any]) -> dict[str, Any] | None:
     """Activité Garmin → ligne de la table activites."""
     debut = str(a.get("startTimeLocal") or "")
@@ -80,6 +93,8 @@ def vers_activite(a: dict[str, Any]) -> dict[str, Any] | None:
         "te_aerobie": arrondi(a.get("aerobicTrainingEffect")), "te_anaerobie": arrondi(a.get("anaerobicTrainingEffect")),
         "puissance_moy": arrondi(a.get("avgPower"), 0), "puissance_norm": arrondi(a.get("normPower"), 0),
         "calories": arrondi(a.get("calories"), 0),
+        # Toujours présent (même vide) : toutes les lignes d'un envoi groupé doivent avoir les mêmes clés
+        "puissances_max": puissances_max(a),
     }
 
 

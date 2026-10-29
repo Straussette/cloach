@@ -3,7 +3,10 @@
 La puissance de course Garmin (qui compte aussi le vent) sort bien plus haut qu'un capteur de vélo pour
 un même effort, et l'écart dépend de l'athlète : on ne compare donc pas les watts d'un sport à l'autre,
 mais chaque effort à son propre seuil.
-- Seuil estimé d'après les meilleurs efforts sur toute la sortie (efforts « tout » de terrains.py) :
+- Meilleurs efforts par durée : la courbe de puissance que Garmin donne dans le résumé de chaque sortie
+  (colonne puissances_max, récupérée à l'import : tout l'historique sans appel de plus), sinon celle
+  calculée à partir des détails (efforts « tout » de terrains.py).
+- Seuil estimé d'après ces meilleurs efforts :
   1 h × 1,00, sinon 20 min × 0,95 (comme la FTP), sinon 10 min × 0,90 (provisoire).
 - Ratio course / vélo de deux façons : seuil course ÷ FTP, et watts produits à la même fréquence
   cardiaque dans les deux sports (d'après les moyennes des sorties : aucun appel à Garmin).
@@ -25,14 +28,25 @@ def nombre(texte: Any) -> float | None:
     return x if x > 0 else None
 
 
+COURBE = (5, 60, 300, 1200, 3600)  # durées montrées dans la courbe de puissance
+
+
+def courbe_sortie(a: dict[str, Any]) -> dict[int, float]:
+    """Meilleure puissance par durée (secondes → W) d'une sortie : Garmin, sinon calculée."""
+    courbe = {int(d): float(p) for d, p in (a.get("puissances_max") or {}).items() if str(d).isdigit() and p}
+    for d, m in (((a.get("terrains") or {}).get("efforts") or {}).get("tout") or {}).items():
+        if m.get("puissance") and int(d) not in courbe:
+            courbe[int(d)] = float(m["puissance"])
+    return courbe
+
+
 def meilleurs(lignes: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
-    """Meilleure puissance par durée sur toute la sortie, parmi les lignes { jour, nom, terrains }."""
+    """Meilleure puissance par durée, parmi les sorties { jour, nom, puissances_max, terrains }."""
     rec: dict[int, dict[str, Any]] = {}
     for l in lignes:
-        for duree, m in (((l.get("terrains") or {}).get("efforts") or {}).get("tout") or {}).items():
-            p = m.get("puissance")
-            if p and p > rec.get(int(duree), {}).get("valeur", 0):
-                rec[int(duree)] = {"valeur": p, "jour": l.get("jour"), "sortie": l.get("nom")}
+        for duree, p in courbe_sortie(l).items():
+            if p > rec.get(duree, {}).get("valeur", 0):
+                rec[duree] = {"valeur": round(p), "jour": l.get("jour"), "sortie": l.get("nom")}
     return rec
 
 
@@ -89,16 +103,24 @@ def ratio_fc(courses: list[dict[str, Any]], velos: list[dict[str, Any]]) -> dict
     }
 
 
-def seuils(courses: list[dict[str, Any]], velos: list[dict[str, Any]], profil: dict[str, Any]) -> dict[str, Any]:
-    """Seuil course et FTP (au profil ou estimés), et ratios course / vélo. `courses` et `velos` : activités
-    (avec puissance_moy, fc_moy, duree_min et terrains) des derniers mois."""
+def seuils(courses: list[dict[str, Any]], velos: list[dict[str, Any]], profil: dict[str, Any],
+           meilleurs_seuils: bool = False) -> dict[str, Any]:
+    """Seuil course et FTP (au profil ou estimés), courbes de puissance, et ratios course / vélo. `courses` et
+    `velos` : activités (avec puissance_moy, fc_moy, duree_min, puissances_max et terrains) de la période ;
+    `meilleurs_seuils` (de tous les temps) : seuils estimés seulement, sans les valeurs actuelles du profil."""
     estime_course, estime_ftp = estimer_seuil(courses), estimer_seuil(velos)
+    poids = nombre(profil.get("poids"))
     seuil_profil, ftp_profil = nombre(profil.get("seuilCourse")), nombre(profil.get("ftp"))
-    seuil = seuil_profil or (estime_course or {}).get("valeur")
-    ftp = ftp_profil or (estime_ftp or {}).get("valeur")
+    seuil = (None if meilleurs_seuils else seuil_profil) or (estime_course or {}).get("valeur")
+    ftp = (None if meilleurs_seuils else ftp_profil) or (estime_ftp or {}).get("valeur")
+    def courbe(lignes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        rec = meilleurs(lignes)
+        return {f"{d}s": {**rec[d], **({"w_kg": round(rec[d]["valeur"] / poids, 2)} if poids else {})}
+                for d in COURBE if d in rec}
+
     resultat: dict[str, Any] = {
-        "course": {"seuil_w": seuil, "au_profil": seuil_profil, "estime": estime_course},
-        "velo": {"ftp_w": ftp, "au_profil": ftp_profil, "estime": estime_ftp},
+        "course": {"seuil_w": seuil, "au_profil": seuil_profil, "estime": estime_course, "courbe": courbe(courses)},
+        "velo": {"ftp_w": ftp, "au_profil": ftp_profil, "estime": estime_ftp, "courbe": courbe(velos)},
     }
     if seuil and ftp:
         resultat["ratio_seuils"] = round(seuil / ftp, 2)

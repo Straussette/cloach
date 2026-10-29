@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-29.5">
+<meta name="app-version" content="2026-10-29.6">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -357,7 +357,8 @@
       <a class="btn large" target="_blank" rel="noopener" data-question="terrain" style="margin-top:12px">🗣️ Demander l'analyse du coach</a>
     </div>
     <div class="carte" id="cartePuissance" hidden>
-      <div class="semaine-h"><h3>Course et vélo</h3><span>6 derniers mois</span></div>
+      <h3 style="margin-bottom:8px">Course et vélo</h3>
+      <div class="puces" id="periodePuissance" style="margin-bottom:10px"></div>
       <div id="puissance"></div>
       <a class="btn secondaire large" target="_blank" rel="noopener" data-question="puissance" style="margin-top:12px">🗣️ Demander au coach de comparer</a>
     </div>
@@ -1732,7 +1733,7 @@ async function chargerActivites() {
   try {
     const lignes = [];
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
-      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,puissance_moy,tv:terrains->v&order=jour.asc&limit=1000&offset=${lignes.length}`);
+      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,puissance_moy,puissances_max,tv:terrains->v&order=jour.asc&limit=1000&offset=${lignes.length}`);
       lignes.push(...(page || []));
       if (!page || page.length < 1000) break;
     }
@@ -2104,8 +2105,8 @@ document.addEventListener('click', (e) => {
 const VERSION_TERRAINS = 3;
 const TERRAINS = [['plat', 'Plat'], ['montee', 'Montée'], ['descente', 'Descente']];
 const TRANCHES = ['2-6', '6-12', '12+'];
-// Course et trail : toutes les sorties ; vélo : celles qui ont une puissance (home trainer, capteur), pour la FTP
-const analyseUtile = (a) => ((a.sport === 'course' || a.sport === 'trail') || (a.sport === 'velo' && Number(a.puissance_moy) > 0))
+// Course et trail : toutes les sorties ; vélo : celles qui ont une puissance mais pas la courbe de Garmin (puissances_max)
+const analyseUtile = (a) => ((a.sport === 'course' || a.sport === 'trail') || (a.sport === 'velo' && Number(a.puissance_moy) > 0 && !a.puissances_max))
   && Number(a.distance_km) >= 1 && /^\d+$/.test(a.id);
 const analyseAFaire = (a) => analyseUtile(a) && ((vapUtile(a) && !a.vap_min_km) || Number(a.tv) !== VERSION_TERRAINS);
 let lignesTerrain = []; // sorties analysées des 26 dernières semaines : { id, jour, nom, sport, terrains }
@@ -2313,37 +2314,53 @@ function afficherTerrain() {
 /* ---------- Seuils de puissance : course et vélo ---------- */
 // Même calcul que serveur/puissance.py. La puissance de course Garmin sort bien plus haut qu'un capteur
 // de vélo pour le même effort : on compare chaque sport à son propre seuil, et on mesure le ratio entre
-// les deux (seuils, et watts produits à la même fréquence cardiaque).
+// les deux (seuils, et watts produits à la même fréquence cardiaque). Les meilleurs efforts viennent de la
+// courbe de puissance que Garmin donne dans le résumé de chaque sortie (puissances_max, récupérée à
+// l'import : tout l'historique), sinon de celle calculée à partir des détails (efforts « tout »).
 const FACTEURS_SEUIL = [[3600, 1, '1 h'], [1200, 0.95, '20 min']];
-function meilleursTout(lignes) {
+const COURBE_PUISSANCE = [[5, '5 s'], [60, '1 min'], [300, '5 min'], [1200, '20 min'], [3600, '1 h']];
+const depuis6Mois = () => decaler(jourISO(), -182);
+function courbeSortie(a, calculees) {
+  const courbe = {};
+  for (const [d, p] of Object.entries(a.puissances_max || {})) if (p > 0) courbe[d] = p;
+  for (const [d, m] of Object.entries(calculees.get(a.id) || {})) if (m.puissance && !courbe[d]) courbe[d] = m.puissance;
+  return courbe;
+}
+function meilleursPuissance(liste) {
+  const calculees = new Map(lignesTerrain.map((l) => [l.id, l.terrains?.v === VERSION_TERRAINS ? l.terrains.efforts?.tout : null]));
   const rec = {};
-  for (const l of lignes) {
-    for (const [d, m] of Object.entries(l.terrains?.efforts?.tout || {})) {
-      if (m.puissance > (rec[d]?.valeur || 0)) rec[d] = { valeur: m.puissance, jour: l.jour, sortie: l.nom };
+  for (const a of liste) {
+    for (const [d, p] of Object.entries(courbeSortie(a, calculees))) {
+      if (p > (rec[d]?.valeur || 0)) rec[d] = { valeur: Math.round(p), jour: a.jour, sortie: a.nom };
     }
   }
   return rec;
 }
-function estimerSeuil(lignes) {
-  const rec = meilleursTout(lignes);
+function estimerSeuil(liste, rec = meilleursPuissance(liste)) {
   let candidats = FACTEURS_SEUIL.filter(([d]) => rec[d]).map(([d, f, nom]) => ({ valeur: Math.round(rec[d].valeur * f), nom, effort: rec[d] }));
   const provisoire = !candidats.length;
   if (provisoire && rec[600]) candidats = [{ valeur: Math.round(rec[600].valeur * 0.9), nom: '10 min', effort: rec[600] }];
   if (!candidats.length) return null;
   return { ...candidats.reduce((a, b) => (b.valeur > a.valeur ? b : a)), provisoire };
 }
-const lignesSport = (velo) => lignesTerrain.filter((l) => (l.sport === 'velo') === velo && l.terrains?.v === VERSION_TERRAINS && !l.terrains.vide);
-const seuilCourseEstime = () => estimerSeuil(lignesSport(false));
+const sortiesSport = (velo, depuis) => activites.filter((a) => (velo ? a.sport === 'velo' : a.sport === 'course' || a.sport === 'trail') && (!depuis || a.jour >= depuis));
+// Le seuil course sert à chaque cellule en « % du seuil » : on garde l'estimation tant que les données ne changent pas
+let cacheSeuil = { cle: '', valeur: null };
+function seuilCourseEstime() {
+  const cle = `${activites.length}|${lignesTerrain.length}|${jourISO()}`;
+  if (cacheSeuil.cle !== cle) cacheSeuil = { cle, valeur: estimerSeuil(sortiesSport(false, depuis6Mois())) };
+  return cacheSeuil.valeur;
+}
 const fois = (x) => '× ' + x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const nombreProfil = (champ) => { const x = Number(String(etat.profil?.[champ] || '').replace(',', '.')); return x > 0 ? x : null; };
 const seuilCourse = () => nombreProfil('seuilCourse') || seuilCourseEstime()?.valeur || null;
+const moisAnnee = (iso) => versDate(iso).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
 
 // Watts en course ÷ watts à vélo à la même FC (droite puissance / FC à vélo, moyennes des sorties)
-function ratioMemeFc() {
-  const depuis = decaler(jourISO(), -182);
-  const points = (sports) => activites.filter((a) => a.jour >= depuis && sports.includes(a.sport) && Number(a.duree_min) >= 15 && Number(a.fc_moy) > 0 && Number(a.puissance_moy) > 0)
+function ratioMemeFc(depuis) {
+  const points = (velo) => sortiesSport(velo, depuis).filter((a) => Number(a.duree_min) >= 15 && Number(a.fc_moy) > 0 && Number(a.puissance_moy) > 0)
     .map((a) => [Number(a.fc_moy), Number(a.puissance_moy), Number(a.duree_min)]);
-  const v = points(['velo']), c = points(['course', 'trail']);
+  const v = points(true), c = points(false);
   if (v.length < 2 || !c.length) return null;
   const fcMin = Math.min(...v.map((x) => x[0])), fcMax = Math.max(...v.map((x) => x[0]));
   if (fcMax - fcMin < 10) return null;
@@ -2362,28 +2379,69 @@ function ratioMemeFc() {
   };
 }
 
+let recuperationEnCours = false;
 function afficherPuissance() {
   const estime = seuilCourseEstime();
   $('#aideSeuil').textContent = estime ? `estimé : ${estime.valeur} W${estime.provisoire ? ' (provisoire)' : ''}` : 'estimé d\'après tes sorties avec puissance';
   const carte = $('#cartePuissance');
   carte.hidden = !activites.some((a) => Number(a.puissance_moy) > 0);
   if (carte.hidden) return;
-  const ftpEstimee = estimerSeuil(lignesSport(true));
-  const seuil = seuilCourse(), ftp = nombreProfil('ftp') || ftpEstimee?.valeur;
-  const source = (e) => (e ? `d'après ton meilleur effort de ${e.nom} (${e.effort.valeur} W, le ${dateLisible(e.effort.jour, false)})${e.provisoire ? ', provisoire' : ''}` : '');
-  const parFc = ratioMemeFc();
+  const toujours = choixStats.periodePuissance === 'tout';
+  puces($('#periodePuissance'), [['6m', '6 derniers mois'], ['tout', 'De tous les temps']], toujours ? 'tout' : '6m', (c) => { choixStats.periodePuissance = c; });
+  const depuis = toujours ? null : depuis6Mois();
+  const courses = sortiesSport(false, depuis), velos = sortiesSport(true, depuis);
+  const recCourse = meilleursPuissance(courses), recVelo = meilleursPuissance(velos);
+  const estCourse = estimerSeuil(courses, recCourse), estFtp = estimerSeuil(velos, recVelo);
+  const source = (e) => (e ? `d'après ton meilleur effort de ${e.nom} (${e.effort.valeur} W, ${toujours ? moisAnnee(e.effort.jour) : `le ${dateLisible(e.effort.jour, false)}`})${e.provisoire ? ', provisoire' : ''}` : '');
+  const seuilProfil = nombreProfil('seuilCourse'), ftpProfil = nombreProfil('ftp');
   let html = '<table class="terrains"><tbody>';
-  html += `<tr><th scope="row">Seuil course</th><td>${seuil ? `${nombre(seuil)} W` : '—'}<span class="evol">${esc(nombreProfil('seuilCourse') ? 'au profil' + (estime ? ` · estimé ${estime.valeur} W` : '') : source(estime) || 'à estimer : il faut une sortie avec puissance')}</span></td></tr>`;
-  html += `<tr><th scope="row">FTP vélo</th><td>${ftp ? `${nombre(ftp)} W` : '—'}<span class="evol">${esc(nombreProfil('ftp') ? 'au profil' + (ftpEstimee ? ` · ${ftpEstimee.valeur} W ${source(ftpEstimee)}` : '') : source(ftpEstimee) || 'à estimer : il faut une sortie vélo avec puissance')}</span></td></tr>`;
+  const ligneSeuil = (nom, auProfil, est, absent) => {
+    const valeur = toujours ? est?.valeur : auProfil || est?.valeur;
+    const detail = toujours ? (est ? `ton meilleur, ${source(est)}` : absent) : auProfil ? `au profil${est ? ` · ${est.valeur} W ${source(est)}` : ''}` : source(est) || absent;
+    return `<tr><th scope="row">${nom}</th><td>${valeur ? `${nombre(valeur)} W` : '—'}<span class="evol">${esc(detail)}</span></td></tr>`;
+  };
+  html += ligneSeuil('Seuil course', seuilProfil, estCourse, 'il faut une sortie avec puissance');
+  html += ligneSeuil('FTP vélo', ftpProfil, estFtp, 'il faut une sortie vélo avec puissance');
+  const seuil = toujours ? estCourse?.valeur : seuilCourse(), ftp = toujours ? estFtp?.valeur : ftpProfil || estFtp?.valeur;
   if (seuil && ftp) html += `<tr><th scope="row">Seuil course ÷ FTP</th><td>${fois(seuil / ftp)}</td></tr>`;
+  const parFc = ratioMemeFc(depuis);
   if (parFc) html += `<tr><th scope="row">À la même FC</th><td>${fois(parFc.ratio)}<span class="evol">${esc(`${nombre(parFc.course)} W en course contre ${nombre(parFc.velo)} W à vélo, vers ${nombre(parFc.fc)} bpm`)}</span></td></tr>`;
   html += '</tbody></table>';
+
+  // Courbe de puissance : meilleurs efforts par durée dans chaque sport
+  const durees = COURBE_PUISSANCE.filter(([d]) => recCourse[d] || recVelo[d]);
+  if (durees.length) {
+    const cellule = (r) => (r ? `${nombre(r.valeur)} W<span class="evol">${esc([parKg(r.valeur), toujours ? moisAnnee(r.jour) : dateLisible(r.jour, false)].filter(Boolean).join(' · '))}</span>` : '—');
+    html += `<h4 class="sous-titre-carte">Meilleures puissances</h4><table class="terrains"><thead><tr><th scope="col">Durée</th><th scope="col">Course</th><th scope="col">Vélo</th></tr></thead><tbody>
+      ${durees.map(([d, nom]) => `<tr><th scope="row">${nom}</th><td>${cellule(recCourse[d])}</td><td>${cellule(recVelo[d])}</td></tr>`).join('')}</tbody></table>`;
+  }
   html += '<p class="muted petit" style="margin:8px 0 0">La puissance de course Garmin (qui compte aussi le vent) sort bien plus haut qu\'un capteur de vélo pour le même effort : compare les deux sports en % de leur seuil. Une estimation tirée de sorties où tu n\'étais pas à fond est basse ; mets ta vraie valeur au profil si tu la connais.</p>';
-  const manquantes = activites.filter((a) => a.jour >= decaler(jourISO(), -182) && a.sport === 'velo' && analyseAFaire(a));
-  if (manquantes.length && etat.garmin?.connecte) {
+
+  // Courbes de Garmin pas encore récupérées : on réimporte l'historique (un appel par année)
+  // (une seule fois : si Garmin ne donne pas ces courbes, on passe à l'analyse des sorties une par une)
+  const sansCourbe = !activites.some((a) => a.puissances_max) && !lireLocal('cloach-courbes-tentees');
+  const manquantes = activites.filter((a) => a.jour >= depuis6Mois() && a.sport === 'velo' && analyseAFaire(a));
+  if (etat.garmin?.connecte && sansCourbe) {
+    html += '<p class="statut" id="statutPuissance"></p><button class="btn secondaire" type="button" id="btnCourbes">Récupérer les puissances de tout mon historique</button>';
+  } else if (etat.garmin?.connecte && manquantes.length) {
     html += `<p class="statut" id="statutPuissance"></p><button class="btn secondaire" type="button" id="btnAnalyserVelo">Analyser ${manquantes.length} sortie${manquantes.length > 1 ? 's' : ''} vélo avec puissance</button>`;
   }
   $('#puissance').innerHTML = html;
+  const bc = $('#btnCourbes');
+  if (bc) {
+    bc.disabled = recuperationEnCours;
+    bc.onclick = async () => {
+      recuperationEnCours = true;
+      bc.disabled = true;
+      try {
+        await importerTout((annee, n, total) => statut($('#statutPuissance'), `Année ${annee} : ${total} sorties relues…`));
+        ecrireLocal('cloach-courbes-tentees', true);
+        await chargerActivites();
+      } catch (e) { statut($('#statutPuissance'), 'Échec : ' + e.message, true); }
+      recuperationEnCours = false;
+      afficherStats();
+    };
+  }
   const b = $('#btnAnalyserVelo');
   if (b) {
     b.onclick = async () => {

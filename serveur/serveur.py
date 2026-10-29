@@ -442,10 +442,11 @@ async def modifier_profil(
     objectif: str | None = None, date_objectif: str | None = None, niveau: str | None = None,
     seances_semaine: int | None = None, jours_disponibles: list[str] | None = None,
     contraintes: str | None = None, sports: list[Sport] | None = None, ftp: int | None = None,
+    poids: float | None = Field(default=None, ge=30, le=200),
 ) -> dict[str, Any]:
     """Met à jour le profil sportif (seuls les champs donnés changent) : objectif, date de l'objectif
     (AAAA-MM-JJ), niveau, séances par semaine, jours disponibles (lundi…dimanche), contraintes ou
-    blessures, sports pratiqués, FTP vélo en watts. Renvoie le profil à jour."""
+    blessures, sports pratiqués, FTP vélo en watts, poids en kg (pour les W/kg). Renvoie le profil à jour."""
     uid = _uid()
     changements = {
         "objectif": objectif, "dateObjectif": date_objectif, "niveau": niveau,
@@ -453,6 +454,7 @@ async def modifier_profil(
         "jours": [j for j in (jours_disponibles or []) if j in JOURS] if jours_disponibles is not None else None,
         "contraintes": contraintes, "sports": sports,
         "ftp": str(ftp) if ftp else None,
+        "poids": f"{poids:g}" if poids else None,
     }
 
     def changer(etat: dict[str, Any]) -> dict[str, Any]:
@@ -625,7 +627,8 @@ async def profil_terrain(semaines: int = 8) -> dict[str, Any]:
     meilleurs efforts par durée (30 s à 1 h, clés en secondes) en puissance, vitesse (m/s) et VAM (m/h,
     vitesse verticale de descente pour la descente), avec la sortie où chacun a été fait et l'évolution
     par rapport aux semaines précédentes de même durée ; moyennes par terrain (part du temps, vitesse, VAP,
-    puissance, FC, cadence, foulée, temps de contact et ratio vertical si mesurés) et par tranche de pente ;
+    puissance, FC, cadence, foulée, temps de contact et ratio vertical si mesurés) et par tranche de pente,
+    puissances aussi en W/kg si le poids est au profil ;
     montées (nombre, VAM et pente médianes, fin : fléchit, régulier ou accélère) ; efficacité à plat
     (vitesse pour 100 W) ; constats calculés. Les sorties pas encore analysées le
     sont au passage (8 au plus par appel, Garmin requis). Sers-t'en pour repérer le terrain le plus
@@ -655,8 +658,14 @@ async def profil_terrain(semaines: int = 8) -> dict[str, Any]:
                 break
             await anyio.sleep(1)
         lignes = await lire()
+    try:
+        poids = float(str((await _lire(uid)).get("profil", {}).get("poids") or "").replace(",", "."))
+    except ValueError:
+        poids = None
     resultat = terrains.profil([a for a in lignes if str(a["jour"]) >= debut],
-                               [a for a in lignes if str(a["jour"]) < debut])
+                               [a for a in lignes if str(a["jour"]) < debut], poids)
+    if not poids:
+        resultat["poids"] = "inconnu : demande-le à l'utilisateur et enregistre-le avec modifier_profil pour avoir les W/kg"
     resultat["semaines"] = semaines
     restant = len(a_analyser(lignes))
     if restant:

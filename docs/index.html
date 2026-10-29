@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-29.3">
+<meta name="app-version" content="2026-10-29.4">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -394,7 +394,7 @@
         </div>
         <div class="deux">
           <label>FTP vélo (W)<input type="number" id="p-ftp" min="50" max="600" inputmode="numeric" placeholder="ex. 260"></label>
-          <span></span>
+          <label>Poids (kg)<input type="number" id="p-poids" min="30" max="200" step="0.1" inputmode="decimal" placeholder="pour les W/kg"></label>
         </div>
         <div><p class="muted petit" style="margin:0 0 6px">Jours disponibles</p><div class="cases" id="p-jours"></div></div>
         <label>Contraintes, blessures, matériel<textarea id="p-contraintes" placeholder="Ex. genou fragile, home trainer avec capteur de puissance, piscine le mardi…"></textarea></label>
@@ -1537,7 +1537,7 @@ $('#btnCopier').onclick = async () => {
   setTimeout(() => { $('#btnCopier').textContent = 'Copier'; }, 2000);
 };
 
-const CHAMPS_PROFIL = ['prenom', 'age', 'niveau', 'objectif', 'dateObjectif', 'seancesSemaine', 'ftp', 'contraintes'];
+const CHAMPS_PROFIL = ['prenom', 'age', 'niveau', 'objectif', 'dateObjectif', 'seancesSemaine', 'ftp', 'poids', 'contraintes'];
 function afficherProfil() {
   // On ne réécrit pas le formulaire pendant qu'on le remplit
   if ($('#formProfil').contains(document.activeElement)) return;
@@ -2133,6 +2133,7 @@ const LIGNES_TERRAIN = [
   ['Allure', (r) => (r.vitesse ? formatAllure(1000 / 60 / r.vitesse).replace(' /km', '') : '')],
   ['VAP', (r) => (r.vap_min_km ? formatAllure(r.vap_min_km).replace(' /km', '') : '')],
   ['Puissance', (r) => (r.puissance ? `${nombre(r.puissance)} W` : '')],
+  ['W/kg', (r) => (r.puissance && poidsProfil() ? wKg(r.puissance) : '')],
   ['FC', (r) => (r.fc ? nombre(r.fc) : '')],
   ['Cadence', (r) => (r.cadence ? nombre(r.cadence) : '')],
   ['Foulée', (r) => (r.foulee_m ? `${nombre(r.foulee_m, 2)} m` : '')],
@@ -2168,6 +2169,13 @@ const MESURES_EFFORT = {
   descente: [['vitesse', 'Allure', allureVitesse], ['vam', 'Descente', (v) => `${nombre(v)} m/h`], ['puissance', 'Puissance', (v) => `${nombre(v)} W`]],
 };
 const NOMS_TERRAINS = { plat: 'à plat', montee: 'en montée', descente: 'en descente' };
+// Poids du profil (kg), pour les puissances en W/kg
+function poidsProfil() {
+  const p = Number(String(etat.profil?.poids || '').replace(',', '.'));
+  return p >= 30 && p <= 200 ? p : null;
+}
+const wKg = (w) => (w / poidsProfil()).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const parKg = (w) => (poidsProfil() && w ? `${wKg(w)} W/kg` : '');
 let dureeChoisie = null;
 
 function afficherTerrain() {
@@ -2208,14 +2216,14 @@ function afficherTerrain() {
       html += `<table class="terrains" id="tableEfforts"><thead><tr><th scope="col">Durée</th>${mesures.map(([, nom]) => `<th scope="col">${esc(nom)}</th>`).join('')}</tr></thead><tbody>
         ${durees.map(([d, nom]) => `<tr data-duree="${d}" class="${dureeChoisie === d ? 'choisie' : ''}"><th scope="row">${esc(nom)}</th>${mesures.map(([m, , f]) => {
           const v = rec[d][m]?.valeur;
-          const ev = evolution(d, m);
-          return `<td>${v ? esc(f(v)) : '—'}${ev ? `<span class="evol">${esc(ev)}</span>` : ''}</td>`;
+          const sous = [m === 'puissance' ? parKg(v) : '', evolution(d, m)].filter(Boolean).join(' · ');
+          return `<td>${v ? esc(f(v)) : '—'}${sous ? `<span class="evol">${esc(sous)}</span>` : ''}</td>`;
         }).join('')}</tr>`).join('')}</tbody></table>`;
       const choisie = durees.find(([d]) => d === dureeChoisie);
       html += `<p class="muted petit" id="detailEffort" style="margin:6px 0 0">${choisie
         ? esc(mesures.filter(([m]) => rec[choisie[0]][m]).map(([m, nom, f]) => {
             const c = rec[choisie[0]][m], a = recAvant[choisie[0]]?.[m];
-            return `${nom} sur ${choisie[1]} : ${f(c.valeur)} le ${dateLisible(c.jour, false)}${c.sortie ? ` (${c.sortie})` : ''}${a ? `, avant ${f(a.valeur)}` : ''}`;
+            return `${nom} sur ${choisie[1]} : ${f(c.valeur)}${m === 'puissance' && parKg(c.valeur) ? ` (${parKg(c.valeur)})` : ''} le ${dateLisible(c.jour, false)}${c.sortie ? ` (${c.sortie})` : ''}${a ? `, avant ${f(a.valeur)}` : ''}`;
           }).join(' · '))
         : `Touche une durée pour voir la sortie de chaque record${avant.length ? ' et la valeur d\'avant' : ''}.`}</p>`;
     } else {
@@ -2231,7 +2239,7 @@ function afficherTerrain() {
       fusionnerTerrains(lignes.map((l) => l.terrains[t]?.tranches?.[tr]))])).filter(([, r]) => r.temps_s >= 60);
     if (tranches.length) {
       const lignesTranche = [['Cadence', (r) => (r.cadence ? nombre(r.cadence) : '—')], ['Foulée', (r) => (r.foulee_m ? `${nombre(r.foulee_m, 2)} m` : '—')],
-        ['Puissance', (r) => (r.puissance ? `${nombre(r.puissance)} W` : '—')], ['VAP', (r) => (r.vap_min_km ? formatAllure(r.vap_min_km).replace(' /km', '') : '—')]];
+        poidsProfil() ? ['W/kg', (r) => (r.puissance ? wKg(r.puissance) : '—')] : ['Puissance', (r) => (r.puissance ? `${nombre(r.puissance)} W` : '—')], ['VAP', (r) => (r.vap_min_km ? formatAllure(r.vap_min_km).replace(' /km', '') : '—')]];
       html += `<details class="petit" style="margin-top:8px"><summary class="muted">Selon la pente</summary>
         <table class="terrains"><thead><tr><th scope="col">Pente</th>${lignesTranche.map(([n]) => `<th scope="col">${n}</th>`).join('')}</tr></thead>
         <tbody>${tranches.map(([nom, r]) => `<tr><th scope="row">${esc(nom)}</th>${lignesTranche.map(([, f]) => `<td>${esc(f(r))}</td>`).join('')}</tr>`).join('')}</tbody></table></details>`;

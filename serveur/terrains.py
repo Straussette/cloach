@@ -340,13 +340,19 @@ def records(lignes: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, dict[
     return rec
 
 
-def profil(lignes: list[dict[str, Any]], precedentes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def profil(lignes: list[dict[str, Any]], precedentes: list[dict[str, Any]] | None = None,
+           poids: float | None = None) -> dict[str, Any]:
     """Synthèse des sorties { id, jour, nom, sport, terrains } d'une période (de la plus ancienne à la plus
-    récente) ; `precedentes` : celles de la période d'avant, de même durée, pour mesurer l'évolution."""
+    récente) ; `precedentes` : celles de la période d'avant, de même durée, pour mesurer l'évolution ;
+    `poids` (kg) : pour ajouter les puissances en W/kg."""
     lignes, precedentes = _valables(lignes), _valables(precedentes or [])
+    poids = poids if poids and 30 <= poids <= 200 else None
+    par_kg = lambda w: round(w / poids, 2) if poids and w else None
     if not lignes:
         return {"sorties": 0}
     resultat: dict[str, Any] = {"sorties": len(lignes), "du": lignes[0]["jour"], "au": lignes[-1]["jour"]}
+    if poids:
+        resultat["poids_kg"] = poids
     total = sum(l["terrains"].get("temps_s", 0) for l in lignes)
     for t in TERRAINS:
         r = _fusionner([l["terrains"].get(t) for l in lignes])
@@ -355,6 +361,11 @@ def profil(lignes: list[dict[str, Any]], precedentes: list[dict[str, Any]] | Non
             r["tranches"] = {nom: _fusionner([(l["terrains"].get(t) or {}).get("tranches", {}).get(nom) for l in lignes])
                              for _, _, nom in TRANCHES}
             r["tranches"] = {k: v for k, v in r["tranches"].items() if v["temps_s"] >= 60}
+            for v in r["tranches"].values():
+                if par_kg(v.get("puissance")):
+                    v["w_kg"] = par_kg(v["puissance"])
+        if par_kg(r.get("puissance")):
+            r["w_kg"] = par_kg(r["puissance"])
         resultat[t] = r
 
     # Meilleurs efforts par durée (en secondes) et leur évolution par rapport à la période précédente
@@ -366,6 +377,8 @@ def profil(lignes: list[dict[str, Any]], precedentes: list[dict[str, Any]] | Non
                 if ancien:
                     case["avant"] = ancien["valeur"]
                     case["evolution_pct"] = round((case["valeur"] / ancien["valeur"] - 1) * 100, 1)
+                if mesure == "puissance" and poids:
+                    case["w_kg"] = par_kg(case["valeur"])
         actuels[t] = {d: {m: c for m, c in v.items() if not (t == "plat" and m == "vam")} for d, v in actuels[t].items()}
     resultat["meilleurs_efforts"] = actuels
     resultat["periode_precedente"] = {"sorties": len(precedentes)}
@@ -432,6 +445,8 @@ def constats(p: dict[str, Any]) -> list[str]:
         case = efforts.get(terrain, {}).get(duree, {}).get(mesure)
         if case and case.get("evolution_pct") is not None and abs(case["evolution_pct"]) >= 3:
             valeur = f"{case['valeur']} {unite}" if unite else _allure(1000 / 60 / case["valeur"])
+            if case.get("w_kg"):
+                valeur += f", {case['w_kg']:.2f} W/kg"
             phrases.append(f"{texte[0].upper()}{texte[1:]} {'progresse' if case['evolution_pct'] > 0 else 'recule'} "
                            f"({valeur}, {case['evolution_pct']:+.1f} % par rapport à la période précédente).")
     evolution = p.get("efficacite_plat", {}).get("evolution_pct")

@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-29.4">
+<meta name="app-version" content="2026-10-29.5">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -356,6 +356,11 @@
       <div id="texteTerrain" class="analyse"></div>
       <a class="btn large" target="_blank" rel="noopener" data-question="terrain" style="margin-top:12px">🗣️ Demander l'analyse du coach</a>
     </div>
+    <div class="carte" id="cartePuissance" hidden>
+      <div class="semaine-h"><h3>Course et vélo</h3><span>6 derniers mois</span></div>
+      <div id="puissance"></div>
+      <a class="btn secondaire large" target="_blank" rel="noopener" data-question="puissance" style="margin-top:12px">🗣️ Demander au coach de comparer</a>
+    </div>
     <div class="carte">
       <div class="semaine-h"><h2>L'avis du coach</h2><span id="dateAnalyse"></span></div>
       <div id="texteAnalyse" class="analyse"></div>
@@ -395,6 +400,10 @@
         <div class="deux">
           <label>FTP vélo (W)<input type="number" id="p-ftp" min="50" max="600" inputmode="numeric" placeholder="ex. 260"></label>
           <label>Poids (kg)<input type="number" id="p-poids" min="30" max="200" step="0.1" inputmode="decimal" placeholder="pour les W/kg"></label>
+        </div>
+        <div class="deux">
+          <label>Seuil course (W)<input type="number" id="p-seuilCourse" min="100" max="900" inputmode="numeric" placeholder="estimé"></label>
+          <span class="muted petit" id="aideSeuil" style="align-self:end"></span>
         </div>
         <div><p class="muted petit" style="margin:0 0 6px">Jours disponibles</p><div class="cases" id="p-jours"></div></div>
         <label>Contraintes, blessures, matériel<textarea id="p-contraintes" placeholder="Ex. genou fragile, home trainer avec capteur de puissance, piscine le mardi…"></textarea></label>
@@ -888,6 +897,7 @@ const QUESTIONS = {
   verifier: () => 'Vérifie si ma séance prévue aujourd\'hui reste pertinente : regarde ma forme du jour (sommeil, VFC, Body Battery, FC de repos) et ma charge récente. Dis-moi s\'il faut la garder, l\'alléger, la remplacer ou me reposer, puis enregistre ton avis.',
   jour: () => 'Que dois-je faire aujourd\'hui ? Regarde mon contexte du jour et ma forme, dis-moi si je garde, allège ou décale la séance prévue, puis détaille la séance.',
   analyse: () => 'Analyse mon historique d\'activités : volume, régularité, progression, répartition par sport, équilibre endurance / intensité et points d\'attention, en lien avec mon objectif. Puis enregistre ton commentaire pour l\'app.',
+  puissance: () => 'Compare ma puissance en course et à vélo (seuils_puissance) : mes seuils, le ratio entre les deux, ce qu\'il dit de mon niveau dans chaque sport, et comment traduire une séance de l\'un dans l\'autre. Si mon seuil course ou ma FTP te semblent faux, propose-moi une valeur à mettre au profil.',
   terrain: () => 'Analyse mon profil par terrain : comment je cours à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP), comment je gère mes montées et ce qui évolue. Dis-moi mon terrain le plus faible au regard de mon objectif, propose une ou deux séances ciblées par terrain, puis enregistre ton diagnostic pour l\'app.',
   bilan: () => 'Fais le bilan de ma semaine : séances prévues et faites, charge, forme, points positifs, points d\'attention, et ce que je dois ajuster.',
   plan: () => (etat.plan ? 'Réajuste mon plan d\'entraînement' : 'Construis mon plan d\'entraînement')
@@ -1163,7 +1173,7 @@ async function calculerVaps(liste, progression) {
   for (const a of a_faire) {
     vapsEnCours.add(a.id);
     try {
-      const r = await appelerGarmin('vap', { id: a.id });
+      const r = await appelerGarmin('vap', { id: a.id, sport: a.sport === 'velo' ? 'velo' : undefined });
       const ici = activites.find((x) => x.id === a.id);
       if (ici) {
         if (r.vap_min_km) ici.vap_min_km = r.vap_min_km;
@@ -1537,7 +1547,7 @@ $('#btnCopier').onclick = async () => {
   setTimeout(() => { $('#btnCopier').textContent = 'Copier'; }, 2000);
 };
 
-const CHAMPS_PROFIL = ['prenom', 'age', 'niveau', 'objectif', 'dateObjectif', 'seancesSemaine', 'ftp', 'poids', 'contraintes'];
+const CHAMPS_PROFIL = ['prenom', 'age', 'niveau', 'objectif', 'dateObjectif', 'seancesSemaine', 'ftp', 'poids', 'seuilCourse', 'contraintes'];
 function afficherProfil() {
   // On ne réécrit pas le formulaire pendant qu'on le remplit
   if ($('#formProfil').contains(document.activeElement)) return;
@@ -1722,7 +1732,7 @@ async function chargerActivites() {
   try {
     const lignes = [];
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
-      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,tv:terrains->v&order=jour.asc&limit=1000&offset=${lignes.length}`);
+      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,puissance_moy,tv:terrains->v&order=jour.asc&limit=1000&offset=${lignes.length}`);
       lignes.push(...(page || []));
       if (!page || page.length < 1000) break;
     }
@@ -1872,6 +1882,7 @@ function afficherStats() {
   $('#texteAnalyse').classList.toggle('muted', !a?.texte);
   $('#dateAnalyse').textContent = a?.date ? 'le ' + dateLisible(a.date, false) : '';
   afficherTerrain();
+  afficherPuissance();
 
   if (!activites.length) {
     $('#statsContenu').hidden = true;
@@ -2090,24 +2101,26 @@ document.addEventListener('click', (e) => {
 // Le serveur analyse chaque sortie avec sa VAP (serveur/terrains.py, colonne activites.terrains) :
 // plat (pente entre −2 et +2 %), montée, descente : meilleurs efforts par durée, moyennes, montées.
 // L'app en fait la synthèse sur la période, comparée à la période d'avant, comme terrains.profil() pour Claude.
-const VERSION_TERRAINS = 2;
+const VERSION_TERRAINS = 3;
 const TERRAINS = [['plat', 'Plat'], ['montee', 'Montée'], ['descente', 'Descente']];
 const TRANCHES = ['2-6', '6-12', '12+'];
-const analyseUtile = (a) => (a.sport === 'course' || a.sport === 'trail') && Number(a.distance_km) >= 1 && /^\d+$/.test(a.id);
+// Course et trail : toutes les sorties ; vélo : celles qui ont une puissance (home trainer, capteur), pour la FTP
+const analyseUtile = (a) => ((a.sport === 'course' || a.sport === 'trail') || (a.sport === 'velo' && Number(a.puissance_moy) > 0))
+  && Number(a.distance_km) >= 1 && /^\d+$/.test(a.id);
 const analyseAFaire = (a) => analyseUtile(a) && ((vapUtile(a) && !a.vap_min_km) || Number(a.tv) !== VERSION_TERRAINS);
-let lignesTerrain = []; // sorties analysées des 24 dernières semaines : { id, jour, nom, terrains }
+let lignesTerrain = []; // sorties analysées des 26 dernières semaines : { id, jour, nom, sport, terrains }
 let analyseTerrainEnCours = false;
 
 async function chargerTerrains() {
   if (!session()) { lignesTerrain = []; return; }
   try {
-    lignesTerrain = await sbFetch(`/rest/v1/activites?select=id,jour,nom,terrains&sport=in.(course,trail)&terrains=not.is.null&jour=gte.${decaler(jourISO(), -168)}&order=jour.asc`) || [];
+    lignesTerrain = await sbFetch(`/rest/v1/activites?select=id,jour,nom,sport,terrains&sport=in.(course,trail,velo)&terrains=not.is.null&jour=gte.${decaler(jourISO(), -182)}&order=jour.asc`) || [];
   } catch (e) { console.warn('Terrains', e); }
 }
 let minuterieTerrains = null;
 function planifierTerrains() {
   clearTimeout(minuterieTerrains);
-  minuterieTerrains = setTimeout(async () => { await chargerTerrains(); afficherTerrain(); }, 1500);
+  minuterieTerrains = setTimeout(async () => { await chargerTerrains(); afficherTerrain(); afficherPuissance(); }, 1500);
 }
 
 // Moyennes pondérées par le temps de plusieurs résumés (même calcul que _fusionner() côté serveur)
@@ -2134,6 +2147,7 @@ const LIGNES_TERRAIN = [
   ['VAP', (r) => (r.vap_min_km ? formatAllure(r.vap_min_km).replace(' /km', '') : '')],
   ['Puissance', (r) => (r.puissance ? `${nombre(r.puissance)} W` : '')],
   ['W/kg', (r) => (r.puissance && poidsProfil() ? wKg(r.puissance) : '')],
+  ['% du seuil', (r) => (r.puissance && seuilCourse() ? `${nombre((r.puissance / seuilCourse()) * 100)} %` : '')],
   ['FC', (r) => (r.fc ? nombre(r.fc) : '')],
   ['Cadence', (r) => (r.cadence ? nombre(r.cadence) : '')],
   ['Foulée', (r) => (r.foulee_m ? `${nombre(r.foulee_m, 2)} m` : '')],
@@ -2164,9 +2178,9 @@ function recordsTerrain(lignes) {
 const DUREES_EFFORT = [[30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min'], [600, '10 min'], [1200, '20 min'], [1800, '30 min'], [3600, '1 h']];
 const allureVitesse = (v) => formatAllure(1000 / 60 / v).replace(' /km', '');
 const MESURES_EFFORT = {
-  montee: [['puissance', 'Puissance', (v) => `${nombre(v)} W`], ['vam', 'VAM', (v) => `${nombre(v)} m/h`], ['vitesse', 'Allure', allureVitesse]],
-  plat: [['puissance', 'Puissance', (v) => `${nombre(v)} W`], ['vitesse', 'Allure', allureVitesse]],
-  descente: [['vitesse', 'Allure', allureVitesse], ['vam', 'Descente', (v) => `${nombre(v)} m/h`], ['puissance', 'Puissance', (v) => `${nombre(v)} W`]],
+  montee: [['puissance', 'Puissance', fmtPuissance], ['vam', 'VAM', (v) => `${nombre(v)} m/h`], ['vitesse', 'Allure', allureVitesse]],
+  plat: [['puissance', 'Puissance', fmtPuissance], ['vitesse', 'Allure', allureVitesse]],
+  descente: [['vitesse', 'Allure', allureVitesse], ['vam', 'Descente', (v) => `${nombre(v)} m/h`], ['puissance', 'Puissance', fmtPuissance]],
 };
 const NOMS_TERRAINS = { plat: 'à plat', montee: 'en montée', descente: 'en descente' };
 // Poids du profil (kg), pour les puissances en W/kg
@@ -2176,6 +2190,13 @@ function poidsProfil() {
 }
 const wKg = (w) => (w / poidsProfil()).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const parKg = (w) => (poidsProfil() && w ? `${wKg(w)} W/kg` : '');
+// Puissance dans l'unité choisie au-dessus des meilleurs efforts : W, W/kg ou % du seuil course
+function fmtPuissance(w) {
+  if (choixStats.unite === 'wkg' && poidsProfil()) return `${wKg(w)} W/kg`;
+  if (choixStats.unite === 'pct' && seuilCourse()) return `${nombre((w / seuilCourse()) * 100)} %`;
+  return `${nombre(w)} W`;
+}
+const unitesPuissance = () => [['w', 'W'], ...(poidsProfil() ? [['wkg', 'W/kg']] : []), ...(seuilCourse() ? [['pct', '% du seuil']] : [])];
 let dureeChoisie = null;
 
 function afficherTerrain() {
@@ -2188,10 +2209,10 @@ function afficherTerrain() {
   puces($('#vueTerrain'), TERRAINS.map(([cle, nom]) => [cle, nom]), vue, (c) => { choixStats.vueTerrain = c; dureeChoisie = null; });
   const debut = decaler(jourISO(), -7 * semaines);
   const debutAvant = decaler(jourISO(), -14 * semaines);
-  const valable = (l) => l.terrains?.v === VERSION_TERRAINS && !l.terrains.vide;
+  const valable = (l) => l.sport !== 'velo' && l.terrains?.v === VERSION_TERRAINS && !l.terrains.vide;
   const lignes = lignesTerrain.filter((l) => l.jour >= debut && valable(l));
   const avant = lignesTerrain.filter((l) => l.jour >= debutAvant && l.jour < debut && valable(l));
-  const manquantes = activites.filter((a) => a.jour >= debutAvant && analyseAFaire(a));
+  const manquantes = activites.filter((a) => a.jour >= debutAvant && a.sport !== 'velo' && analyseAFaire(a));
   const bloc = $('#terrain');
 
   let html = '';
@@ -2205,6 +2226,7 @@ function afficherTerrain() {
     const mesures = MESURES_EFFORT[vue];
     const durees = DUREES_EFFORT.filter(([d]) => rec[d]);
     html += `<h4 class="sous-titre-carte">Meilleurs efforts ${NOMS_TERRAINS[vue]}</h4>`;
+    if (durees.length && unitesPuissance().length > 1) html += '<div class="puces" id="unitePuissance" style="margin-bottom:6px"></div>';
     if (durees.length) {
       const evolution = (d, m) => {
         const actuel = rec[d]?.[m]?.valeur, ancien = recAvant[d]?.[m]?.valeur;
@@ -2216,14 +2238,15 @@ function afficherTerrain() {
       html += `<table class="terrains" id="tableEfforts"><thead><tr><th scope="col">Durée</th>${mesures.map(([, nom]) => `<th scope="col">${esc(nom)}</th>`).join('')}</tr></thead><tbody>
         ${durees.map(([d, nom]) => `<tr data-duree="${d}" class="${dureeChoisie === d ? 'choisie' : ''}"><th scope="row">${esc(nom)}</th>${mesures.map(([m, , f]) => {
           const v = rec[d][m]?.valeur;
-          const sous = [m === 'puissance' ? parKg(v) : '', evolution(d, m)].filter(Boolean).join(' · ');
+          const sous = evolution(d, m);
           return `<td>${v ? esc(f(v)) : '—'}${sous ? `<span class="evol">${esc(sous)}</span>` : ''}</td>`;
         }).join('')}</tr>`).join('')}</tbody></table>`;
       const choisie = durees.find(([d]) => d === dureeChoisie);
       html += `<p class="muted petit" id="detailEffort" style="margin:6px 0 0">${choisie
         ? esc(mesures.filter(([m]) => rec[choisie[0]][m]).map(([m, nom, f]) => {
             const c = rec[choisie[0]][m], a = recAvant[choisie[0]]?.[m];
-            return `${nom} sur ${choisie[1]} : ${f(c.valeur)}${m === 'puissance' && parKg(c.valeur) ? ` (${parKg(c.valeur)})` : ''} le ${dateLisible(c.jour, false)}${c.sortie ? ` (${c.sortie})` : ''}${a ? `, avant ${f(a.valeur)}` : ''}`;
+            const autres = m === 'puissance' ? [`${nombre(c.valeur)} W`, parKg(c.valeur), seuilCourse() ? `${nombre((c.valeur / seuilCourse()) * 100)} % du seuil` : ''].filter((x) => x && x !== f(c.valeur)) : [];
+            return `${nom} sur ${choisie[1]} : ${f(c.valeur)}${autres.length ? ` (${autres.join(', ')})` : ''} le ${dateLisible(c.jour, false)}${c.sortie ? ` (${c.sortie})` : ''}${a ? `, avant ${f(a.valeur)}` : ''}`;
           }).join(' · '))
         : `Touche une durée pour voir la sortie de chaque record${avant.length ? ' et la valeur d\'avant' : ''}.`}</p>`;
     } else {
@@ -2260,6 +2283,10 @@ function afficherTerrain() {
     html += `<p class="statut" id="statutTerrain"></p><button class="btn secondaire" type="button" id="btnAnalyserTerrain">Analyser ${manquantes.length} sortie${manquantes.length > 1 ? 's' : ''}</button>`;
   }
   bloc.innerHTML = html;
+  if ($('#unitePuissance')) {
+    const unites = unitesPuissance();
+    puces($('#unitePuissance'), unites, unites.some(([k]) => k === choixStats.unite) ? choixStats.unite : 'w', (c) => { choixStats.unite = c; });
+  }
   for (const tr of bloc.querySelectorAll('tr[data-duree]')) {
     tr.onclick = () => { dureeChoisie = dureeChoisie === Number(tr.dataset.duree) ? null : Number(tr.dataset.duree); afficherTerrain(); };
   }
@@ -2281,6 +2308,92 @@ function afficherTerrain() {
   $('#texteTerrain').textContent = a?.texte || 'Demande à Claude d\'analyser ton profil par terrain : son diagnostic et les séances qu\'il propose s\'afficheront ici.';
   $('#texteTerrain').classList.toggle('muted', !a?.texte);
   $('#dateTerrain').textContent = a?.date ? '· le ' + dateLisible(a.date, false) : '';
+}
+
+/* ---------- Seuils de puissance : course et vélo ---------- */
+// Même calcul que serveur/puissance.py. La puissance de course Garmin sort bien plus haut qu'un capteur
+// de vélo pour le même effort : on compare chaque sport à son propre seuil, et on mesure le ratio entre
+// les deux (seuils, et watts produits à la même fréquence cardiaque).
+const FACTEURS_SEUIL = [[3600, 1, '1 h'], [1200, 0.95, '20 min']];
+function meilleursTout(lignes) {
+  const rec = {};
+  for (const l of lignes) {
+    for (const [d, m] of Object.entries(l.terrains?.efforts?.tout || {})) {
+      if (m.puissance > (rec[d]?.valeur || 0)) rec[d] = { valeur: m.puissance, jour: l.jour, sortie: l.nom };
+    }
+  }
+  return rec;
+}
+function estimerSeuil(lignes) {
+  const rec = meilleursTout(lignes);
+  let candidats = FACTEURS_SEUIL.filter(([d]) => rec[d]).map(([d, f, nom]) => ({ valeur: Math.round(rec[d].valeur * f), nom, effort: rec[d] }));
+  const provisoire = !candidats.length;
+  if (provisoire && rec[600]) candidats = [{ valeur: Math.round(rec[600].valeur * 0.9), nom: '10 min', effort: rec[600] }];
+  if (!candidats.length) return null;
+  return { ...candidats.reduce((a, b) => (b.valeur > a.valeur ? b : a)), provisoire };
+}
+const lignesSport = (velo) => lignesTerrain.filter((l) => (l.sport === 'velo') === velo && l.terrains?.v === VERSION_TERRAINS && !l.terrains.vide);
+const seuilCourseEstime = () => estimerSeuil(lignesSport(false));
+const fois = (x) => '× ' + x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nombreProfil = (champ) => { const x = Number(String(etat.profil?.[champ] || '').replace(',', '.')); return x > 0 ? x : null; };
+const seuilCourse = () => nombreProfil('seuilCourse') || seuilCourseEstime()?.valeur || null;
+
+// Watts en course ÷ watts à vélo à la même FC (droite puissance / FC à vélo, moyennes des sorties)
+function ratioMemeFc() {
+  const depuis = decaler(jourISO(), -182);
+  const points = (sports) => activites.filter((a) => a.jour >= depuis && sports.includes(a.sport) && Number(a.duree_min) >= 15 && Number(a.fc_moy) > 0 && Number(a.puissance_moy) > 0)
+    .map((a) => [Number(a.fc_moy), Number(a.puissance_moy), Number(a.duree_min)]);
+  const v = points(['velo']), c = points(['course', 'trail']);
+  if (v.length < 2 || !c.length) return null;
+  const fcMin = Math.min(...v.map((x) => x[0])), fcMax = Math.max(...v.map((x) => x[0]));
+  if (fcMax - fcMin < 10) return null;
+  const poids = v.reduce((n, x) => n + x[2], 0);
+  const mx = v.reduce((n, x) => n + x[0] * x[2], 0) / poids, my = v.reduce((n, x) => n + x[1] * x[2], 0) / poids;
+  const pente = v.reduce((n, x) => n + x[2] * (x[0] - mx) * (x[1] - my), 0) / v.reduce((n, x) => n + x[2] * (x[0] - mx) ** 2, 0);
+  if (!(pente > 0)) return null;
+  const velo = (fc) => my + pente * (fc - mx);
+  const comparables = c.filter(([fc]) => fc >= fcMin - 10 && fc <= fcMax + 10 && velo(fc) > 0);
+  if (!comparables.length) return null;
+  const total = comparables.reduce((n, x) => n + x[2], 0);
+  const fc = comparables.reduce((n, x) => n + x[0] * x[2], 0) / total;
+  return {
+    ratio: comparables.reduce((n, [f, p, d]) => n + (p / velo(f)) * d, 0) / total, fc,
+    course: comparables.reduce((n, x) => n + x[1] * x[2], 0) / total, velo: velo(fc),
+  };
+}
+
+function afficherPuissance() {
+  const estime = seuilCourseEstime();
+  $('#aideSeuil').textContent = estime ? `estimé : ${estime.valeur} W${estime.provisoire ? ' (provisoire)' : ''}` : 'estimé d\'après tes sorties avec puissance';
+  const carte = $('#cartePuissance');
+  carte.hidden = !activites.some((a) => Number(a.puissance_moy) > 0);
+  if (carte.hidden) return;
+  const ftpEstimee = estimerSeuil(lignesSport(true));
+  const seuil = seuilCourse(), ftp = nombreProfil('ftp') || ftpEstimee?.valeur;
+  const source = (e) => (e ? `d'après ton meilleur effort de ${e.nom} (${e.effort.valeur} W, le ${dateLisible(e.effort.jour, false)})${e.provisoire ? ', provisoire' : ''}` : '');
+  const parFc = ratioMemeFc();
+  let html = '<table class="terrains"><tbody>';
+  html += `<tr><th scope="row">Seuil course</th><td>${seuil ? `${nombre(seuil)} W` : '—'}<span class="evol">${esc(nombreProfil('seuilCourse') ? 'au profil' + (estime ? ` · estimé ${estime.valeur} W` : '') : source(estime) || 'à estimer : il faut une sortie avec puissance')}</span></td></tr>`;
+  html += `<tr><th scope="row">FTP vélo</th><td>${ftp ? `${nombre(ftp)} W` : '—'}<span class="evol">${esc(nombreProfil('ftp') ? 'au profil' + (ftpEstimee ? ` · ${ftpEstimee.valeur} W ${source(ftpEstimee)}` : '') : source(ftpEstimee) || 'à estimer : il faut une sortie vélo avec puissance')}</span></td></tr>`;
+  if (seuil && ftp) html += `<tr><th scope="row">Seuil course ÷ FTP</th><td>${fois(seuil / ftp)}</td></tr>`;
+  if (parFc) html += `<tr><th scope="row">À la même FC</th><td>${fois(parFc.ratio)}<span class="evol">${esc(`${nombre(parFc.course)} W en course contre ${nombre(parFc.velo)} W à vélo, vers ${nombre(parFc.fc)} bpm`)}</span></td></tr>`;
+  html += '</tbody></table>';
+  html += '<p class="muted petit" style="margin:8px 0 0">La puissance de course Garmin (qui compte aussi le vent) sort bien plus haut qu\'un capteur de vélo pour le même effort : compare les deux sports en % de leur seuil. Une estimation tirée de sorties où tu n\'étais pas à fond est basse ; mets ta vraie valeur au profil si tu la connais.</p>';
+  const manquantes = activites.filter((a) => a.jour >= decaler(jourISO(), -182) && a.sport === 'velo' && analyseAFaire(a));
+  if (manquantes.length && etat.garmin?.connecte) {
+    html += `<p class="statut" id="statutPuissance"></p><button class="btn secondaire" type="button" id="btnAnalyserVelo">Analyser ${manquantes.length} sortie${manquantes.length > 1 ? 's' : ''} vélo avec puissance</button>`;
+  }
+  $('#puissance').innerHTML = html;
+  const b = $('#btnAnalyserVelo');
+  if (b) {
+    b.onclick = async () => {
+      b.disabled = true;
+      const faites = await calculerVaps(manquantes.slice().reverse(), (n, sur) => statut($('#statutPuissance'), `Analyse ${n} / ${sur}…`));
+      if (faites < manquantes.length) statut($('#statutPuissance'), 'Garmin ne répond pas pour le moment : réessaie plus tard.', true);
+      await chargerTerrains();
+      afficherStats();
+    };
+  }
 }
 
 /* ---------- Graphiques (SVG) ---------- */

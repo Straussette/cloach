@@ -227,12 +227,14 @@ class Garmins:
         self.base.ecrire_etat(uid, etat)
         return seance["garmin"]
 
-    def vap(self, uid: str, id_activite: str) -> dict[str, Any]:
+    def vap(self, uid: str, id_activite: str, sport: str | None = None) -> dict[str, Any]:
         """Calcule la VAP et l'analyse par terrain d'une sortie à partir de son profil détaillé (un seul
-        appel à Garmin), et les enregistre avec l'activité."""
+        appel à Garmin), et les enregistre avec l'activité. À vélo : seulement les meilleurs efforts de
+        puissance (pour estimer la FTP), pas de VAP."""
         details = self.appeler(uid, "get_activity_details", str(int(id_activite)), 4000, 0) or {}
-        resultat: dict[str, Any] = vap.calculer(details) or {}
-        analyse = terrains.analyser(details)
+        velo = sport == "velo"
+        resultat: dict[str, Any] = {} if velo else vap.calculer(details) or {}
+        analyse = terrains.analyser(details, "velo" if velo else "course")
         # Même sans profil exploitable, on note la version : l'app ne redemandera pas l'analyse
         champs = {**resultat, "terrains": analyse or {"v": terrains.VERSION, "vide": True}}
         self.base.completer_activite(uid, str(id_activite), champs)
@@ -294,7 +296,8 @@ class Garmins:
                 id_activite = str(corps.get("id", ""))
                 if not id_activite.isdigit():
                     return repondre({"erreur": "Activité inconnue"}, 400)
-                return repondre(await asyncio.to_thread(self.vap, uid, id_activite))
+                sport = "velo" if corps.get("sport") == "velo" else None
+                return repondre(await asyncio.to_thread(self.vap, uid, id_activite, sport))
             if action == "records":
                 return repondre({"records": await asyncio.to_thread(self.records, uid)})
             if action == "forme":

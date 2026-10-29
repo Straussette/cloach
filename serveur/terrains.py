@@ -21,7 +21,7 @@ from typing import Any
 
 from vap import LISSAGE, PAS_M, VITESSE_ARRET, coefficient
 
-VERSION = 2           # à augmenter si la méthode change : l'app et le serveur recalculent alors
+VERSION = 3           # à augmenter si la méthode change : l'app et le serveur recalculent alors
 PLAT_PCT = 2.0        # entre −2 % et +2 % : plat
 TRANCHES = ((2.0, 6.0, "2-6"), (6.0, 12.0, "6-12"), (12.0, 1000.0, "12+"))
 MONTEE_MIN_M = 20.0   # dénivelé minimal d'une montée
@@ -230,8 +230,10 @@ def _montees(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float]
     return montees
 
 
-def analyser(details: dict[str, Any]) -> dict[str, Any] | None:
-    """Analyse par terrain d'une sortie, ou None si son profil manque."""
+def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] | None:
+    """Analyse par terrain d'une sortie de course ou de trail, ou None si son profil manque. À vélo
+    (home trainer surtout), seulement les meilleurs efforts de puissance sur toute la sortie (« tout »),
+    qui servent à estimer la FTP et à comparer avec la course (voir puissance.py)."""
     s = lire_series(details)
     if not s:
         return None
@@ -244,6 +246,11 @@ def analyser(details: dict[str, Any]) -> dict[str, Any] | None:
         dd, dt = s["dist"][i] - s["dist"][i - 1], s["temps"][i] - s["temps"][i - 1]
         if 0 < dt <= PAUSE_S and dd / dt >= VITESSE_ARRET:
             mouvement[i] = dt
+    # Meilleurs efforts sur toute la sortie, terrains confondus : pour les seuils de puissance
+    tout = _meilleurs_efforts(s, lisse, mouvement, [(0, n - 1)])
+    if sport == "velo":
+        tout = {d: {"puissance": m["puissance"]} for d, m in tout.items() if m.get("puissance")}
+        return {"v": VERSION, "sport": "velo", "temps_s": round(sum(mouvement)), "efforts": {"tout": tout}} if tout else None
 
     terrains = {t: _Cumul() for t in TERRAINS}
     tranches = {(t, nom): _Cumul() for t in ("montee", "descente") for _, _, nom in TRANCHES}
@@ -282,6 +289,7 @@ def analyser(details: dict[str, Any]) -> dict[str, Any] | None:
         "plat": _meilleurs_efforts(s, lisse, mouvement, plats),
         "montee": _meilleurs_efforts(s, lisse, mouvement, _reperer(lisse)),
         "descente": _meilleurs_efforts(s, lisse, mouvement, _reperer([-a for a in lisse]), descente=True),
+        "tout": {d: {k: v for k, v in m.items() if k != "vam"} for d, m in tout.items()},
     }
     return resultat
 
@@ -341,10 +349,10 @@ def records(lignes: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, dict[
 
 
 def profil(lignes: list[dict[str, Any]], precedentes: list[dict[str, Any]] | None = None,
-           poids: float | None = None) -> dict[str, Any]:
+           poids: float | None = None, seuil: float | None = None) -> dict[str, Any]:
     """Synthèse des sorties { id, jour, nom, sport, terrains } d'une période (de la plus ancienne à la plus
     récente) ; `precedentes` : celles de la période d'avant, de même durée, pour mesurer l'évolution ;
-    `poids` (kg) : pour ajouter les puissances en W/kg."""
+    `poids` (kg) : pour ajouter les puissances en W/kg ; `seuil` (W) : seuil de puissance course, pour les %."""
     lignes, precedentes = _valables(lignes), _valables(precedentes or [])
     poids = poids if poids and 30 <= poids <= 200 else None
     par_kg = lambda w: round(w / poids, 2) if poids and w else None
@@ -379,6 +387,8 @@ def profil(lignes: list[dict[str, Any]], precedentes: list[dict[str, Any]] | Non
                     case["evolution_pct"] = round((case["valeur"] / ancien["valeur"] - 1) * 100, 1)
                 if mesure == "puissance" and poids:
                     case["w_kg"] = par_kg(case["valeur"])
+                if mesure == "puissance" and seuil:
+                    case["pct_seuil"] = round(case["valeur"] / seuil * 100)
         actuels[t] = {d: {m: c for m, c in v.items() if not (t == "plat" and m == "vam")} for d, v in actuels[t].items()}
     resultat["meilleurs_efforts"] = actuels
     resultat["periode_precedente"] = {"sorties": len(precedentes)}

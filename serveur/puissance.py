@@ -1,0 +1,108 @@
+"""Seuils de puissance en course et à vélo, et ratio entre les deux.
+
+La puissance de course Garmin (qui compte aussi le vent) sort bien plus haut qu'un capteur de vélo pour
+un même effort, et l'écart dépend de l'athlète : on ne compare donc pas les watts d'un sport à l'autre,
+mais chaque effort à son propre seuil.
+- Seuil estimé d'après les meilleurs efforts sur toute la sortie (efforts « tout » de terrains.py) :
+  1 h × 1,00, sinon 20 min × 0,95 (comme la FTP), sinon 10 min × 0,90 (provisoire).
+- Ratio course / vélo de deux façons : seuil course ÷ FTP, et watts produits à la même fréquence
+  cardiaque dans les deux sports (d'après les moyennes des sorties : aucun appel à Garmin).
+Fonctions pures, sans accès réseau.
+"""
+
+from typing import Any
+
+FACTEURS = ((3600, 1.00, "1 h"), (1200, 0.95, "20 min"), (600, 0.90, "10 min"))
+DUREE_MIN_FC = 15     # minutes : en dessous, la FC moyenne d'une sortie ne dit pas grand-chose
+ECART_FC = 10         # bpm : on ne compare pas au-delà des FC connues à vélo
+
+
+def nombre(texte: Any) -> float | None:
+    try:
+        x = float(str(texte).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    return x if x > 0 else None
+
+
+def meilleurs(lignes: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """Meilleure puissance par durée sur toute la sortie, parmi les lignes { jour, nom, terrains }."""
+    rec: dict[int, dict[str, Any]] = {}
+    for l in lignes:
+        for duree, m in (((l.get("terrains") or {}).get("efforts") or {}).get("tout") or {}).items():
+            p = m.get("puissance")
+            if p and p > rec.get(int(duree), {}).get("valeur", 0):
+                rec[int(duree)] = {"valeur": p, "jour": l.get("jour"), "sortie": l.get("nom")}
+    return rec
+
+
+def estimer_seuil(lignes: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Seuil estimé : le meilleur des efforts d'au moins 20 min ramenés à 1 h, sinon 10 min (provisoire)."""
+    rec = meilleurs(lignes)
+    candidats = [(round(rec[d]["valeur"] * f), nom, rec[d]) for d, f, nom in FACTEURS[:2] if d in rec]
+    provisoire = not candidats
+    if provisoire and 600 in rec:
+        candidats = [(round(rec[600]["valeur"] * 0.90), "10 min", rec[600])]
+    if not candidats:
+        return None
+    valeur, nom, effort = max(candidats, key=lambda c: c[0])
+    return {"valeur": valeur, "d_apres": f"meilleur effort de {nom} : {effort['valeur']} W", "jour": effort["jour"],
+            "sortie": effort["sortie"], "provisoire": provisoire}
+
+
+def _points(activites: list[dict[str, Any]]) -> list[tuple[float, float, float]]:
+    """(FC moyenne, puissance moyenne, durée) des sorties assez longues qui ont les deux."""
+    points = []
+    for a in activites:
+        fc, p, duree = nombre(a.get("fc_moy")), nombre(a.get("puissance_moy")), nombre(a.get("duree_min"))
+        if fc and p and duree and duree >= DUREE_MIN_FC:
+            points.append((fc, p, duree))
+    return points
+
+
+def ratio_fc(courses: list[dict[str, Any]], velos: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Watts en course ÷ watts à vélo à la même FC : droite puissance / FC à vélo (au moins deux sorties
+    assez différentes), comparée à chaque sortie de course dont la FC tombe dans la plage connue."""
+    v, c = _points(velos), _points(courses)
+    if len(v) < 2 or not c:
+        return None
+    fc_min, fc_max = min(x[0] for x in v), max(x[0] for x in v)
+    if fc_max - fc_min < 10:
+        return None
+    # Moindres carrés pondérés par la durée
+    poids = sum(x[2] for x in v)
+    mx = sum(x[0] * x[2] for x in v) / poids
+    my = sum(x[1] * x[2] for x in v) / poids
+    pente = sum(x[2] * (x[0] - mx) * (x[1] - my) for x in v) / sum(x[2] * (x[0] - mx) ** 2 for x in v)
+    if pente <= 0:
+        return None
+    a_velo = lambda fc: my + pente * (fc - mx)
+    comparables = [(p / a_velo(fc), fc, p, d) for fc, p, d in c if fc_min - ECART_FC <= fc <= fc_max + ECART_FC and a_velo(fc) > 0]
+    if not comparables:
+        return None
+    total = sum(x[3] for x in comparables)
+    fc_type = sum(x[1] * x[3] for x in comparables) / total
+    return {
+        "ratio": round(sum(x[0] * x[3] for x in comparables) / total, 2),
+        "fc": round(fc_type), "course_w": round(sum(x[2] * x[3] for x in comparables) / total),
+        "velo_w": round(a_velo(fc_type)), "sorties_course": len(comparables), "sorties_velo": len(v),
+    }
+
+
+def seuils(courses: list[dict[str, Any]], velos: list[dict[str, Any]], profil: dict[str, Any]) -> dict[str, Any]:
+    """Seuil course et FTP (au profil ou estimés), et ratios course / vélo. `courses` et `velos` : activités
+    (avec puissance_moy, fc_moy, duree_min et terrains) des derniers mois."""
+    estime_course, estime_ftp = estimer_seuil(courses), estimer_seuil(velos)
+    seuil_profil, ftp_profil = nombre(profil.get("seuilCourse")), nombre(profil.get("ftp"))
+    seuil = seuil_profil or (estime_course or {}).get("valeur")
+    ftp = ftp_profil or (estime_ftp or {}).get("valeur")
+    resultat: dict[str, Any] = {
+        "course": {"seuil_w": seuil, "au_profil": seuil_profil, "estime": estime_course},
+        "velo": {"ftp_w": ftp, "au_profil": ftp_profil, "estime": estime_ftp},
+    }
+    if seuil and ftp:
+        resultat["ratio_seuils"] = round(seuil / ftp, 2)
+    par_fc = ratio_fc(courses, velos)
+    if par_fc:
+        resultat["ratio_meme_fc"] = par_fc
+    return resultat

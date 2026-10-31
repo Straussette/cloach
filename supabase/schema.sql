@@ -93,3 +93,12 @@ create policy "retours_ajouter" on public.retours
 
 -- Suppression d'un compte (route /compte/supprimer du serveur) : toutes les tables ci-dessus
 -- référencent auth.users avec « on delete cascade », tout part avec le compte.
+
+-- admins : comptes qui ont accès aux options réservées (analyse de tout l'historique en tâche de fond).
+-- Aucune règle RLS : seul le serveur (clé secrète) la lit.
+create table if not exists public.admins (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  cree    timestamptz not null default now()
+);
+alter table public.admins enable row level security;
+revoke all on public.admins from anon, authenticated;

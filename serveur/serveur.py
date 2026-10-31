@@ -702,8 +702,11 @@ async def analyser_historique(ordre: Literal["etat", "lancer", "arreter"] = "eta
     vélo), en tâche de fond sur le serveur : une sortie à la fois, les plus récentes d'abord, avec une pause
     entre deux appels à Garmin, et une pause plus longue si Garmin freine. « lancer » la démarre (ou la
     reprend là où elle s'était arrêtée), « etat » donne l'avancement (faites, total, erreurs), « arreter »
-    l'interrompt. Compte environ 5 secondes par sortie. Garmin requis."""
+    l'interrompt. Compte environ 5 secondes par sortie. Garmin requis. Réservé aux administrateurs de Cloach :
+    pour les autres, l'app analyse les sorties par lots, les plus parlantes d'abord."""
     uid = _uid()
+    if not await anyio.to_thread.run_sync(base.est_admin, uid):
+        raise ToolError("Réservé aux administrateurs de Cloach : l'utilisateur peut analyser ses sorties par lots dans l'app (Stats → Par terrain).")
     if ordre == "lancer":
         if not await anyio.to_thread.run_sync(garmins.branche, uid):
             raise ToolError("Garmin n'est pas branché : l'utilisateur peut le faire dans l'app (Profil → Garmin).")

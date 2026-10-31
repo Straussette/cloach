@@ -268,7 +268,7 @@ class Garmins:
     def lot(self, uid: str) -> dict[str, Any]:
         """État de l'analyse de l'historique de l'utilisateur."""
         with self._verrou:
-            return dict(self._lots.get(uid) or {"en_cours": False})
+            return {"autorise": True, **(self._lots.get(uid) or {"en_cours": False})}
 
     def lancer_lot(self, uid: str) -> dict[str, Any]:
         """Lance l'analyse (VAP et terrains) de toutes les sorties de course, de trail et de vélo pas encore
@@ -404,6 +404,9 @@ class Garmins:
                 sport = "velo" if corps.get("sport") == "velo" else None
                 return repondre(await asyncio.to_thread(self.vap, uid, id_activite, sport))
             if action == "lot":
+                # Réservé aux comptes de la table admins : des milliers d'appels à Garmin depuis l'adresse du serveur
+                if not await asyncio.to_thread(self.base.est_admin, uid):
+                    return repondre({"autorise": False})
                 ordre = str(corps.get("ordre", "etat"))
                 if ordre == "lancer":
                     return repondre(await asyncio.to_thread(self.lancer_lot, uid))

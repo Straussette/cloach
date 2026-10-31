@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-31.3">
+<meta name="app-version" content="2026-10-31.4">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2131,7 +2131,32 @@ async function chargerTerrains() {
 }
 const LOT_ANALYSE = 40; // sorties analysées par appui sur « Analyser » (une à la fois, avec une pause)
 
-// Analyse de tout l'historique en tâche de fond sur le serveur (route garmin/lot) : on suit l'avancement
+// Ordre d'analyse : d'abord les 24 dernières semaines (utiles aux comparaisons), les plus récentes en tête,
+// puis les sorties les plus parlantes de l'historique, dans leur famille (course + trail, vélo dehors,
+// home trainer) : plus gros D+, plus longues, plus chargées, plus puissantes sur 20 min
+function trierParPertinence(liste) {
+  const recent = decaler(jourISO(), -168);
+  const familles = {};
+  for (const a of liste) (familles[a.sport === 'velo' ? (interieur(a) ? 'ht' : 'velo') : 'pied'] ||= []).push(a);
+  const champs = [(a) => Number(a.denivele_m), (a) => Number(a.duree_min), (a) => Number(a.charge), (a) => Number(a.puissances_max?.['1200'])];
+  const score = new Map();
+  for (const groupe of Object.values(familles)) {
+    // Rang de chaque valeur dans sa famille, entre 0 et 1
+    const tries = champs.map((f) => groupe.map(f).filter((x) => x > 0).sort((x, y) => x - y));
+    const rang = (i, x) => {
+      const t = tries[i];
+      if (!(x > 0) || !t.length) return 0;
+      let bas = 0, haut = t.length;
+      while (bas < haut) { const m = (bas + haut) >> 1; if (t[m] <= x) bas = m + 1; else haut = m; }
+      return bas / t.length;
+    };
+    for (const a of groupe) score.set(a.id, a.jour >= recent ? 2 + versDate(a.jour).getTime() / 1e13 : Math.max(...champs.map((f, i) => rang(i, f(a)))));
+  }
+  return [...liste].sort((x, y) => score.get(y.id) - score.get(x.id));
+}
+
+// Analyse de tout l'historique en tâche de fond sur le serveur (route garmin/lot, réservée aux
+// administrateurs : la réponse dit « autorise ») : on suit l'avancement
 let etatLot = null, minuterieLot = null, lotVerifie = false;
 async function suivreLot(ordre = 'etat') {
   lotVerifie = true;
@@ -2337,7 +2362,7 @@ function afficherTerrain() {
   // Tout l'historique, tous sports : analyse en tâche de fond sur le serveur
   const toutesManquantes = activites.filter(analyseAFaire).length;
   if (etat.garmin?.connecte && !lotVerifie && toutesManquantes) suivreLot();
-  if (etat.garmin?.connecte && (toutesManquantes > LOT_ANALYSE || etatLot?.en_cours)) {
+  if (etat.garmin?.connecte && etatLot?.autorise && (toutesManquantes > LOT_ANALYSE || etatLot?.en_cours)) {
     if (etatLot?.en_cours) {
       html += `<p class="petit" style="margin:10px 0 4px"><b>Analyse de tout l'historique sur le serveur :</b> ${nombre(etatLot.faites || 0)} / ${etatLot.total == null ? '…' : nombre(etatLot.total)} sorties${etatLot.message ? ` · ${esc(etatLot.message)}` : ''}. Tu peux fermer l'app, le serveur continue.</p>
         <button class="btn discret" type="button" id="btnArreterLot">Arrêter</button>`;
@@ -2349,7 +2374,7 @@ function afficherTerrain() {
     const lot = Math.min(LOT_ANALYSE, manquantes.length);
     html += `<p class="statut" id="statutTerrain"></p><button class="btn secondaire" type="button" id="btnAnalyserTerrain">${manquantes.length > lot
       ? `Analyser ${lot} sorties de plus (${manquantes.length} à faire)` : `Analyser ${lot} sortie${lot > 1 ? 's' : ''}`}</button>
-      ${manquantes.length > lot ? '<p class="muted petit" style="margin:4px 0 0">Par lots, les plus récentes d\'abord, avec une pause entre deux sorties pour ménager Garmin. Garde l\'app ouverte pendant l\'analyse.</p>' : ''}`;
+      ${manquantes.length > lot ? '<p class="muted petit" style="margin:4px 0 0">Par lots, les plus parlantes d\'abord : les 6 derniers mois, puis tes plus grosses sorties (dénivelé, durée, charge, puissance). Une pause entre deux sorties ménage Garmin ; garde l\'app ouverte pendant l\'analyse.</p>' : ''}`;
   }
   bloc.innerHTML = html;
   if ($('#unitePuissance')) {
@@ -2367,7 +2392,7 @@ function afficherTerrain() {
     b.onclick = async () => {
       analyseTerrainEnCours = true;
       b.disabled = true;
-      const lot = manquantes.slice().reverse().slice(0, LOT_ANALYSE);
+      const lot = trierParPertinence(manquantes).slice(0, LOT_ANALYSE);
       const faites = await calculerVaps(lot, (n, sur) => statut($('#statutTerrain'), `Analyse ${n} / ${sur}…`), lot.length > 8 ? 1500 : 0);
       analyseTerrainEnCours = false;
       if (faites < lot.length) statut($('#statutTerrain'), 'Garmin ne répond pas pour le moment : réessaie plus tard.', true);

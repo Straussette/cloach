@@ -63,6 +63,15 @@ class Supabase:
         r = requests.delete(f"{self.url}/auth/v1/admin/users/{uid}", headers=self.entetes, timeout=15)
         r.raise_for_status()
 
+    def est_admin(self, uid: str) -> bool:
+        """Vrai si le compte est dans la table admins (options réservées, comme l'analyse de tout l'historique)."""
+        try:
+            r = requests.get(f"{self.url}/rest/v1/admins", headers=self.entetes, timeout=10,
+                             params={"select": "user_id", "user_id": f"eq.{uid}"})
+            return r.ok and bool(r.json())
+        except (requests.RequestException, ValueError):
+            return False
+
     # ---------- Données du compte ----------
 
     def lire_etat(self, uid: str) -> dict[str, Any]:

@@ -626,7 +626,8 @@ async def enregistrer_analyse(texte: str) -> str:
 
 
 @mcp.tool()
-async def profil_terrain(semaines: int = 8, sport: Literal["course", "velo"] = "course") -> dict[str, Any]:
+async def profil_terrain(semaines: int = 8, sport: Literal["course", "velo"] = "course",
+                         tout_l_historique: bool = False) -> dict[str, Any]:
     """Synthèse par terrain (plat, montée, descente) des sorties des dernières semaines, en course + trail
     (sport « course ») ou à vélo (sport « velo », séparé en « dehors » et « home_trainer » : sur Zwift la
     pente est virtuelle mais la résistance la suit). Meilleurs efforts par durée (30 s à 1 h, clés en
@@ -639,13 +640,15 @@ async def profil_terrain(semaines: int = 8, sport: Literal["course", "velo"] = "
     calculés. Sans capteur de puissance dehors, le vélo n'a que vitesse, VAM, FC et cadence. Les sorties
     pas encore analysées le sont au passage (8 au plus par appel, Garmin requis). Sers-t'en pour repérer
     le terrain le plus faible au regard de l'objectif et cibler les séances, puis enregistre ton
-    commentaire avec enregistrer_analyse_terrain (avec le même sport)."""
+    commentaire avec enregistrer_analyse_terrain (avec le même sport). tout_l_historique : synthèse de
+    toutes les sorties analysées (records de tous les temps, sans comparaison), dont l'app peut lancer
+    l'analyse par lots."""
     uid = _uid()
     velo = sport == "velo"
     sports = ("velo",) if velo else ("course", "trail")
     semaines = max(2, min(26, semaines))
-    debut = (_aujourdhui() - timedelta(weeks=semaines)).isoformat()
-    debut_avant = (_aujourdhui() - timedelta(weeks=2 * semaines)).isoformat()
+    debut = "0000" if tout_l_historique else (_aujourdhui() - timedelta(weeks=semaines)).isoformat()
+    debut_avant = None if tout_l_historique else (_aujourdhui() - timedelta(weeks=2 * semaines)).isoformat()
 
     async def lire() -> list[dict[str, Any]]:
         # La période et celle d'avant, de même durée, pour mesurer l'évolution
@@ -681,7 +684,7 @@ async def profil_terrain(semaines: int = 8, sport: Literal["course", "velo"] = "
         resultat = synthese(lignes)
     if not poids:
         resultat["poids"] = "inconnu : demande-le à l'utilisateur et enregistre-le avec modifier_profil pour avoir les W/kg"
-    resultat["semaines"] = semaines
+    resultat["semaines"] = "tout l'historique" if tout_l_historique else semaines
     restant = len(a_analyser(lignes))
     if restant:
         resultat["restant_a_analyser"] = restant

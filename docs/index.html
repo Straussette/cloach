@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-31.1">
+<meta name="app-version" content="2026-10-31.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1171,7 +1171,8 @@ function htmlLienGarmin(s) {
 // VAP calculée à la demande (une fois par activité, puis gardée en base) pour les sorties affichées
 const vapsEnCours = new Set();
 // Le même appel au serveur calcule la VAP et l'analyse par terrain (une seule lecture du profil chez Garmin)
-async function calculerVaps(liste, progression) {
+// pause (ms) entre deux sorties : pour les analyses en lot, Garmin n'aime pas les rafales
+async function calculerVaps(liste, progression, pause = 0) {
   if (etat.garmin?.connecte !== true || !session()) return 0;
   const a_faire = liste.filter((x) => analyseAFaire(x) && !vapsEnCours.has(x.id));
   let faites = 0;
@@ -1187,6 +1188,7 @@ async function calculerVaps(liste, progression) {
       faites++;
       afficherJour();
       progression?.(faites, a_faire.length);
+      if (pause && faites < a_faire.length) await new Promise((ok) => setTimeout(ok, pause));
     } catch (e) { console.warn('VAP', e); vapsEnCours.delete(a.id); break; }
   }
   if (faites) planifierTerrains();
@@ -2117,12 +2119,17 @@ const analyseAFaire = (a) => analyseUtile(a) && ((vapUtile(a) && !a.vap_min_km) 
 let lignesTerrain = []; // sorties analysées des 26 dernières semaines : { id, jour, nom, sport, terrains }
 let analyseTerrainEnCours = false;
 
+// 26 semaines d'habitude ; tout l'historique quand la période « Tout l'historique » est choisie
+let terrainsTout = false;
 async function chargerTerrains() {
   if (!session()) { lignesTerrain = []; return; }
+  const tout = choixStats.terrain === 'tout';
   try {
-    lignesTerrain = await sbFetch(`/rest/v1/activites?select=id,jour,nom,sport,type,terrains&sport=in.(course,trail,velo)&terrains=not.is.null&jour=gte.${decaler(jourISO(), -182)}&order=jour.asc`) || [];
+    lignesTerrain = await sbFetch(`/rest/v1/activites?select=id,jour,nom,sport,type,terrains&sport=in.(course,trail,velo)&terrains=not.is.null${tout ? '' : `&jour=gte.${decaler(jourISO(), -182)}`}&order=jour.asc`) || [];
+    terrainsTout = tout;
   } catch (e) { console.warn('Terrains', e); }
 }
+const LOT_ANALYSE = 40; // sorties analysées par appui sur « Analyser » (une à la fois, avec une pause)
 let minuterieTerrains = null;
 function planifierTerrains() {
   clearTimeout(minuterieTerrains);
@@ -2229,22 +2236,25 @@ function afficherTerrain() {
   puces($('#lieuVelo'), [['dehors', 'Dehors'], ['interieur', 'Home trainer']], dedans ? 'interieur' : 'dehors', (c) => { choixStats.lieuVelo = c; dureeChoisie = null; });
   $('#lieuVelo').hidden = !velo;
   const duSport = (x) => (velo ? x.sport === 'velo' && interieur(x) === dedans : x.sport === 'course' || x.sport === 'trail');
+  const toutHistorique = choixStats.terrain === 'tout';
+  if (toutHistorique && !terrainsTout) { chargerTerrains().then(afficherTerrain); }
   const semaines = Number(choixStats.terrain) || 8;
   const vue = choixStats.vueTerrain || 'montee';
-  puces($('#filtreTerrain'), [['4', '4 semaines'], ['8', '8 semaines'], ['12', '12 semaines']], String(semaines), (c) => { choixStats.terrain = c; });
+  puces($('#filtreTerrain'), [['4', '4 sem.'], ['8', '8 sem.'], ['12', '12 sem.'], ['tout', 'Tout l\'historique']], toutHistorique ? 'tout' : String(semaines), (c) => { choixStats.terrain = c; });
   puces($('#vueTerrain'), TERRAINS.map(([cle, nom]) => [cle, nom]), vue, (c) => { choixStats.vueTerrain = c; dureeChoisie = null; });
-  const debut = decaler(jourISO(), -7 * semaines);
-  const debutAvant = decaler(jourISO(), -14 * semaines);
+  // Tout l'historique : pas de période d'avant à comparer
+  const debut = toutHistorique ? '0000' : decaler(jourISO(), -7 * semaines);
+  const debutAvant = toutHistorique ? '0000' : decaler(jourISO(), -14 * semaines);
   const valable = (l) => duSport(l) && l.terrains?.v === VERSION_TERRAINS && !l.terrains.vide;
   const lignes = lignesTerrain.filter((l) => l.jour >= debut && valable(l));
-  const avant = lignesTerrain.filter((l) => l.jour >= debutAvant && l.jour < debut && valable(l));
+  const avant = toutHistorique ? [] : lignesTerrain.filter((l) => l.jour >= debutAvant && l.jour < debut && valable(l));
   const manquantes = activites.filter((a) => a.jour >= debutAvant && duSport(a) && analyseAFaire(a));
   const bloc = $('#terrain');
 
   let html = '';
   if (lignes.length) {
     const total = lignes.reduce((n, l) => n + (l.terrains.temps_s || 0), 0);
-    html += `<p class="muted petit" style="margin:0 0 6px">${lignes.length} sortie${lignes.length > 1 ? 's' : ''} analysée${lignes.length > 1 ? 's' : ''} (${dureeLisible(Math.round(total / 60))} ${velo ? 'de vélo' : 'de course'})${avant.length ? `, comparée${lignes.length > 1 ? 's' : ''} aux ${semaines} semaines d'avant (${avant.length} sortie${avant.length > 1 ? 's' : ''})` : ''}. Plat : pente entre −2 et +2 %.</p>`;
+    html += `<p class="muted petit" style="margin:0 0 6px">${lignes.length} sortie${lignes.length > 1 ? 's' : ''} analysée${lignes.length > 1 ? 's' : ''} (${dureeLisible(Math.round(total / 60))} ${velo ? 'de vélo' : 'de course'}${toutHistorique ? `, depuis ${lignes[0].jour.slice(0, 4)}` : ''})${avant.length ? `, comparée${lignes.length > 1 ? 's' : ''} aux ${semaines} semaines d'avant (${avant.length} sortie${avant.length > 1 ? 's' : ''})` : ''}. Plat : pente entre −2 et +2 %.</p>`;
 
     // Meilleurs efforts par durée sur ce terrain, et leur évolution
     const rec = recordsTerrain(lignes)[vue];
@@ -2312,7 +2322,10 @@ function afficherTerrain() {
       : '<p class="muted">Cloach fait la synthèse de tes sorties à plat, en montée et en descente : tes meilleurs efforts sur 30 s, 1, 5, 20 min… en puissance, VAM et allure, leur évolution, et tes moyennes (FC, cadence, foulée). Chaque sortie est analysée une fois, à partir de son profil Garmin.</p>';
   }
   if (manquantes.length && etat.garmin?.connecte) {
-    html += `<p class="statut" id="statutTerrain"></p><button class="btn secondaire" type="button" id="btnAnalyserTerrain">Analyser ${manquantes.length} sortie${manquantes.length > 1 ? 's' : ''}</button>`;
+    const lot = Math.min(LOT_ANALYSE, manquantes.length);
+    html += `<p class="statut" id="statutTerrain"></p><button class="btn secondaire" type="button" id="btnAnalyserTerrain">${manquantes.length > lot
+      ? `Analyser ${lot} sorties de plus (${manquantes.length} à faire)` : `Analyser ${lot} sortie${lot > 1 ? 's' : ''}`}</button>
+      ${manquantes.length > lot ? '<p class="muted petit" style="margin:4px 0 0">Par lots, les plus récentes d\'abord, avec une pause entre deux sorties pour ménager Garmin. Garde l\'app ouverte pendant l\'analyse.</p>' : ''}`;
   }
   bloc.innerHTML = html;
   if ($('#unitePuissance')) {
@@ -2328,9 +2341,10 @@ function afficherTerrain() {
     b.onclick = async () => {
       analyseTerrainEnCours = true;
       b.disabled = true;
-      const faites = await calculerVaps(manquantes.slice().reverse(), (n, sur) => statut($('#statutTerrain'), `Analyse ${n} / ${sur}…`));
+      const lot = manquantes.slice().reverse().slice(0, LOT_ANALYSE);
+      const faites = await calculerVaps(lot, (n, sur) => statut($('#statutTerrain'), `Analyse ${n} / ${sur}…`), lot.length > 8 ? 1500 : 0);
       analyseTerrainEnCours = false;
-      if (faites < manquantes.length) statut($('#statutTerrain'), 'Garmin ne répond pas pour le moment : réessaie plus tard.', true);
+      if (faites < lot.length) statut($('#statutTerrain'), 'Garmin ne répond pas pour le moment : réessaie plus tard.', true);
       await chargerTerrains();
       afficherTerrain();
     };

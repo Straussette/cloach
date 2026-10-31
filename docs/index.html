@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-10-31.2">
+<meta name="app-version" content="2026-10-31.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2130,6 +2130,19 @@ async function chargerTerrains() {
   } catch (e) { console.warn('Terrains', e); }
 }
 const LOT_ANALYSE = 40; // sorties analysées par appui sur « Analyser » (une à la fois, avec une pause)
+
+// Analyse de tout l'historique en tâche de fond sur le serveur (route garmin/lot) : on suit l'avancement
+let etatLot = null, minuterieLot = null, lotVerifie = false;
+async function suivreLot(ordre = 'etat') {
+  lotVerifie = true;
+  const avant = etatLot;
+  try { etatLot = await appelerGarmin('lot', { ordre }); } catch (e) { etatLot = { erreur: e.message }; }
+  clearTimeout(minuterieLot);
+  if (etatLot?.en_cours) minuterieLot = setTimeout(() => suivreLot(), 20000);
+  // Analyse finie (ou avancée) : on recharge les activités et les analyses
+  if (avant?.en_cours && (!etatLot?.en_cours || etatLot.faites !== avant.faites)) await chargerActivites();
+  afficherTerrain();
+}
 let minuterieTerrains = null;
 function planifierTerrains() {
   clearTimeout(minuterieTerrains);
@@ -2321,7 +2334,18 @@ function afficherTerrain() {
       ? `<p class="muted">Cloach fait la synthèse de tes sorties ${dedans ? 'sur home trainer (pente virtuelle de Zwift)' : 'dehors'} à plat, en montée et en descente : tes meilleurs efforts sur 30 s, 1, 5, 20 min… en puissance, VAM et vitesse, leur évolution, et tes moyennes (FC, cadence, puissance si tu as un capteur). Chaque sortie est analysée une fois, à partir de son profil Garmin.</p>`
       : '<p class="muted">Cloach fait la synthèse de tes sorties à plat, en montée et en descente : tes meilleurs efforts sur 30 s, 1, 5, 20 min… en puissance, VAM et allure, leur évolution, et tes moyennes (FC, cadence, foulée). Chaque sortie est analysée une fois, à partir de son profil Garmin.</p>';
   }
-  if (manquantes.length && etat.garmin?.connecte) {
+  // Tout l'historique, tous sports : analyse en tâche de fond sur le serveur
+  const toutesManquantes = activites.filter(analyseAFaire).length;
+  if (etat.garmin?.connecte && !lotVerifie && toutesManquantes) suivreLot();
+  if (etat.garmin?.connecte && (toutesManquantes > LOT_ANALYSE || etatLot?.en_cours)) {
+    if (etatLot?.en_cours) {
+      html += `<p class="petit" style="margin:10px 0 4px"><b>Analyse de tout l'historique sur le serveur :</b> ${nombre(etatLot.faites || 0)} / ${etatLot.total == null ? '…' : nombre(etatLot.total)} sorties${etatLot.message ? ` · ${esc(etatLot.message)}` : ''}. Tu peux fermer l'app, le serveur continue.</p>
+        <button class="btn discret" type="button" id="btnArreterLot">Arrêter</button>`;
+    } else {
+      html += `<p class="muted petit" style="margin:10px 0 4px">${nombre(toutesManquantes)} sorties de tout ton historique (course, trail, vélo) ne sont pas encore analysées.${etatLot?.message ? ` ${esc(etatLot.message)}` : ''}${etatLot?.erreur ? ` ${esc(etatLot.erreur)}` : ''}</p>
+        <button class="btn secondaire" type="button" id="btnLancerLot">Tout analyser sur le serveur (environ ${dureeLisible(Math.ceil((toutesManquantes * 5) / 60))})</button>`;
+    }
+  } else if (manquantes.length && etat.garmin?.connecte) {
     const lot = Math.min(LOT_ANALYSE, manquantes.length);
     html += `<p class="statut" id="statutTerrain"></p><button class="btn secondaire" type="button" id="btnAnalyserTerrain">${manquantes.length > lot
       ? `Analyser ${lot} sorties de plus (${manquantes.length} à faire)` : `Analyser ${lot} sortie${lot > 1 ? 's' : ''}`}</button>
@@ -2335,6 +2359,8 @@ function afficherTerrain() {
   for (const tr of bloc.querySelectorAll('tr[data-duree]')) {
     tr.onclick = () => { dureeChoisie = dureeChoisie === Number(tr.dataset.duree) ? null : Number(tr.dataset.duree); afficherTerrain(); };
   }
+  if ($('#btnLancerLot')) $('#btnLancerLot').onclick = (e) => { e.target.disabled = true; suivreLot('lancer'); };
+  if ($('#btnArreterLot')) $('#btnArreterLot').onclick = (e) => { e.target.disabled = true; suivreLot('arreter'); };
   const b = $('#btnAnalyserTerrain');
   if (b) {
     b.disabled = analyseTerrainEnCours;

@@ -12,12 +12,14 @@ d'API pour les particuliers, ça peut cesser de marcher si Garmin change son sit
 
 import asyncio
 import json
+import os
 from datetime import date
 import secrets
 import threading
 import time
 from typing import Any
 
+import requests
 from garminconnect import Garmin
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -115,6 +117,9 @@ class Garmins:
         # Connexions en attente du code de double authentification : id → (uid, client, échéance)
         self._attente: dict[str, tuple[str, Garmin, float]] = {}
         self._verrou = threading.Lock()
+        # Analyse de tout l'historique, en tâche de fond : uid → état ; une seule à la fois sur le serveur
+        self._lots: dict[str, dict[str, Any]] = {}
+        self._arrets: set[str] = set()
 
     # ---------- Session Garmin d'un utilisateur ----------
 
@@ -255,6 +260,91 @@ class Garmins:
         self.base.completer_activite(uid, str(id_activite), champs)
         return {"vap_min_km": None, **resultat, "terrains": terrains.VERSION}
 
+    # ---------- Analyse de tout l'historique (tâche de fond) ----------
+
+    PAUSE_LOT = 2.0           # secondes entre deux sorties
+    PAUSE_FREINAGE = 600.0    # quand Garmin limite les requêtes (429)
+
+    def lot(self, uid: str) -> dict[str, Any]:
+        """État de l'analyse de l'historique de l'utilisateur."""
+        with self._verrou:
+            return dict(self._lots.get(uid) or {"en_cours": False})
+
+    def lancer_lot(self, uid: str) -> dict[str, Any]:
+        """Lance l'analyse (VAP et terrains) de toutes les sorties de course, de trail et de vélo pas encore
+        analysées avec la version actuelle, les plus récentes d'abord. Reprend là où une analyse précédente
+        s'est arrêtée : chaque sortie est enregistrée dès qu'elle est faite."""
+        with self._verrou:
+            if any(l.get("en_cours") for l in self._lots.values()):
+                autre = next(u for u, l in self._lots.items() if l.get("en_cours"))
+                return self._lots[uid] if autre == uid else {"en_cours": False, "erreur": "Une autre analyse tourne sur le serveur : réessaie plus tard."}
+            self._lots[uid] = {"en_cours": True, "faites": 0, "total": None, "erreurs": 0, "debut": time.time(), "message": "Préparation…"}
+            self._arrets.discard(uid)
+        threading.Thread(target=self._travailler_lot, args=(uid,), daemon=True).start()
+        return self.lot(uid)
+
+    def arreter_lot(self, uid: str) -> dict[str, Any]:
+        with self._verrou:
+            self._arrets.add(uid)
+        return self.lot(uid)
+
+    def _maj_lot(self, uid: str, **champs: Any) -> None:
+        with self._verrou:
+            self._lots.setdefault(uid, {}).update(champs)
+
+    def _travailler_lot(self, uid: str) -> None:
+        # Render endort le service sans requête entrante pendant 15 min : on se réveille soi-même
+        adresse = (os.environ.get("URL_PUBLIQUE") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
+        dernier_reveil = time.time()
+        try:
+            a_faire = [a for a in self.base.lire_activites(uid)
+                       if a.get("sport") in ("course", "trail", "velo") and str(a.get("id", "")).isdigit()
+                       and float(a.get("distance_km") or 0) >= 1
+                       and (a.get("terrains") or {}).get("v") != terrains.VERSION]
+            a_faire.sort(key=lambda a: str(a.get("debut") or a["jour"]), reverse=True)
+            self._maj_lot(uid, total=len(a_faire), message=None)
+            freinages = 0
+            for a in a_faire:
+                if uid in self._arrets:
+                    self._maj_lot(uid, message="Arrêtée")
+                    break
+                if adresse and time.time() - dernier_reveil > 300:
+                    try:
+                        requests.get(f"{adresse}/sante", timeout=10)
+                    except requests.RequestException:
+                        pass
+                    dernier_reveil = time.time()
+                while True:  # on réessaie la même sortie après une pause si Garmin freine
+                    try:
+                        self.vap(uid, str(a["id"]), "velo" if a["sport"] == "velo" else None)
+                        freinages = 0
+                        with self._verrou:
+                            self._lots[uid]["faites"] += 1
+                            self._lots[uid]["derniere"] = a["jour"]
+                    except Exception as e:
+                        texte = f"{type(e).__name__} {e}".lower()
+                        if "429" in texte or "too many" in texte:
+                            freinages += 1
+                            if freinages < 3 and uid not in self._arrets:
+                                self._maj_lot(uid, message="Garmin limite les requêtes : pause de 10 minutes…")
+                                time.sleep(self.PAUSE_FREINAGE)
+                                self._maj_lot(uid, message=None)
+                                continue
+                        else:
+                            print(f"Analyse de l'historique ({a['id']}) : {type(e).__name__} : {e}", flush=True)
+                            with self._verrou:
+                                self._lots[uid]["erreurs"] += 1
+                    break
+                if freinages >= 3:
+                    self._maj_lot(uid, message="Garmin limite les requêtes : analyse arrêtée, relance-la plus tard.")
+                    break
+                time.sleep(self.PAUSE_LOT)
+        except Exception as e:
+            print(f"Analyse de l'historique : {type(e).__name__} : {e}", flush=True)
+            self._maj_lot(uid, message="L'analyse s'est arrêtée sur une erreur : relance-la.")
+        finally:
+            self._maj_lot(uid, en_cours=False, fin=time.time())
+
     def branche(self, uid: str) -> bool:
         return self.base.lire_jetons_garmin(uid) is not None
 
@@ -313,6 +403,13 @@ class Garmins:
                     return repondre({"erreur": "Activité inconnue"}, 400)
                 sport = "velo" if corps.get("sport") == "velo" else None
                 return repondre(await asyncio.to_thread(self.vap, uid, id_activite, sport))
+            if action == "lot":
+                ordre = str(corps.get("ordre", "etat"))
+                if ordre == "lancer":
+                    return repondre(await asyncio.to_thread(self.lancer_lot, uid))
+                if ordre == "arreter":
+                    return repondre(self.arreter_lot(uid))
+                return repondre(self.lot(uid))
             if action == "records":
                 return repondre({"records": await asyncio.to_thread(self.records, uid)})
             if action == "forme":

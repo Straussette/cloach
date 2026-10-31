@@ -697,6 +697,23 @@ async def profil_terrain(semaines: int = 8, sport: Literal["course", "velo"] = "
 
 
 @mcp.tool()
+async def analyser_historique(ordre: Literal["etat", "lancer", "arreter"] = "etat") -> dict[str, Any]:
+    """Analyse de tout l'historique (VAP et analyse par terrain de chaque sortie de course, de trail et de
+    vélo), en tâche de fond sur le serveur : une sortie à la fois, les plus récentes d'abord, avec une pause
+    entre deux appels à Garmin, et une pause plus longue si Garmin freine. « lancer » la démarre (ou la
+    reprend là où elle s'était arrêtée), « etat » donne l'avancement (faites, total, erreurs), « arreter »
+    l'interrompt. Compte environ 5 secondes par sortie. Garmin requis."""
+    uid = _uid()
+    if ordre == "lancer":
+        if not await anyio.to_thread.run_sync(garmins.branche, uid):
+            raise ToolError("Garmin n'est pas branché : l'utilisateur peut le faire dans l'app (Profil → Garmin).")
+        return await anyio.to_thread.run_sync(garmins.lancer_lot, uid)
+    if ordre == "arreter":
+        return garmins.arreter_lot(uid)
+    return garmins.lot(uid)
+
+
+@mcp.tool()
 async def seuils_puissance() -> dict[str, Any]:
     """Seuils de puissance et ratio entre la course et le vélo, pour comparer les deux sports et traduire
     une séance de l'un dans l'autre. La puissance de course Garmin sort bien plus haut qu'un capteur de

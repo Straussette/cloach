@@ -21,7 +21,7 @@ from typing import Any
 
 from vap import LISSAGE, PAS_M, VITESSE_ARRET, coefficient
 
-VERSION = 3           # à augmenter si la méthode change : l'app et le serveur recalculent alors
+VERSION = 4           # à augmenter si la méthode change : l'app et le serveur recalculent alors
 PLAT_PCT = 2.0        # entre −2 % et +2 % : plat
 TRANCHES = ((2.0, 6.0, "2-6"), (6.0, 12.0, "6-12"), (12.0, 1000.0, "12+"))
 MONTEE_MIN_M = 20.0   # dénivelé minimal d'une montée
@@ -34,7 +34,7 @@ DUREES = (30, 60, 120, 300, 600, 1200, 1800, 3600)  # durées des meilleurs effo
 MESURES = {
     "puissance": ("directPower",),
     "fc": ("directHeartRate",),
-    "cadence": ("directDoubleCadence", "directRunCadence"),
+    "cadence": ("directDoubleCadence", "directRunCadence", "directBikeCadence"),
     "contact": ("directGroundContactTime",),
     "ratio_vertical": ("directVerticalRatio",),
 }
@@ -42,8 +42,9 @@ MESURES = {
 
 # ---------- Lecture des détails Garmin ----------
 
-def lire_series(details: dict[str, Any]) -> dict[str, list[Any]] | None:
-    """Distance (m), altitude (m), temps (s) et mesures facultatives, point par point."""
+def lire_series(details: dict[str, Any], velo: bool = False) -> dict[str, list[Any]] | None:
+    """Distance (m), altitude (m), temps (s) et mesures facultatives, point par point. À vélo, une
+    puissance nulle compte (roue libre) ; une cadence nulle non (on ne la moyenne qu'en pédalant)."""
     index = {d.get("key"): d.get("metricsIndex") for d in details.get("metricDescriptors") or []}
     i_dist, i_alt = index.get("sumDistance"), index.get("directElevation")
     i_temps = next((index[k] for k in ("sumElapsedDuration", "sumDuration", "sumMovingDuration") if k in index), None)
@@ -64,12 +65,13 @@ def lire_series(details: dict[str, Any]) -> dict[str, list[Any]] | None:
         series["dist"].append(float(d)); series["alt"].append(float(a)); series["temps"].append(float(t))
         for nom, i in i_mesures.items():
             v = m[i] if i is not None and i < len(m) else None
-            series[nom].append(float(v) if isinstance(v, (int, float)) and v > 0 else None)
+            valable = isinstance(v, (int, float)) and (v > 0 or (velo and nom == "puissance" and v == 0))
+            series[nom].append(float(v) if valable else None)
     if len(series["dist"]) <= 10:
         return None
     # Certaines montres donnent la cadence d'une seule jambe : on la ramène en pas par minute
     cadences = [c for c in series["cadence"] if c]
-    if cadences and statistics.median(cadences) < 120:
+    if not velo and cadences and statistics.median(cadences) < 120:
         series["cadence"] = [c * 2 if c else None for c in series["cadence"]]
     return series
 
@@ -127,9 +129,9 @@ def _mesures(s: dict[str, list[Any]], debut: int, fin: int, mouvement: list[floa
     return resultat
 
 
-def _reperer(lisse: list[float]) -> list[tuple[int, int]]:
-    """Début et fin des montées d'au moins MONTEE_MIN_M de dénivelé, en tolérant de courts replats
-    (pour les descentes : appeler avec l'altitude changée de signe)."""
+def _reperer(lisse: list[float], dist: list[float]) -> list[tuple[int, int]]:
+    """Début et fin des montées d'au moins MONTEE_MIN_M de dénivelé et de plus de PLAT_PCT de pente
+    moyenne, en tolérant de courts replats (pour les descentes : altitude changée de signe)."""
     trouvees: list[tuple[int, int]] = []
     bas = haut = 0
     for i in range(1, len(lisse)):
@@ -143,7 +145,8 @@ def _reperer(lisse: list[float]) -> list[tuple[int, int]]:
             bas = haut = i
     if lisse[haut] - lisse[bas] >= MONTEE_MIN_M:
         trouvees.append((bas, haut))
-    return trouvees
+    return [(a, b) for a, b in trouvees
+            if dist[b] > dist[a] and (lisse[b] - lisse[a]) / (dist[b] - dist[a]) * 100 > PLAT_PCT]
 
 
 def _meilleurs_efforts(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float],
@@ -191,7 +194,7 @@ def _meilleurs_efforts(s: dict[str, list[Any]], lisse: list[float], mouvement: l
 def _montees(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float]) -> list[dict[str, Any]]:
     """Montées d'au moins MONTEE_MIN_M de dénivelé, en tolérant de courts replats."""
     montees = []
-    for debut, fin in _reperer(lisse):
+    for debut, fin in _reperer(lisse, s["dist"]):
         distance = s["dist"][fin] - s["dist"][debut]
         temps = sum(mouvement[debut + 1:fin + 1])
         gain = lisse[fin] - lisse[debut]
@@ -230,11 +233,22 @@ def _montees(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float]
     return montees
 
 
+def _retirer(objet: Any, cles: set[str]) -> Any:
+    """Copie sans les clés données, à toutes les profondeurs."""
+    if isinstance(objet, dict):
+        return {k: _retirer(v, cles) for k, v in objet.items() if k not in cles}
+    if isinstance(objet, list):
+        return [_retirer(v, cles) for v in objet]
+    return objet
+
+
 def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] | None:
-    """Analyse par terrain d'une sortie de course ou de trail, ou None si son profil manque. À vélo
-    (home trainer surtout), seulement les meilleurs efforts de puissance sur toute la sortie (« tout »),
-    qui servent à estimer la FTP et à comparer avec la course (voir puissance.py)."""
-    s = lire_series(details)
+    """Analyse par terrain d'une sortie, ou None si son profil manque. À vélo (sport « velo »), même
+    découpage, sans ce qui n'a de sens qu'en course (foulée, VAP) ; cadence en tours par minute ; sur
+    home trainer (Zwift), la pente est virtuelle mais la résistance la suit : puissance et VAM restent
+    parlantes. Les meilleurs efforts « tout » servent aussi à estimer la FTP (voir puissance.py)."""
+    velo = sport == "velo"
+    s = lire_series(details, velo)
     if not s:
         return None
     n = len(s["alt"])
@@ -248,9 +262,6 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
             mouvement[i] = dt
     # Meilleurs efforts sur toute la sortie, terrains confondus : pour les seuils de puissance
     tout = _meilleurs_efforts(s, lisse, mouvement, [(0, n - 1)])
-    if sport == "velo":
-        tout = {d: {"puissance": m["puissance"]} for d, m in tout.items() if m.get("puissance")}
-        return {"v": VERSION, "sport": "velo", "temps_s": round(sum(mouvement)), "efforts": {"tout": tout}} if tout else None
 
     terrains = {t: _Cumul() for t in TERRAINS}
     tranches = {(t, nom): _Cumul() for t in ("montee", "descente") for _, _, nom in TRANCHES}
@@ -287,10 +298,13 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
     resultat["montees"] = _montees(s, lisse, mouvement)
     resultat["efforts"] = {
         "plat": _meilleurs_efforts(s, lisse, mouvement, plats),
-        "montee": _meilleurs_efforts(s, lisse, mouvement, _reperer(lisse)),
-        "descente": _meilleurs_efforts(s, lisse, mouvement, _reperer([-a for a in lisse]), descente=True),
+        "montee": _meilleurs_efforts(s, lisse, mouvement, _reperer(lisse, s["dist"])),
+        "descente": _meilleurs_efforts(s, lisse, mouvement, _reperer([-a for a in lisse], s["dist"]), descente=True),
         "tout": {d: {k: v for k, v in m.items() if k != "vam"} for d, m in tout.items()},
     }
+    if velo:
+        resultat = _retirer(resultat, {"foulee_m", "vap_min_km"})
+        resultat["sport"] = "velo"
     return resultat
 
 
@@ -315,7 +329,7 @@ def _fusionner(resumes: list[dict[str, Any]]) -> dict[str, Any]:
         poids = sum(r["temps_s"] for r in avec)
         if poids >= temps * 0.5:
             f[champ] = round(sum(r[champ] * r["temps_s"] for r in avec) / poids, 2 if champ == "vap_min_km" else 1)
-    if f.get("cadence") and f.get("vitesse"):
+    if f.get("cadence") and f.get("vitesse") and any(r.get("foulee_m") for r in resumes):  # course seulement
         f["foulee_m"] = round(f["vitesse"] * 60 / f["cadence"], 2)
     return f
 
@@ -359,6 +373,9 @@ def profil(lignes: list[dict[str, Any]], precedentes: list[dict[str, Any]] | Non
     if not lignes:
         return {"sorties": 0}
     resultat: dict[str, Any] = {"sorties": len(lignes), "du": lignes[0]["jour"], "au": lignes[-1]["jour"]}
+    velo = any(l["terrains"].get("sport") == "velo" for l in lignes)
+    if velo:
+        resultat["sport"] = "velo"
     if poids:
         resultat["poids_kg"] = poids
     total = sum(l["terrains"].get("temps_s", 0) for l in lignes)
@@ -405,7 +422,7 @@ def profil(lignes: list[dict[str, Any]], precedentes: list[dict[str, Any]] | Non
     # Efficacité à plat (vitesse pour 100 W) : cette période contre la précédente
     apres = _efficacite(_fusionner([l["terrains"].get("plat") for l in lignes]))
     avant_eff = _efficacite(_fusionner([l["terrains"].get("plat") for l in precedentes])) if precedentes else None
-    if avant_eff and apres:
+    if avant_eff and apres and not velo:  # à vélo, le vent et l'aspiration faussent la vitesse à plat
         resultat["efficacite_plat"] = {"avant": avant_eff, "apres": apres, "evolution_pct": round((apres / avant_eff - 1) * 100, 1)}
     resultat["constats"] = constats(resultat)
     return resultat
@@ -417,7 +434,15 @@ def constats(p: dict[str, Any]) -> list[str]:
     plat, montee, descente = p.get("plat", {}), p.get("montee", {}), p.get("descente", {})
     assez = lambda r: r.get("temps_s", 0) >= 300
     raide = _fusionner([montee.get("tranches", {}).get(k) for k in ("6-12", "12+")])
-    if assez(plat) and raide.get("temps_s", 0) >= 180 and plat.get("cadence") and raide.get("cadence"):
+    velo = p.get("sport") == "velo"
+    if velo and assez(plat) and raide.get("temps_s", 0) >= 180 and plat.get("cadence") and raide.get("cadence"):
+        if raide["cadence"] < plat["cadence"] - 10:
+            phrases.append(f"En montée raide, ta cadence tombe à {raide['cadence']:.0f} tr/min ({plat['cadence']:.0f} à plat) : "
+                           "un braquet plus petit, ou du travail de force en côte à basse cadence, t'aiderait.")
+        else:
+            phrases.append(f"En montée raide, tu gardes une cadence proche de celle du plat ({raide['cadence']:.0f} contre "
+                           f"{plat['cadence']:.0f} tr/min) : tes braquets sont adaptés.")
+    elif assez(plat) and raide.get("temps_s", 0) >= 180 and plat.get("cadence") and raide.get("cadence"):
         if raide["cadence"] < plat["cadence"] - 5:
             phrases.append(f"En montée raide, ta cadence baisse ({raide['cadence']:.0f} contre {plat['cadence']:.0f} pas/min à plat) : "
                            "tu allonges les poussées au lieu de raccourcir les pas.")
@@ -428,6 +453,9 @@ def constats(p: dict[str, Any]) -> list[str]:
         if descente["foulee_m"] > plat["foulee_m"] * 1.10 and descente["cadence"] <= plat["cadence"] + 2:
             phrases.append(f"En descente, tu allonges la foulée ({descente['foulee_m']:.2f} m contre {plat['foulee_m']:.2f} m à plat) "
                            "sans monter la cadence : plus de freinage et d'impact.")
+    if velo and assez(plat) and assez(montee) and plat.get("puissance") and montee.get("puissance"):
+        phrases.append(f"En montée, tu pousses {montee['puissance'] / plat['puissance'] * 100 - 100:+.0f} % de watts par rapport au plat "
+                       f"({montee['puissance']:.0f} contre {plat['puissance']:.0f} W en moyenne).")
     if assez(montee) and assez(descente) and montee.get("vap_min_km") and descente.get("vap_min_km"):
         ecart = descente["vap_min_km"] / montee["vap_min_km"] - 1
         if ecart > 0.05:
@@ -451,6 +479,8 @@ def constats(p: dict[str, Any]) -> list[str]:
                ("plat", "1200", "vitesse", "ta meilleure vitesse sur 20 min à plat", None),
                ("descente", "120", "vitesse", "ta meilleure vitesse sur 2 min en descente", None))
     efforts = p.get("meilleurs_efforts", {})
+    if velo:  # à vélo, la vitesse à plat ou en descente dépend trop du vent, du groupe et du matériel
+        reperes = reperes[:3]
     for terrain, duree, mesure, texte, unite in reperes:
         case = efforts.get(terrain, {}).get(duree, {}).get(mesure)
         if case and case.get("evolution_pct") is not None and abs(case["evolution_pct"]) >= 3:

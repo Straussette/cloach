@@ -21,7 +21,11 @@ from typing import Any
 
 from vap import LISSAGE, PAS_M, VITESSE_ARRET, coefficient
 
-VERSION = 4           # à augmenter si la méthode change : l'app et le serveur recalculent alors
+# Versions du calcul, à augmenter si la méthode change : l'app et le serveur réanalysent alors les sorties
+# de ce sport ; les analyses d'au moins VERSION_AFFICHAGE restent affichées en attendant
+VERSION = 5           # course et trail (5 : meilleure VAP par durée)
+VERSION_VELO = 4
+VERSION_AFFICHAGE = 4
 PLAT_PCT = 2.0        # entre −2 % et +2 % : plat
 TRANCHES = ((2.0, 6.0, "2-6"), (6.0, 12.0, "6-12"), (12.0, 1000.0, "12+"))
 MONTEE_MIN_M = 20.0   # dénivelé minimal d'une montée
@@ -149,20 +153,30 @@ def _reperer(lisse: list[float], dist: list[float]) -> list[tuple[int, int]]:
             if dist[b] > dist[a] and (lisse[b] - lisse[a]) / (dist[b] - dist[a]) * 100 > PLAT_PCT]
 
 
+def version(sport: str | None) -> int:
+    """Version actuelle du calcul pour ce sport."""
+    return VERSION_VELO if sport == "velo" else VERSION
+
+
 def _meilleurs_efforts(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float],
-                       segments: list[tuple[int, int]], descente: bool = False) -> dict[str, dict[str, float]]:
+                       segments: list[tuple[int, int]], descente: bool = False,
+                       coef: list[float] | None = None) -> dict[str, dict[str, float]]:
     """Pour chaque durée, la puissance, la vitesse et la VAM les plus hautes tenues d'un seul tenant à
-    l'intérieur des segments d'un terrain (chaque mesure pour elle-même, comme une courbe de puissance)."""
+    l'intérieur des segments d'un terrain (chaque mesure pour elle-même, comme une courbe de puissance).
+    Avec `coef` (coût de la pente point par point, course seulement) : aussi la meilleure VAP, gardée en
+    vitesse équivalente à plat (vitesse_vap, m/s) pour que « plus haut » reste « meilleur »."""
     meilleurs: dict[str, dict[str, float]] = {}
     signe = -1 if descente else 1
     for debut, fin in segments:
         # Cumuls en temps de mouvement : temps, distance, énergie (et temps où la puissance est connue)
-        temps, dist, energie, connu = [0.0], [0.0], [0.0], [0.0]
+        temps, dist, energie, connu, equivalente = [0.0], [0.0], [0.0], [0.0], [0.0]
         for i in range(debut + 1, fin + 1):
             dt = mouvement[i]
             p = s["puissance"][i] if dt else None
             temps.append(temps[-1] + dt)
-            dist.append(dist[-1] + (s["dist"][i] - s["dist"][i - 1] if dt else 0))
+            dd = s["dist"][i] - s["dist"][i - 1] if dt else 0
+            dist.append(dist[-1] + dd)
+            equivalente.append(equivalente[-1] + dd * (coef[i] if coef else 1))
             energie.append(energie[-1] + (p * dt if p else 0))
             connu.append(connu[-1] + (dt if p else 0))
         alt = lisse[debut:fin + 1]
@@ -182,6 +196,10 @@ def _meilleurs_efforts(s: dict[str, list[Any]], lisse: list[float], mouvement: l
                 vam = signe * (alt[droite] - alt[gauche]) / duree_fenetre * 3600
                 if vitesse > m.get("vitesse", 0):
                     m["vitesse"] = round(vitesse, 3)
+                if coef:
+                    vitesse_vap = (equivalente[droite] - equivalente[gauche]) / duree_fenetre
+                    if vitesse_vap > m.get("vitesse_vap", 0):
+                        m["vitesse_vap"] = round(vitesse_vap, 3)
                 if vam > m.get("vam", 0):
                     m["vam"] = round(vam)
                 if connu[droite] - connu[gauche] >= duree_fenetre * 0.9:
@@ -267,6 +285,7 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
     tranches = {(t, nom): _Cumul() for t in ("montee", "descente") for _, _, nom in TRANCHES}
     debut = 0
     plats: list[tuple[int, int]] = []  # tronçons plats qui se suivent, regroupés
+    coef = [1.0] * n  # coût de la pente de chaque point (celle de son tronçon), pour la meilleure VAP
     for i in range(1, n):
         # Même découpage que la VAP : pente mesurée par tronçons d'environ PAS_M mètres
         if s["dist"][i] - s["dist"][debut] >= PAS_M or i == n - 1:
@@ -274,6 +293,7 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
             temps = sum(mouvement[debut + 1:i + 1])
             if troncon > 0 and temps > 0:
                 pente = (lisse[i] - lisse[debut]) / troncon * 100
+                coef[debut + 1:i + 1] = [coefficient(pente)] * (i - debut)
                 terrain, tranche = _classer(pente)
                 mesures = _mesures(s, debut, i, mouvement)
                 terrains[terrain].ajouter(temps, troncon, pente, mesures)
@@ -289,7 +309,7 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
     total = sum(c.temps for c in terrains.values())
     if total < 300:
         return None
-    resultat: dict[str, Any] = {"v": VERSION, "temps_s": round(total)}
+    resultat: dict[str, Any] = {"v": version(sport), "temps_s": round(total)}
     for t, cumul in terrains.items():
         r = cumul.resume()
         if t != "plat":
@@ -298,8 +318,9 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
     resultat["montees"] = _montees(s, lisse, mouvement)
     resultat["efforts"] = {
         "plat": _meilleurs_efforts(s, lisse, mouvement, plats),
-        "montee": _meilleurs_efforts(s, lisse, mouvement, _reperer(lisse, s["dist"])),
-        "descente": _meilleurs_efforts(s, lisse, mouvement, _reperer([-a for a in lisse], s["dist"]), descente=True),
+        "montee": _meilleurs_efforts(s, lisse, mouvement, _reperer(lisse, s["dist"]), coef=None if velo else coef),
+        "descente": _meilleurs_efforts(s, lisse, mouvement, _reperer([-a for a in lisse], s["dist"]), descente=True,
+                                       coef=None if velo else coef),
         "tout": {d: {k: v for k, v in m.items() if k != "vam"} for d, m in tout.items()},
     }
     if velo:
@@ -345,7 +366,7 @@ def _allure(vap: float) -> str:
 
 
 def _valables(lignes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [l for l in lignes if isinstance(l.get("terrains"), dict) and l["terrains"].get("v") == VERSION
+    return [l for l in lignes if isinstance(l.get("terrains"), dict) and (l["terrains"].get("v") or 0) >= VERSION_AFFICHAGE
             and not l["terrains"].get("vide")]
 
 

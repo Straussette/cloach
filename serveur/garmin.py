@@ -256,9 +256,9 @@ class Garmins:
         resultat: dict[str, Any] = {} if velo else vap.calculer(details) or {}
         analyse = terrains.analyser(details, "velo" if velo else "course")
         # Même sans profil exploitable, on note la version : l'app ne redemandera pas l'analyse
-        champs = {**resultat, "terrains": analyse or {"v": terrains.VERSION, "vide": True}}
+        champs = {**resultat, "terrains": analyse or {"v": terrains.version(sport), "vide": True}}
         self.base.completer_activite(uid, str(id_activite), champs)
-        return {"vap_min_km": None, **resultat, "terrains": terrains.VERSION}
+        return {"vap_min_km": None, **resultat, "terrains": terrains.version(sport)}
 
     # ---------- Analyse de tout l'historique (tâche de fond) ----------
 
@@ -300,7 +300,7 @@ class Garmins:
             a_faire = [a for a in self.base.lire_activites(uid)
                        if a.get("sport") in ("course", "trail", "velo") and str(a.get("id", "")).isdigit()
                        and float(a.get("distance_km") or 0) >= 1
-                       and (a.get("terrains") or {}).get("v") != terrains.VERSION]
+                       and ((a.get("terrains") or {}).get("v") or 0) < terrains.version(a.get("sport"))]
             a_faire.sort(key=lambda a: str(a.get("debut") or a["jour"]), reverse=True)
             self._maj_lot(uid, total=len(a_faire), message=None)
             freinages = 0

@@ -4,13 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f6b63">
+<script id="themeAvantAffichage">try { const t = JSON.parse(localStorage.getItem('cloach-theme')); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Cloach">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-01.8">
+<meta name="app-version" content="2026-11-01.9">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -484,6 +485,12 @@
         <p class="statut" id="statutAvis"></p>
         <button class="btn large" type="submit">Envoyer</button>
       </form>
+    </div>
+
+    <div class="carte">
+      <h2>Affichage</h2>
+      <div class="puces" id="choixTheme" role="radiogroup" aria-label="Thème"></div>
+      <p class="muted petit" style="margin:8px 0 0">« Automatique » suit le réglage clair ou sombre du téléphone.</p>
     </div>
 
     <p class="muted petit pied"><a href="confidentialite.html">Confidentialité</a> · <button class="btn discret" type="button" id="btnAfficherGuide">Guide de démarrage</button></p>
@@ -1611,6 +1618,25 @@ $('#formProfil').onsubmit = async (e) => {
   statut($('#statutProfil'), '✓ Profil enregistré.');
   setTimeout(() => statut($('#statutProfil'), ''), 2500);
 };
+
+/* ---------- Affichage : thème clair, sombre ou automatique ---------- */
+// Gardé sur l'appareil (localStorage cloach-theme) ; appliqué dès le <head> pour éviter un éclair clair
+const THEMES = [['', 'Automatique'], ['light', 'Clair'], ['dark', 'Sombre']];
+function appliquerTheme(theme) {
+  if (theme) document.documentElement.dataset.theme = theme; else delete document.documentElement.dataset.theme;
+  ecrireLocal('cloach-theme', theme || null);
+  afficherTheme();
+  if (!$('[data-vue="stats"]').hidden) afficherStats(); // les graphiques lisent les couleurs du thème
+}
+function afficherTheme() {
+  const actuel = document.documentElement.dataset.theme || '';
+  $('#choixTheme').innerHTML = THEMES.map(([cle, nom]) => `<button type="button" class="puce ${cle === actuel ? 'actif' : ''}" role="radio" aria-checked="${cle === actuel}" data-theme-choisi="${cle}">${nom}</button>`).join('');
+}
+$('#choixTheme').onclick = (e) => {
+  const b = e.target.closest('[data-theme-choisi]');
+  if (b) appliquerTheme(b.dataset.themeChoisi);
+};
+afficherTheme();
 
 /* ---------- Garmin (serveur Cloach) ---------- */
 let attenteGarmin = '';

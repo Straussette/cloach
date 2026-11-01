@@ -33,7 +33,7 @@ Le coaching se passe dans le Claude de chaque utilisateur, sur son propre abonne
 
 - **À chaque modification de `docs/index.html`, augmenter `<meta name="app-version" content="AAAA-MM-JJ.N">`** : `verifierMiseAJour()` force le rechargement quand la version en ligne diffère.
 - Code découpé en sections `/* ---------- Titre ---------- */` (CSS et JS) ou `# ---------- Titre ----------` (Python).
-- Couleurs uniquement via les variables CSS de `:root`, avec leur valeur en mode sombre (`prefers-color-scheme` et `[data-theme]`).
+- Couleurs uniquement via les variables CSS de `:root`, avec leur valeur en mode sombre (`prefers-color-scheme` et `[data-theme]`). Le thème se choisit dans Profil → Affichage (Automatique / Clair / Sombre : `appliquerTheme()`, localStorage `cloach-theme` en JSON) ; le petit script `themeAvantAffichage` du `<head>` (dans l'app et la page de confidentialité) l'applique avant l'affichage. Il porte un `id` pour ne pas être pris par la commande de vérification de syntaxe, qui lit les blocs `<script>` nus.
 - Échapper avec `esc()` toute valeur insérée dans du HTML généré.
 
 ## Données

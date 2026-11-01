@@ -495,9 +495,10 @@ def _compacte(a: dict[str, Any], commentaires: dict[str, Any] | None = None,
     return compacte
 
 
-async def _activites(uid: str, debut: str | None, fin: str | None, sport: str | None) -> list[dict[str, Any]]:
+async def _activites(uid: str, debut: str | None, fin: str | None, sport: str | None,
+                     complet: bool = False) -> list[dict[str, Any]]:
     try:
-        return await anyio.to_thread.run_sync(base.lire_activites, uid, debut, fin, sport)
+        return await anyio.to_thread.run_sync(base.lire_activites, uid, debut, fin, sport, complet)
     except Exception as exc:
         raise ToolError(_causes(exc)) from exc
 
@@ -652,7 +653,7 @@ async def profil_terrain(semaines: int = 8, sport: Literal["course", "velo"] = "
 
     async def lire() -> list[dict[str, Any]]:
         # La période et celle d'avant, de même durée, pour mesurer l'évolution
-        return [a for a in await _activites(uid, debut_avant, None, None) if a.get("sport") in sports]
+        return [a for a in await _activites(uid, debut_avant, None, None, True) if a.get("sport") in sports]
 
     a_analyser = lambda lignes: [a for a in lignes if ((a.get("terrains") or {}).get("v") or 0) < terrains.version(a.get("sport"))
                                  and str(a.get("id", "")).isdigit() and float(a.get("distance_km") or 0) >= 1]
@@ -731,7 +732,7 @@ async def seuils_puissance() -> dict[str, Any]:
     debut = (_aujourdhui() - timedelta(weeks=26)).isoformat()
 
     async def lire() -> list[dict[str, Any]]:
-        return [a for a in await _activites(uid, None, None, None) if a.get("sport") in ("course", "trail", "velo")]
+        return [a for a in await _activites(uid, None, None, None, True) if a.get("sport") in ("course", "trail", "velo")]
 
     # Sorties récentes sans courbe de puissance : course et trail (aussi pour l'analyse par terrain),
     # vélo avec puissance seulement si Garmin n'a pas donné sa courbe à l'import

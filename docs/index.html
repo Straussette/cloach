@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-01.6">
+<meta name="app-version" content="2026-11-01.7">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -187,7 +187,9 @@
 
   /* ---------- Stats ---------- */
   .filtres { display:grid; gap:8px; margin-bottom:14px; }
-  .puces { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; }
+  .puces { display:flex; flex-wrap:wrap; gap:6px; }
+  .cle-legende { background:none; border:0; padding:2px 0; font:inherit; color:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:4px; }
+  .cle-legende:hover { color:var(--text); }
   .puce { border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:.85rem; white-space:nowrap; cursor:pointer; }
   .puce.actif { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
   .tuiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:8px; margin-bottom:14px; }
@@ -235,7 +237,7 @@
   .cellule-record { background:none; border:0; padding:0; font:inherit; color:inherit; text-align:right; cursor:pointer; width:100%; }
   .lien-garmin-connect { display:inline-block; font-size:.8rem; margin-top:4px; }
 
-  /* ---------- Par terrain ---------- */
+  /* ---------- Selon le relief (« Par terrain ») ---------- */
   table.terrains { width:100%; border-collapse:collapse; font-size:.88rem; font-variant-numeric:tabular-nums; }
   table.terrains th, table.terrains td { padding:6px 4px; border-bottom:1px solid var(--border); text-align:right; }
   table.terrains th:first-child, table.terrains td:first-child { text-align:left; color:var(--muted); font-weight:400; }
@@ -636,7 +638,6 @@ function formatAllure(minParKm) {
 }
 // Allure moyenne (course, trail), VAP, vitesse moyenne à vélo.
 // VAP : allure ajustée à la pente, calculée par le serveur à partir du profil de la sortie (comme Strava)
-const vapUtile = (a) => (a.sport === 'trail' || a.sport === 'course') && Number(a.denivele_m) >= 50 && Number(a.distance_km) > 0;
 function vitessesActivite(a) {
   const km = Number(a.distance_km), min = Number(a.duree_min);
   if (!(km > 0 && min > 0)) return [];
@@ -853,9 +854,8 @@ async function apresConnexion() {
   afficherCompte();
   await synchroniser();
   toutAfficher();
-  await verifierGarmin();
-  await verifierStrava();
-  await chargerActivites();
+  // Les activités viennent de Supabase : on ne les fait pas attendre le réveil du serveur (vérification Garmin)
+  await Promise.all([chargerActivites(), verifierGarmin().then(verifierStrava)]);
   mettreAJourHistorique();
 }
 
@@ -1195,7 +1195,7 @@ function htmlLienGarmin(s) {
 const vapsEnCours = new Set();
 // Le même appel au serveur calcule la VAP et l'analyse par terrain (une seule lecture du profil chez Garmin)
 // pause (ms) entre deux sorties : pour les analyses en lot, Garmin n'aime pas les rafales
-async function calculerVaps(liste, progression, pause = 0) {
+async function analyserSorties(liste, progression, pause = 0) {
   if (etat.garmin?.connecte !== true || !session()) return 0;
   const a_faire = liste.filter((x) => analyseAFaire(x) && !vapsEnCours.has(x.id));
   let faites = 0;
@@ -1356,7 +1356,7 @@ function afficherJour() {
   }
   if (jourChoisi <= ajd) html += '<button class="btn discret" type="button" id="btnAjoutJournal" style="margin-top:8px">+ Ajouter une séance sans montre</button>';
   $('#carteJour').innerHTML = html;
-  calculerVaps(faites);
+  analyserSorties(faites);
   const ajout = $('#btnAjoutJournal');
   if (ajout) ajout.onclick = ouvrirJournal;
   $('#carteCoach').hidden = jourChoisi !== ajd;
@@ -1915,6 +1915,7 @@ function puces(conteneur, options, actuel, choisir) {
 }
 
 function afficherStats() {
+  if ($('[data-vue="stats"]').hidden) { majAideSeuil(); return; }
   const a = etat.analyse;
   $('#texteAnalyse').textContent = a?.texte || 'Pas encore d\'analyse. Importe ton historique (Profil → Garmin), puis demande à Claude de le commenter : son avis s\'affichera ici.';
   $('#texteAnalyse').classList.toggle('muted', !a?.texte);
@@ -1946,18 +1947,28 @@ function afficherStats() {
   const debut = periode.jours ? decaler(fin, -periode.jours + 1) : activites[0].jour;
   const pas = periode.cle === 'tout' && (Number(fin.slice(0, 4)) - Number(debut.slice(0, 4))) < 3 ? 'mois' : periode.pas;
   const sportsPresents = [...new Set(activites.map((x) => x.sport))];
-  const sportsDuFiltre = (cle) => GROUPES[cle] || [cle];
+  const sportsDuFiltre = (cle) => (cle.startsWith('famille:') ? sportsPresents.filter((sp) => familleDe(sp) === Number(cle.slice(8))) : GROUPES[cle] || [cle]);
+  // Filtre correspondant à une famille (toucher sa couleur dans la légende) : un sport, la course + le trail, ou « Autres »
+  const cleFamille = (i) => {
+    const presents = sportsPresents.filter((sp) => familleDe(sp) === i);
+    if (FAMILLES[i].sports && presents.length === 1) return presents[0];
+    return presents.length === 2 && GROUPES.pied.every((sp) => presents.includes(sp)) ? 'pied' : `famille:${i}`;
+  };
   if (choixStats.sport && !sportsDuFiltre(choixStats.sport).some((sp) => sportsPresents.includes(sp))) choixStats.sport = '';
   const garder = (x) => !choixStats.sport || sportsDuFiltre(choixStats.sport).includes(x.sport);
   const choisies = activites.filter((x) => x.jour >= debut && x.jour <= fin && garder(x));
   // Tous les sports : chaque total et chaque barre sont répartis par famille
-  const familles = choixStats.sport ? [{ nom: '', classe: 's1', barre: '' }]
+  // Un seul sport (ou une seule famille) : sa couleur habituelle, pour qu'on le reconnaisse d'un graphe à l'autre
+  const familleFiltree = choixStats.sport && FAMILLES[familleDe(sportsDuFiltre(choixStats.sport)[0] || '')];
+  const familles = choixStats.sport ? [{ nom: '', classe: familleFiltree?.classe || 's1', barre: familleFiltree?.barre || '' }]
     : FAMILLES.filter((f, i) => choisies.some((x) => familleDe(x.sport) === i));
   const indexFamille = (x) => (choixStats.sport ? 0 : familles.indexOf(FAMILLES[familleDe(x.sport)]));
 
   puces($('#filtrePeriode'), PERIODES.map((p) => [p.cle, p.nom]), periode.cle, (c) => { choixStats.periode = c; });
   const avecPied = sportsPresents.includes('course') && sportsPresents.includes('trail');
-  puces($('#filtreSport'), [['', 'Tous les sports'], ...(avecPied ? [['pied', '🏃⛰️ Course + trail']] : []), ...Object.entries(SPORTS).filter(([k]) => sportsPresents.includes(k)).map(([k, x]) => [k, `${x.icone} ${x.nom}`])],
+  const iAutres = FAMILLES.findIndex((f) => !f.sports);
+  const autres = sportsPresents.some((sp) => familleDe(sp) === iAutres) ? [[`famille:${iAutres}`, '✨ Autres sports']] : [];
+  puces($('#filtreSport'), [['', 'Tous les sports'], ...(avecPied ? [['pied', '🏃⛰️ Course + trail']] : []), ...Object.entries(SPORTS).filter(([k]) => sportsPresents.includes(k) && k !== 'autre').map(([k, x]) => [k, `${x.icone} ${x.nom}`]), ...autres],
     choixStats.sport, (c) => { choixStats.sport = c; });
   puces($('#filtreMesure'), Object.entries(MESURES).map(([k, m]) => [k, m.nom]), choixStats.mesure, (c) => { choixStats.mesure = c; });
 
@@ -1986,7 +1997,18 @@ function afficherStats() {
   $('#uniteVolume').textContent = mesure.unite;
   const decimales = choixStats.mesure === 'heures' ? 1 : 0;
   graphBarres($('#graphVolume'), points, familles, (v) => `${nombre(v, decimales)} ${mesure.unite}`);
-  $('#legendeVolume').innerHTML = familles.length > 1 ? familles.map((f) => `<span><i class="cle carre ${f.classe}"></i>${esc(f.nom)}</span>`).join('') : '';
+  // Toucher une couleur de la légende ne garde que ce sport (le filtre « Tous les sports » revient au total)
+  $('#legendeVolume').innerHTML = familles.length > 1
+    ? familles.map((f) => `<button type="button" class="cle-legende" data-famille="${FAMILLES.indexOf(f)}" title="Ne voir que ${esc(f.nom.toLowerCase())}"><i class="cle carre ${f.classe}"></i>${esc(f.nom)}</button>`).join('')
+      + '<span class="muted petit">Touche une couleur pour ne garder que ce sport.</span>'
+    : '';
+  $('#legendeVolume').onclick = (e) => {
+    const b = e.target.closest('[data-famille]');
+    if (!b) return;
+    choixStats.sport = cleFamille(Number(b.dataset.famille));
+    try { localStorage.setItem('cloach-stats', JSON.stringify(choixStats)); } catch {}
+    afficherStats();
+  };
   const colonnes = familles.length > 1 ? familles.map((f) => `<th>${esc(f.nom)}</th>`).join('') : '';
   $('#tableVolume').innerHTML = `<table class="donnees"><thead><tr><th>Période</th>${colonnes}<th>${familles.length > 1 ? 'Total' : esc(mesure.nom)} (${esc(mesure.unite)})</th></tr></thead><tbody>
     ${points.slice().reverse().map((p) => `<tr><td>${esc(p.libelle)}</td>${familles.length > 1 ? p.parts.map((v) => `<td>${nombre(v, decimales)}</td>`).join('') : ''}<td>${nombre(p.valeur, decimales)}</td></tr>`).join('')}</tbody></table>`;
@@ -1997,7 +2019,8 @@ function afficherStats() {
   const pasForme = periode.jours && periode.jours <= 182 ? 1 : 7;
   const serie = [];
   let forme = 0, fatigue = 0;
-  for (let j = decaler(debut, -84), i = 0; j <= fin; j = decaler(j, 1), i++) {
+  const jourCourant = versDate(decaler(debut, -84));
+  for (let j = jourISO(jourCourant), i = 0; j <= fin; jourCourant.setDate(jourCourant.getDate() + 1), j = jourISO(jourCourant), i++) {
     const c = chargeJour[j] || 0;
     forme += (c - forme) / 42;
     fatigue += (c - fatigue) / 7;
@@ -2008,7 +2031,7 @@ function afficherStats() {
   afficherRecords(activites.filter(garder));
 }
 
-/* ---------- Records (période et sport choisis) ---------- */
+/* ---------- Records (de tous les temps, filtre de sport seulement) ---------- */
 // Meilleurs efforts calculés par Garmin (meilleur 5 km dans une sortie plus longue, etc.) : lus une fois par ouverture
 let recordsGarmin = null, recordsEnCours = false;
 async function chargerRecordsGarmin() {
@@ -2141,7 +2164,7 @@ document.addEventListener('click', (e) => {
   requestAnimationFrame(() => $('#carteJour').scrollIntoView({ behavior: 'smooth', block: 'start' }));
 });
 
-/* ---------- Par terrain (course et trail) ---------- */
+/* ---------- Selon le relief (« Par terrain » : course, trail et vélo) ---------- */
 // Le serveur analyse chaque sortie avec sa VAP (serveur/terrains.py, colonne activites.terrains) :
 // plat (pente entre −2 et +2 %), montée, descente : meilleurs efforts par durée, moyennes, montées.
 // L'app en fait la synthèse sur la période, comparée à la période d'avant, comme terrains.profil() pour Claude.
@@ -2454,7 +2477,7 @@ function afficherTerrain() {
       analyseTerrainEnCours = true;
       b.disabled = true;
       const lot = trierParPertinence(manquantes).slice(0, LOT_ANALYSE);
-      const faites = await calculerVaps(lot, (n, sur) => statut($('#statutTerrain'), `Analyse ${n} / ${sur}…`), lot.length > 8 ? 1500 : 0);
+      const faites = await analyserSorties(lot, (n, sur) => statut($('#statutTerrain'), `Analyse ${n} / ${sur}…`), lot.length > 8 ? 1500 : 0);
       analyseTerrainEnCours = false;
       if (faites < lot.length) statut($('#statutTerrain'), 'Garmin ne répond pas pour le moment : réessaie plus tard.', true);
       await chargerTerrains();
@@ -2545,9 +2568,14 @@ function ratioMemeFc(depuis) {
 }
 
 let recuperationEnCours = false;
-function afficherPuissance() {
+// L'estimation du seuil course s'affiche aussi à côté du champ du Profil
+function majAideSeuil() {
   const estime = seuilCourseEstime();
   $('#aideSeuil').textContent = estime ? `estimé : ${estime.valeur} W${estime.provisoire ? ' (provisoire)' : ''}` : 'estimé d\'après tes sorties avec puissance';
+}
+
+function afficherPuissance() {
+  majAideSeuil();
   const carte = $('#cartePuissance');
   carte.hidden = !activites.some((a) => Number(a.puissance_moy) > 0);
   if (carte.hidden) return;
@@ -2614,7 +2642,7 @@ function afficherPuissance() {
   if (b) {
     b.onclick = async () => {
       b.disabled = true;
-      const faites = await calculerVaps(manquantes.slice().reverse(), (n, sur) => statut($('#statutPuissance'), `Analyse ${n} / ${sur}…`));
+      const faites = await analyserSorties(manquantes.slice().reverse(), (n, sur) => statut($('#statutPuissance'), `Analyse ${n} / ${sur}…`));
       if (faites < manquantes.length) statut($('#statutPuissance'), 'Garmin ne répond pas pour le moment : réessaie plus tard.', true);
       await chargerTerrains();
       afficherStats();

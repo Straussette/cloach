@@ -143,10 +143,17 @@ class Supabase:
                            timeout=10, params={"user_id": f"eq.{uid}", "id": f"eq.{id_activite}"}, json=champs)
         r.raise_for_status()
 
+    # Colonnes lues par défaut : sans les analyses par terrain ni les courbes de puissance (jsonb lourds,
+    # environ 4 Ko par sortie), inutiles aux statistiques, à l'historique et au contexte du jour
+    COLONNES_LEGERES = ("id,source,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,fc_max,charge,"
+                        "te_aerobie,te_anaerobie,puissance_moy,puissance_norm,calories,vap_min_km,allure_mouvement_min_km")
+
     def lire_activites(self, uid: str, debut: str | None = None, fin: str | None = None,
-                       sport: str | None = None) -> list[dict[str, Any]]:
-        """Activités de l'utilisateur, de la plus ancienne à la plus récente."""
-        params: list[tuple[str, str]] = [("user_id", f"eq.{uid}"), ("order", "debut.asc,id.asc")]
+                       sport: str | None = None, complet: bool = False) -> list[dict[str, Any]]:
+        """Activités de l'utilisateur, de la plus ancienne à la plus récente ; `complet` : avec les analyses
+        par terrain (terrains) et les courbes de puissance (puissances_max)."""
+        params: list[tuple[str, str]] = [("user_id", f"eq.{uid}"), ("order", "debut.asc,id.asc"),
+                                         ("select", "*" if complet else self.COLONNES_LEGERES)]
         if debut:
             params.append(("jour", f"gte.{debut}"))
         if fin:

@@ -324,7 +324,7 @@ class Garmins:
         adresse = (os.environ.get("URL_PUBLIQUE") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
         dernier_reveil = time.time()
         try:
-            a_faire = [a for a in self.base.lire_activites(uid)
+            a_faire = [a for a in self.base.lire_activites(uid, complet=True)
                        if a.get("sport") in ("course", "trail", "velo") and str(a.get("id", "")).isdigit()
                        and float(a.get("distance_km") or 0) >= 1
                        and ((a.get("terrains") or {}).get("v") or 0) < terrains.version(a.get("sport"))]

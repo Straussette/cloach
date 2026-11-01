@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-01.4">
+<meta name="app-version" content="2026-11-01.5">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -245,6 +245,20 @@
   .evol { display:block; font-size:.75rem; color:var(--muted); }
   .sous-titre-carte { margin:14px 0 4px; font-size:.95rem; }
 
+  /* ---------- Sections repliables et chargement (Stats) ---------- */
+  details.repli > summary { list-style:none; cursor:pointer; display:block; position:relative; padding-right:28px; }
+  details.repli > summary::-webkit-details-marker { display:none; }
+  details.repli > summary::after { content:'›'; position:absolute; right:6px; top:-2px; font-size:1.5rem; line-height:1; color:var(--muted); transform:rotate(90deg); transition:transform .2s; }
+  details.repli[open] > summary::after { transform:rotate(-90deg); }
+  details.repli[open] > summary { margin-bottom:10px; }
+  details.repli > summary h2, details.repli > summary h3 { display:inline; }
+  .resume-repli { margin:4px 0 0; font-size:.88rem; color:var(--muted); }
+  details.repli[open] .resume-repli { display:none; }
+  .chargement { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:.92rem; padding:8px 0; }
+  .chargement::before { content:''; flex:none; width:18px; height:18px; border-radius:50%; border:2px solid var(--border); border-top-color:var(--accent); animation:tourne .8s linear infinite; }
+  @keyframes tourne { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .chargement::before { animation:none; } details.repli > summary::after { transition:none; } }
+
   /* ---------- Guide de démarrage ---------- */
   ol.guide { list-style:none; margin:4px 0 8px; padding:0; }
   ol.guide li { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:start; padding:10px 0; border-top:1px solid var(--border); }
@@ -345,12 +359,14 @@
         <p class="muted petit">Quand la fatigue dépasse nettement la forme, tu es en surcharge ; quand elle passe en dessous, tu récupères.</p>
       </div>
     </div>
-    <div class="carte" id="carteRecords" hidden>
-      <div class="semaine-h"><h3>Records</h3><span id="periodeRecords"></span></div>
+    <!-- À partir des records, chaque carte est repliée sur une ligne de résumé (data-repli) -->
+    <details class="carte repli" id="carteRecords" data-repli="records" hidden>
+      <summary><h3>Records</h3><p class="resume-repli">Plus longues sorties, plus gros dénivelé, meilleures semaines, meilleurs efforts Garmin</p></summary>
+      <div class="semaine-h"><span></span><span id="periodeRecords"></span></div>
       <div id="records"></div>
-    </div>
-    <div class="carte" id="carteTerrain" hidden>
-      <h3 style="margin-bottom:8px">Par terrain</h3>
+    </details>
+    <details class="carte repli" id="carteTerrain" data-repli="terrain" hidden>
+      <summary><h3>Par terrain</h3><p class="resume-repli">Meilleurs efforts, VAP, moyennes et montées, à plat, en montée et en descente</p></summary>
       <div class="puces" id="sportTerrain" style="margin-bottom:8px"></div>
       <div class="puces" id="lieuVelo" style="margin-bottom:8px"></div>
       <div class="puces" id="filtreTerrain" style="margin-bottom:8px"></div>
@@ -359,18 +375,19 @@
       <h4 class="sous-titre-carte">Le diagnostic du coach <span class="muted petit" id="dateTerrain"></span></h4>
       <div id="texteTerrain" class="analyse"></div>
       <a class="btn large" target="_blank" rel="noopener" data-question="terrain" style="margin-top:12px">🗣️ Demander l'analyse du coach</a>
-    </div>
-    <div class="carte" id="cartePuissance" hidden>
-      <h3 style="margin-bottom:8px">Course et vélo</h3>
+    </details>
+    <details class="carte repli" id="cartePuissance" data-repli="puissance" hidden>
+      <summary><h3>Course et vélo</h3><p class="resume-repli" id="resumePuissance">Seuils, ratio entre les deux sports, meilleures puissances</p></summary>
       <div class="puces" id="periodePuissance" style="margin-bottom:10px"></div>
       <div id="puissance"></div>
       <a class="btn secondaire large" target="_blank" rel="noopener" data-question="puissance" style="margin-top:12px">🗣️ Demander au coach de comparer</a>
-    </div>
-    <div class="carte">
-      <div class="semaine-h"><h2>L'avis du coach</h2><span id="dateAnalyse"></span></div>
+    </details>
+    <details class="carte repli" data-repli="analyse">
+      <summary><h3>L'avis du coach</h3><p class="resume-repli" id="resumeAnalyse"></p></summary>
+      <div class="semaine-h"><span></span><span id="dateAnalyse"></span></div>
       <div id="texteAnalyse" class="analyse"></div>
       <a class="btn large" target="_blank" rel="noopener" data-question="analyse" style="margin-top:12px">🔎 Demander à Claude d'analyser mon historique</a>
-    </div>
+    </details>
   </section>
 
   <!-- Profil -->
@@ -581,6 +598,7 @@ const SB_CLE = 'sb_publishable_pQWy8E2hky_HyhwNebDhCg_3Pjkrf7P'; // clé publiqu
 const SERVEUR = 'https://cloach.onrender.com'; // serveur MCP de Cloach (dossier serveur/)
 const CLE_SESSION = 'cloach-session';
 const CLE_ETAT = 'cloach-etat';
+const CLE_ACTIVITES = 'cloach-activites'; // copie locale des activités, pour afficher les stats sans attendre
 
 const SPORTS = {
   course: { nom: 'Course à pied', icone: '🏃' },
@@ -790,6 +808,8 @@ function seDeconnecter() {
   // Les données de ce compte ne restent pas sur l'appareil
   etat = ETAT_VIDE();
   ecrireLocal(CLE_ETAT, null);
+  ecrireLocal(CLE_ACTIVITES, null);
+  activites = [];
   afficherCompte();
   toutAfficher();
 }
@@ -822,6 +842,7 @@ $('#formSupprimer').onsubmit = async (e) => {
   etat = ETAT_VIDE();
   ecrireLocal(CLE_ETAT, null);
   ecrireLocal(CLE_GUIDE, null);
+  ecrireLocal(CLE_ACTIVITES, null);
   activites = [];
   modeCompte = 'connexion';
   afficherCompte('✓ Ton compte et toutes tes données ont été supprimés.', false);
@@ -1735,10 +1756,14 @@ async function verifierGarmin() {
 
 /* ---------- Historique des activités (table activites) ---------- */
 // Une ligne par activité, importée depuis Garmin par le serveur ; lue ici pour l'onglet Stats.
-let activites = [];
+// Copie locale d'abord (affichage immédiat), puis les données à jour depuis Supabase
+let activites = (lireLocal(CLE_SESSION) && lireLocal(CLE_ACTIVITES)) || [];
+let chargementActivites = false;
 
 async function chargerActivites() {
   if (!session()) { activites = []; return; }
+  chargementActivites = true;
+  if (!activites.length) afficherStats(); // indicateur de chargement plutôt que « Importer ton historique »
   try {
     const lignes = [];
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
@@ -1747,11 +1772,14 @@ async function chargerActivites() {
       if (!page || page.length < 1000) break;
     }
     activites = lignes;
+    ecrireLocal(CLE_ACTIVITES, lignes);
   } catch (e) { console.warn('Activités', e); }
-  await chargerTerrains();
+  chargementActivites = false;
   afficherStats();
   afficherJour();
   afficherGuide();
+  // Les analyses par terrain sont plus lourdes : seulement si leur carte est ouverte
+  if (carteOuverte('terrain')) { await chargerTerrains(); afficherTerrain(); afficherPuissance(); }
 }
 
 // Importe année par année, pour suivre l'avancement et rester sous les délais du serveur
@@ -1891,12 +1919,17 @@ function afficherStats() {
   $('#texteAnalyse').textContent = a?.texte || 'Pas encore d\'analyse. Importe ton historique (Profil → Garmin), puis demande à Claude de le commenter : son avis s\'affichera ici.';
   $('#texteAnalyse').classList.toggle('muted', !a?.texte);
   $('#dateAnalyse').textContent = a?.date ? 'le ' + dateLisible(a.date, false) : '';
+  $('#resumeAnalyse').textContent = a?.date ? `Analyse de ton historique par Claude, le ${dateLisible(a.date, false)}` : 'Pas encore d\'analyse de ton historique';
   afficherTerrain();
   afficherPuissance();
 
   if (!activites.length) {
     $('#statsContenu').hidden = true;
     $('#statsVide').hidden = false;
+    if (chargementActivites) {
+      $('#statsVide').innerHTML = '<h2>Mes stats</h2><p class="chargement" role="status">Chargement de tes activités…</p>';
+      return;
+    }
     $('#statsVide').innerHTML = `<h2>Mes stats</h2><p class="muted">${sourceActive()
       ? `Importe ton historique ${NOMS_SOURCES[sourceActive()]} pour voir tes kilomètres, tes heures, ton dénivelé et ta charge au fil du temps.`
       : 'Branche ton compte Garmin ou Strava (onglet Profil), puis importe ton historique pour voir tes statistiques.'}</p>
@@ -2129,10 +2162,11 @@ let lignesTerrain = []; // sorties analysées des 26 dernières semaines : { id,
 let analyseTerrainEnCours = false;
 
 // 26 semaines d'habitude ; tout l'historique quand la période « Tout l'historique » est choisie
-let terrainsTout = false;
+let terrainsTout = false, terrainsCharges = false, terrainsEnCours = false;
 async function chargerTerrains() {
   if (!session()) { lignesTerrain = []; return; }
   const tout = choixStats.terrain === 'tout';
+  terrainsEnCours = true;
   try {
     // L'API renvoie au plus 1000 lignes par appel : on charge page par page (tout l'historique en dépasse souvent 1000)
     const lignes = [];
@@ -2143,7 +2177,9 @@ async function chargerTerrains() {
     }
     lignesTerrain = lignes;
     terrainsTout = tout;
+    terrainsCharges = true;
   } catch (e) { console.warn('Terrains', e); }
+  terrainsEnCours = false;
 }
 const LOT_ANALYSE = 40; // sorties analysées par appui sur « Analyser » (une à la fois, avec une pause)
 
@@ -2280,7 +2316,12 @@ function afficherTerrain() {
   const carte = $('#carteTerrain');
   const aDuVelo = activites.some((a) => a.sport === 'velo'), aDeLaCourse = activites.some((a) => a.sport === 'course' || a.sport === 'trail');
   carte.hidden = !aDuVelo && !aDeLaCourse;
-  if (carte.hidden) return;
+  if (carte.hidden || !carte.open) return;
+  if (!terrainsCharges) {
+    $('#terrain').innerHTML = '<p class="chargement" role="status">Chargement des analyses…</p>';
+    if (!terrainsEnCours) chargerTerrains().then(afficherTerrain);
+    return;
+  }
   if (!aDuVelo) choixStats.sportTerrain = 'course';
   else if (!aDeLaCourse) choixStats.sportTerrain = 'velo';
   const velo = veloVue();
@@ -2510,6 +2551,9 @@ function afficherPuissance() {
   const carte = $('#cartePuissance');
   carte.hidden = !activites.some((a) => Number(a.puissance_moy) > 0);
   if (carte.hidden) return;
+  $('#resumePuissance').textContent = [seuilCourse() ? `Seuil course ${nombre(seuilCourse())} W` : '', ftpReference() ? `FTP ${nombre(ftpReference())} W` : '', 'meilleures puissances']
+    .filter(Boolean).join(' · ');
+  if (!carte.open) return;
   const toujours = choixStats.periodePuissance === 'tout';
   puces($('#periodePuissance'), [['6m', '6 derniers mois'], ['tout', 'De tous les temps']], toujours ? 'tout' : '6m', (c) => { choixStats.periodePuissance = c; });
   const depuis = toujours ? null : depuis6Mois();
@@ -2576,6 +2620,19 @@ function afficherPuissance() {
       afficherStats();
     };
   }
+}
+
+/* ---------- Cartes repliables de l'onglet Stats ---------- */
+// Repliées par défaut ; l'état ouvert ou fermé de chaque carte est gardé sur l'appareil
+const CLE_REPLIS = 'cloach-stats-ouverts';
+const carteOuverte = (nom) => !!document.querySelector(`details[data-repli="${nom}"]`)?.open;
+for (const d of document.querySelectorAll('details[data-repli]')) {
+  d.open = !!(lireLocal(CLE_REPLIS) || {})[d.dataset.repli];
+  d.addEventListener('toggle', () => {
+    ecrireLocal(CLE_REPLIS, { ...(lireLocal(CLE_REPLIS) || {}), [d.dataset.repli]: d.open });
+    if (d.open && d.dataset.repli === 'terrain') afficherTerrain();
+    if (d.open && d.dataset.repli === 'puissance') afficherPuissance();
+  });
 }
 
 /* ---------- Graphiques (SVG) ---------- */

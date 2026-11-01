@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-01.5">
+<meta name="app-version" content="2026-11-01.6">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -366,7 +366,7 @@
       <div id="records"></div>
     </details>
     <details class="carte repli" id="carteTerrain" data-repli="terrain" hidden>
-      <summary><h3>Par terrain</h3><p class="resume-repli">Meilleurs efforts, VAP, moyennes et montées, à plat, en montée et en descente</p></summary>
+      <summary><h3>Selon le relief</h3><p class="resume-repli">Meilleurs efforts, VAP, moyennes et montées, à plat, en montée et en descente</p></summary>
       <div class="puces" id="sportTerrain" style="margin-bottom:8px"></div>
       <div class="puces" id="lieuVelo" style="margin-bottom:8px"></div>
       <div class="puces" id="filtreTerrain" style="margin-bottom:8px"></div>
@@ -377,7 +377,7 @@
       <a class="btn large" target="_blank" rel="noopener" data-question="terrain" style="margin-top:12px">🗣️ Demander l'analyse du coach</a>
     </details>
     <details class="carte repli" id="cartePuissance" data-repli="puissance" hidden>
-      <summary><h3>Course et vélo</h3><p class="resume-repli" id="resumePuissance">Seuils, ratio entre les deux sports, meilleures puissances</p></summary>
+      <summary><h3>Courbes de puissance</h3><p class="resume-repli" id="resumePuissance">Seuils, ratio entre les deux sports, meilleures puissances</p></summary>
       <div class="puces" id="periodePuissance" style="margin-bottom:10px"></div>
       <div id="puissance"></div>
       <a class="btn secondaire large" target="_blank" rel="noopener" data-question="puissance" style="margin-top:12px">🗣️ Demander au coach de comparer</a>
@@ -2131,7 +2131,7 @@ function afficherRecords(toutes) {
   chargerRecordsGarmin();
 }
 
-// Toucher un record (Stats, Par terrain, Course et vélo) ouvre ce jour dans le Calendrier, sur la carte du jour
+// Toucher un record (Stats : Records, Selon le relief, Courbes de puissance) ouvre ce jour dans le Calendrier, sur la carte du jour
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-aller-jour]');
   if (!b) return;

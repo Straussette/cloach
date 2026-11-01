@@ -706,7 +706,7 @@ async def analyser_historique(ordre: Literal["etat", "lancer", "arreter"] = "eta
     pour les autres, l'app analyse les sorties par lots, les plus parlantes d'abord."""
     uid = _uid()
     if not await anyio.to_thread.run_sync(base.est_admin, uid):
-        raise ToolError("Réservé aux administrateurs de Cloach : l'utilisateur peut analyser ses sorties par lots dans l'app (Stats → Par terrain).")
+        raise ToolError("Réservé aux administrateurs de Cloach : l'utilisateur peut analyser ses sorties par lots dans l'app (Stats → Selon le relief).")
     if ordre == "lancer":
         if not await anyio.to_thread.run_sync(garmins.branche, uid):
             raise ToolError("Garmin n'est pas branché : l'utilisateur peut le faire dans l'app (Profil → Garmin).")
@@ -758,7 +758,7 @@ async def seuils_puissance() -> dict[str, Any]:
     }
     if not any(a.get("puissances_max") for a in lignes):
         resultat["note"] = ("Courbes de puissance de Garmin pas encore récupérées : l'utilisateur peut réimporter "
-                            "son historique dans l'app (Stats → Course et vélo).")
+                            "son historique dans l'app (Stats → Courbes de puissance).")
     if a_analyser(lignes):
         resultat["restant_a_analyser"] = len(a_analyser(lignes))
     return resultat
@@ -768,7 +768,7 @@ async def seuils_puissance() -> dict[str, Any]:
 async def enregistrer_analyse_terrain(texte: str, sport: Literal["course", "velo"] = "course") -> str:
     """Enregistre ton commentaire sur le profil par terrain d'un sport (course + trail, ou vélo : diagnostic
     et séances proposées pour chaque terrain, en texte simple, listes à tirets possibles) ; il s'affiche
-    dans l'onglet Stats de l'app, sous « Par terrain », et remplace le précédent du même sport."""
+    dans l'onglet Stats de l'app, sous « Selon le relief », et remplace le précédent du même sport."""
     uid = _uid()
 
     def changer(etat: dict[str, Any]) -> str:

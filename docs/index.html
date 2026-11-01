@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-01.9">
+<meta name="app-version" content="2026-11-02.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -189,6 +189,12 @@
   /* ---------- Stats ---------- */
   .filtres { display:grid; gap:8px; margin-bottom:14px; }
   .puces { display:flex; flex-wrap:wrap; gap:6px; }
+  /* Rangées secondaires (mesure, comparaison) : puces plus petites, pour tenir sur une ligne */
+  .puces.compactes { gap:4px; align-items:center; }
+  .puces.compactes .puce { padding:4px 9px; font-size:.8rem; }
+  .puces .titre-puces { font-size:.8rem; color:var(--muted); margin-right:2px; }
+  /* Une durée (« 20 min ») ne se coupe jamais sur deux lignes dans les tableaux */
+  table.terrains th[scope="row"], table.donnees td:first-child { white-space:nowrap; }
   .cle-legende { background:none; border:0; padding:2px 0; font:inherit; color:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:4px; }
   .cle-legende:hover { color:var(--text); }
   .puce { border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:.85rem; white-space:nowrap; cursor:pointer; }
@@ -219,6 +225,8 @@
   .cle.pointillee { height:0; border-top:2px dashed var(--muted); }
   .liste-sorties { flex-basis:100%; display:grid; }
   .liste-sorties .record { padding:6px 0; }
+  .fil-zoom { display:flex; flex-wrap:wrap; align-items:center; gap:2px 4px; margin:0 0 6px; color:var(--muted); }
+  .fil-zoom .btn.discret { padding:4px 2px; }
   .comparaison { display:block; font-size:.78rem; color:var(--muted); margin-top:2px; }
   .badges-record { font-size:.8rem; margin-top:4px; }
   .infobulle {
@@ -360,8 +368,9 @@
       <div class="tuiles" id="tuiles"></div>
       <div class="carte">
         <div class="semaine-h"><h3 id="titreVolume">Volume</h3><span id="uniteVolume"></span></div>
-        <div class="puces" id="filtreMesure" style="margin-bottom:10px"></div>
-        <div class="puces" id="filtreComparaison" style="margin-bottom:10px"></div>
+        <div class="puces compactes" id="filtreMesure" style="margin-bottom:6px"></div>
+        <div class="puces compactes" id="filtreComparaison" style="margin-bottom:10px"></div>
+        <div class="fil-zoom petit" id="filZoom" hidden></div>
         <div class="graph" id="graphVolume"></div>
         <p class="legende" id="legendeVolume"></p>
         <details class="petit" style="margin-top:8px"><summary class="muted">Voir le tableau</summary><div id="tableVolume"></div></details>
@@ -1899,18 +1908,19 @@ async function mettreAJourHistorique() {
 
 /* ---------- Onglet Stats ---------- */
 const PERIODES = [
-  { cle: '12s', nom: '12 semaines', jours: 84, pas: 'semaine' },
+  { cle: '12s', nom: '12 sem.', jours: 84, pas: 'semaine' },
   { cle: '6m', nom: '6 mois', jours: 182, pas: 'semaine' },
   { cle: '12m', nom: '12 mois', jours: 365, pas: 'mois' },
   { cle: '3a', nom: '3 ans', jours: 1095, pas: 'mois' },
   { cle: 'tout', nom: 'Tout', jours: null, pas: 'annee' },
 ];
 const MESURES = {
-  km: { nom: 'Distance', unite: 'km', valeur: (a) => Number(a.distance_km) || 0 },
-  heures: { nom: 'Durée', unite: 'h', valeur: (a) => (Number(a.duree_min) || 0) / 60 },
-  denivele: { nom: 'Dénivelé', unite: 'm D+', valeur: (a) => Number(a.denivele_m) || 0 },
-  charge: { nom: 'Charge', unite: 'charge Garmin', valeur: (a) => Number(a.charge) || 0 },
-  seances: { nom: 'Séances', unite: 'séances', valeur: () => 1 },
+  // court : libellé des puces (une seule ligne sur téléphone) ; nom : titre du graphe
+  km: { nom: 'Distance', court: 'km', unite: 'km', valeur: (a) => Number(a.distance_km) || 0 },
+  heures: { nom: 'Durée', court: 'Heures', unite: 'h', valeur: (a) => (Number(a.duree_min) || 0) / 60 },
+  denivele: { nom: 'Dénivelé', court: 'D+', unite: 'm D+', valeur: (a) => Number(a.denivele_m) || 0 },
+  charge: { nom: 'Charge', court: 'Charge', unite: 'charge Garmin', valeur: (a) => Number(a.charge) || 0 },
+  seances: { nom: 'Séances', court: 'Séances', unite: 'séances', valeur: () => 1 },
 };
 // Familles de sports, comme Strava : la course et le trail comptent ensemble
 const GROUPES = { pied: ['course', 'trail'] };
@@ -1926,6 +1936,7 @@ function evolutionTexte(valeur, reference) {
   const pct = (valeur / reference - 1) * 100;
   return Math.abs(pct) < 1 ? '=' : `${pct > 0 ? '+' : '−'}${nombre(Math.abs(pct))} %`;
 }
+let zoomVolume = { periode: null, pile: [] }; // niveaux du zoom du graphe de volume : [{ debut, fin, pas, libelle }]
 const familleDe = (sport) => FAMILLES.findIndex((f) => !f.sports || f.sports.includes(sport));
 const choixStats = Object.assign({ periode: '12s', sport: '', mesure: 'km', comparer: 'an' }, (() => { try { return JSON.parse(localStorage.getItem('cloach-stats')) || {}; } catch { return {}; } })());
 const cleDe = (iso, pas) => pas === 'semaine' ? lundiDe(iso) : pas === 'mois' ? iso.slice(0, 7) : iso.slice(0, 4);
@@ -2014,14 +2025,15 @@ function afficherStats() {
   const autres = sportsPresents.some((sp) => familleDe(sp) === iAutres) ? [[`famille:${iAutres}`, '✨ Autres sports']] : [];
   puces($('#filtreSport'), [['', 'Tous les sports'], ...(avecPied ? [['pied', '🏃⛰️ Course + trail']] : []), ...Object.entries(SPORTS).filter(([k]) => sportsPresents.includes(k) && k !== 'autre').map(([k, x]) => [k, `${x.icone} ${x.nom}`]), ...autres],
     choixStats.sport, (c) => { choixStats.sport = c; });
-  puces($('#filtreMesure'), Object.entries(MESURES).map(([k, m]) => [k, m.nom]), choixStats.mesure, (c) => { choixStats.mesure = c; });
+  puces($('#filtreMesure'), Object.entries(MESURES).map(([k, m]) => [k, m.court]), choixStats.mesure, (c) => { choixStats.mesure = c; });
   // Comparaison : la même période juste avant, ou un an plus tôt (pas pour « Tout »)
   const decalage = !periode.jours ? 0 : choixStats.comparer === 'avant' ? periode.jours : choixStats.comparer === 'an' ? 364 : 0;
   $('#filtreComparaison').hidden = !periode.jours;
   if (periode.jours) {
-    puces($('#filtreComparaison'), [['', 'Sans comparaison'], ['avant', `${periode.nom} d'avant`], ['an', 'Il y a un an']], choixStats.comparer || '', (c) => { choixStats.comparer = c; });
+    puces($('#filtreComparaison'), [['', 'Rien'], ['avant', 'Période d\'avant'], ['an', 'Il y a 1 an']], choixStats.comparer || '', (c) => { choixStats.comparer = c; });
+    $('#filtreComparaison').insertAdjacentHTML('afterbegin', '<span class="titre-puces">Comparer à</span>');
   }
-  const nomComparaison = choixStats.comparer === 'avant' ? `${periode.nom.toLowerCase()} d'avant` : 'il y a un an';
+  const nomComparaison = choixStats.comparer === 'avant' ? 'période d\'avant' : 'il y a un an';
   const avantDebut = decalage ? decaler(debut, -decalage) : null, avantFin = decalage ? decaler(fin, -decalage) : null;
   const choisiesAvant = decalage ? activites.filter((x) => x.jour >= avantDebut && x.jour <= avantFin && garder(x)) : [];
 
@@ -2037,34 +2049,51 @@ function afficherStats() {
     return `<div class="tuile"><b>${nombre(somme(m))}</b><span>${l}</span>${comparaison}${parts}</div>`;
   }).join('');
 
-  // Volume par période
+  // Volume par période. Toucher une barre descend d'un niveau : une année → ses mois → les semaines d'un mois →
+  // les sorties de la semaine ; le fil au-dessus du graphe remonte. Le zoom ne touche que ce graphe.
+  if (zoomVolume.periode !== periode.cle) zoomVolume = { periode: periode.cle, pile: [] };
+  const niveau = zoomVolume.pile[zoomVolume.pile.length - 1];
+  const gDebut = niveau ? niveau.debut : debut, gFin = niveau ? niveau.fin : fin, gPas = niveau ? niveau.pas : pas;
+  $('#filZoom').hidden = !niveau;
+  $('#filZoom').innerHTML = niveau ? [`<button type="button" class="btn discret" data-niveau="0">‹ ${esc(periode.nom)}</button>`,
+    ...zoomVolume.pile.map((n, i) => (i < zoomVolume.pile.length - 1 ? `<button type="button" class="btn discret" data-niveau="${i + 1}">${esc(n.libelle)}</button>` : `<b>${esc(n.libelle)}</b>`))].join(' › ') : '';
+  $('#filZoom').onclick = (e) => {
+    const b = e.target.closest('[data-niveau]');
+    if (!b) return;
+    zoomVolume.pile = zoomVolume.pile.slice(0, Number(b.dataset.niveau));
+    afficherStats();
+  };
   const mesure = MESURES[choixStats.mesure] || MESURES.km;
-  const cles = periodesEntre(debut, fin, pas);
+  const cles = periodesEntre(gDebut, gFin, gPas);
   const totaux = Object.fromEntries(cles.map((c) => [c, familles.map(() => 0)]));
-  for (const x of choisies) {
-    const t = totaux[cleDe(x.jour, pas)];
+  const dansGraphe = activites.filter((x) => x.jour >= gDebut && x.jour <= gFin && garder(x));
+  for (const x of dansGraphe) {
+    const t = totaux[cleDe(x.jour, gPas)];
     if (t) t[indexFamille(x)] += mesure.valeur(x);
   }
   // La même période avant (décalée de toute la durée choisie, ou d'un an) : un repère sur chaque barre.
   // Les décalages tombent juste : 84, 182 et 364 jours font un nombre entier de semaines, et en mois le
   // premier jour décalé reste dans le bon mois.
-  const debutCle = (c) => (pas === 'semaine' ? c : pas === 'mois' ? c + '-01' : c + '-01-01');
-  const cleAvant = (c) => cleDe(decaler(debutCle(c), -decalage), pas);
+  // Dans les semaines d'un zoom, le décalage est arrondi à un nombre entier de semaines
+  const decalageG = gPas === 'semaine' ? Math.round(decalage / 7) * 7 : decalage;
+  const debutCle = (c) => (gPas === 'semaine' ? c : gPas === 'mois' ? c + '-01' : c + '-01-01');
+  const cleAvant = (c) => cleDe(decaler(debutCle(c), -decalageG), gPas);
   const totauxAvant = {};
-  if (decalage) {
+  if (decalageG) {
+    const de = decaler(gDebut, -decalageG - 31), a = decaler(gFin, -decalageG);
     for (const x of activites) {
-      if (!garder(x) || x.jour < decaler(avantDebut, -31) || x.jour > avantFin) continue;
-      const c = cleDe(x.jour, pas);
+      if (!garder(x) || x.jour < de || x.jour > a) continue;
+      const c = cleDe(x.jour, gPas);
       totauxAvant[c] = (totauxAvant[c] || 0) + mesure.valeur(x);
     }
   }
   const sortiesDe = {};
-  for (const x of choisies) (sortiesDe[cleDe(x.jour, pas)] ||= []).push(x);
+  for (const x of dansGraphe) (sortiesDe[cleDe(x.jour, gPas)] ||= []).push(x);
   const points = cles.map((c) => ({
-    libelle: libelleDe(c, pas), parts: totaux[c], valeur: totaux[c].reduce((n, v) => n + v, 0),
-    repere: decalage ? totauxAvant[cleAvant(c)] || 0 : null,
+    libelle: libelleDe(c, gPas), parts: totaux[c], valeur: totaux[c].reduce((n, v) => n + v, 0),
+    repere: decalageG ? totauxAvant[cleAvant(c)] || 0 : null,
   }));
-  const nomPas = { semaine: 'par semaine', mois: 'par mois', annee: 'par année' }[pas];
+  const nomPas = { semaine: 'par semaine', mois: 'par mois', annee: 'par année' }[gPas];
   $('#titreVolume').textContent = `${mesure.nom} ${nomPas}`;
   $('#uniteVolume').textContent = mesure.unite;
   const decimales = choixStats.mesure === 'heures' ? 1 : 0;
@@ -2077,13 +2106,24 @@ function afficherStats() {
         <span class="quand">${esc([dateLisible(a.jour), a.distance_km ? `${nombre(Number(a.distance_km), 1)} km` : '', a.duree_min ? dureeLisible(Math.round(a.duree_min)) : '', Number(a.denivele_m) ? `${nombre(Number(a.denivele_m))} m D+` : ''].filter(Boolean).join(' · '))} ›</span></button>`).join('')
       + (s.length > 8 ? `<span class="muted petit">et ${s.length - 8} autre${s.length > 9 ? 's' : ''}</span>` : '');
   };
-  graphBarres($('#graphVolume'), points, familles, (v) => `${nombre(v, decimales)} ${mesure.unite}`, { nomRepere: decalage ? nomComparaison : '', liste });
+  // Années et mois : toucher une barre zoome ; semaines : la liste des sorties s'affiche sous le graphe
+  const zoom = gPas === 'semaine' ? null : (i) => {
+    const c = cles[i];
+    const n = gPas === 'annee'
+      ? { debut: `${c}-01-01`, fin: `${c}-12-31`, pas: 'mois', libelle: c }
+      : { debut: `${c}-01`, fin: jourISO(new Date(Number(c.slice(0, 4)), Number(c.slice(5, 7)), 0)), pas: 'semaine', libelle: versDate(`${c}-01`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) };
+    n.debut = n.debut < debut ? debut : n.debut;
+    n.fin = n.fin > fin ? fin : n.fin;
+    zoomVolume.pile.push(n);
+    afficherStats();
+  };
+  graphBarres($('#graphVolume'), points, familles, (v) => `${nombre(v, decimales)} ${mesure.unite}`, { nomRepere: decalageG ? nomComparaison : '', liste: zoom ? null : liste, zoom });
   // Toucher une couleur de la légende ne garde que ce sport (le filtre « Tous les sports » revient au total)
   $('#legendeVolume').innerHTML = (familles.length > 1
     ? familles.map((f) => `<button type="button" class="cle-legende" data-famille="${FAMILLES.indexOf(f)}" title="Ne voir que ${esc(f.nom.toLowerCase())}"><i class="cle carre ${f.classe}"></i>${esc(f.nom)}</button>`).join('')
     : '')
-    + (decalage ? `<span><i class="cle pointillee"></i>${esc(nomComparaison[0].toUpperCase() + nomComparaison.slice(1))}</span>` : '')
-    + `<span class="muted petit">${familles.length > 1 ? 'Touche une couleur pour ne garder que ce sport, ' : 'Touche '}une barre pour voir ses sorties.</span>`;
+    + (decalageG ? `<span><i class="cle pointillee"></i>${esc(nomComparaison[0].toUpperCase() + nomComparaison.slice(1))}</span>` : '')
+    + `<span class="muted petit">${familles.length > 1 ? 'Touche une couleur pour ne garder que ce sport, ' : 'Touche '}une barre pour ${zoom ? (gPas === 'annee' ? 'voir ses mois' : 'voir ses semaines') : 'voir ses sorties'}.</span>`;
   $('#legendeVolume').onclick = (e) => {
     const b = e.target.closest('[data-famille]');
     if (!b) return;
@@ -2841,7 +2881,9 @@ function grilleEtAxes(l, h, ech) {
 }
 // Une étiquette d'abscisse sur n, pour qu'elles ne se chevauchent pas
 function etiquettes(points, x, l) {
-  const tous = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(l / 56))));
+  // Largeur d'une étiquette d'après la plus longue (environ 6 px par caractère à 11 px), avec une marge
+  const largeur = Math.max(48, Math.max(...points.map((p) => String(p.libelle).length)) * 6 + 12);
+  const tous = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(l / largeur))));
   return points.map((p, i) => (i % tous === 0 ? `<text x="${x(i)}" y="${MARGE.haut + H_GRAPH - MARGE.haut - MARGE.bas + 16}" text-anchor="middle">${esc(p.libelle)}</text>` : '')).join('');
 }
 function infobulle(conteneur) {
@@ -2908,6 +2950,7 @@ function graphBarres(conteneur, points, series, format, options = {}) {
   svg.addEventListener('pointermove', survoler);
   svg.addEventListener('pointerdown', survoler);
   svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') bulle.hidden = true; });
+  if (options.zoom) { svg.style.cursor = 'zoom-in'; svg.addEventListener('click', (e) => options.zoom(indexDe(e))); }
   svg.addEventListener('contextmenu', (e) => e.preventDefault());
   montrer(points.length - 1); // par défaut : la période en cours
 }

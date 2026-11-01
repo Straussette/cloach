@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-01.3">
+<meta name="app-version" content="2026-11-01.4">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1742,7 +1742,7 @@ async function chargerActivites() {
   try {
     const lignes = [];
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
-      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,puissance_moy,puissances_max,tv:terrains->v&order=jour.asc&limit=1000&offset=${lignes.length}`);
+      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,puissance_moy,puissances_max,tv:terrains->v&order=jour.asc,id.asc&limit=1000&offset=${lignes.length}`);
       lignes.push(...(page || []));
       if (!page || page.length < 1000) break;
     }
@@ -2134,7 +2134,14 @@ async function chargerTerrains() {
   if (!session()) { lignesTerrain = []; return; }
   const tout = choixStats.terrain === 'tout';
   try {
-    lignesTerrain = await sbFetch(`/rest/v1/activites?select=id,jour,nom,sport,type,terrains&sport=in.(course,trail,velo)&terrains=not.is.null${tout ? '' : `&jour=gte.${decaler(jourISO(), -182)}`}&order=jour.asc`) || [];
+    // L'API renvoie au plus 1000 lignes par appel : on charge page par page (tout l'historique en dépasse souvent 1000)
+    const lignes = [];
+    for (;;) {
+      const page = await sbFetch(`/rest/v1/activites?select=id,jour,nom,sport,type,terrains&sport=in.(course,trail,velo)&terrains=not.is.null${tout ? '' : `&jour=gte.${decaler(jourISO(), -182)}`}&order=jour.asc,id.asc&limit=1000&offset=${lignes.length}`);
+      lignes.push(...(page || []));
+      if (!page || page.length < 1000) break;
+    }
+    lignesTerrain = lignes;
     terrainsTout = tout;
   } catch (e) { console.warn('Terrains', e); }
 }

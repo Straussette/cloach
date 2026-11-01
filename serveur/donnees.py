@@ -146,7 +146,7 @@ class Supabase:
     def lire_activites(self, uid: str, debut: str | None = None, fin: str | None = None,
                        sport: str | None = None) -> list[dict[str, Any]]:
         """Activités de l'utilisateur, de la plus ancienne à la plus récente."""
-        params: list[tuple[str, str]] = [("user_id", f"eq.{uid}"), ("order", "debut.asc")]
+        params: list[tuple[str, str]] = [("user_id", f"eq.{uid}"), ("order", "debut.asc,id.asc")]
         if debut:
             params.append(("jour", f"gte.{debut}"))
         if fin:

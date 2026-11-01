@@ -27,6 +27,8 @@ class Supabase:
         self.url = url.rstrip("/")
         self.cle_publique = cle_publique
         self.entetes = {"apikey": cle_secrete, "Content-Type": "application/json"}
+        # Stockage : la clé secrète aussi en Bearer (Supabase l'accepte quand elle est identique à apikey)
+        self.entetes_stockage = {"apikey": cle_secrete, "Authorization": f"Bearer {cle_secrete}"}
         if not cle_secrete.startswith("sb_"):
             # Ancienne clé « service_role » au format JWT : elle doit aussi passer en Bearer.
             self.entetes["Authorization"] = f"Bearer {cle_secrete}"
@@ -56,6 +58,39 @@ class Supabase:
             return r.json().get("id") if r.ok else None
         except (requests.RequestException, ValueError):
             return None
+
+    # ---------- Profils détaillés des sorties (stockage « series ») ----------
+    # Une copie compressée des détails Garmin de chaque sortie analysée : si la méthode de calcul change,
+    # on recalcule sans redemander les sorties à Garmin. Fichier series/<uid>/<id>.json.gz.
+
+    def ecrire_serie(self, uid: str, id_activite: str, contenu: bytes) -> None:
+        r = requests.post(f"{self.url}/storage/v1/object/series/{uid}/{id_activite}.json.gz", timeout=20,
+                          headers={**self.entetes_stockage, "Content-Type": "application/gzip", "x-upsert": "true"},
+                          data=contenu)
+        r.raise_for_status()
+
+    def lire_serie(self, uid: str, id_activite: str) -> bytes | None:
+        r = requests.get(f"{self.url}/storage/v1/object/series/{uid}/{id_activite}.json.gz", timeout=20,
+                         headers=self.entetes_stockage)
+        if r.status_code in (400, 404):
+            return None
+        r.raise_for_status()
+        return r.content
+
+    def supprimer_series(self, uid: str) -> None:
+        """Supprime tous les profils détaillés d'un compte (le stockage ne suit pas la cascade de la base)."""
+        while True:
+            r = requests.post(f"{self.url}/storage/v1/object/list/series", timeout=20,
+                              headers={**self.entetes_stockage, "Content-Type": "application/json"},
+                              json={"prefix": uid, "limit": 1000, "offset": 0})
+            r.raise_for_status()
+            noms = [f"{uid}/{f['name']}" for f in r.json() if f.get("name")]
+            if not noms:
+                return
+            r = requests.delete(f"{self.url}/storage/v1/object/series", timeout=30,
+                                headers={**self.entetes_stockage, "Content-Type": "application/json"},
+                                json={"prefixes": noms})
+            r.raise_for_status()
 
     def supprimer_utilisateur(self, uid: str) -> None:
         """Supprime le compte. Ses lignes (données, activités, jetons, retours) partent avec

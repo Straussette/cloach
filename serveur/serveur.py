@@ -1012,6 +1012,10 @@ async def supprimer_compte(request: Request):
         if stravas.configure and base.lire_jetons_strava(uid):
             stravas._debrancher(uid)
         garmins.oublier(uid)
+        try:
+            base.supprimer_series(uid)
+        except Exception as e:  # on supprime quand même le compte ; les copies seraient à effacer à la main
+            print(f"Suppression des profils détaillés : {type(e).__name__} : {e}", flush=True)
         base.supprimer_utilisateur(uid)
 
     try:

@@ -11,6 +11,7 @@ d'API pour les particuliers, ça peut cesser de marcher si Garmin change son sit
 """
 
 import asyncio
+import gzip
 import json
 import os
 from datetime import date
@@ -247,18 +248,44 @@ class Garmins:
         self.base.ecrire_etat(uid, etat)
         return seance["garmin"]
 
-    def vap(self, uid: str, id_activite: str, sport: str | None = None) -> dict[str, Any]:
-        """Calcule la VAP et l'analyse par terrain d'une sortie à partir de son profil détaillé (un seul
-        appel à Garmin), et les enregistre avec l'activité. À vélo : seulement les meilleurs efforts de
-        puissance (pour estimer la FTP), pas de VAP."""
+    # Mesures gardées dans la copie des détails : celles que lisent vap.py et terrains.py
+    CLES_SERIE = ("sumDistance", "directElevation", "sumElapsedDuration", "sumDuration", "sumMovingDuration",
+                  "directTimestamp", "directPower", "directHeartRate", "directDoubleCadence", "directRunCadence",
+                  "directBikeCadence", "directGroundContactTime", "directVerticalRatio")
+
+    def details(self, uid: str, id_activite: str) -> tuple[dict[str, Any], bool]:
+        """Détails point par point d'une sortie : la copie gardée dans le stockage s'il y en a une, sinon
+        Garmin (et on en garde une copie réduite et compressée). Renvoie aussi si Garmin a été appelé."""
+        try:
+            brut = self.base.lire_serie(uid, id_activite)
+            if brut:
+                return json.loads(gzip.decompress(brut)), False
+        except Exception as e:
+            print(f"Lecture du profil {id_activite} : {type(e).__name__} : {e}", flush=True)
         details = self.appeler(uid, "get_activity_details", str(int(id_activite)), 4000, 0) or {}
+        index = [(d.get("key"), d.get("metricsIndex")) for d in details.get("metricDescriptors") or []
+                 if d.get("key") in self.CLES_SERIE and isinstance(d.get("metricsIndex"), int)]
+        if index:
+            points = [p.get("metrics") or [] for p in details.get("activityDetailMetrics") or []]
+            reduits = {"metricDescriptors": [{"key": k, "metricsIndex": n} for n, (k, _) in enumerate(index)],
+                       "activityDetailMetrics": [{"metrics": [m[i] if i < len(m) else None for _, i in index]} for m in points]}
+            try:
+                self.base.ecrire_serie(uid, id_activite, gzip.compress(json.dumps(reduits, separators=(",", ":")).encode()))
+            except Exception as e:
+                print(f"Copie du profil {id_activite} : {type(e).__name__} : {e}", flush=True)
+        return details, True
+
+    def vap(self, uid: str, id_activite: str, sport: str | None = None) -> dict[str, Any]:
+        """Calcule la VAP et l'analyse par terrain d'une sortie à partir de son profil détaillé (copie gardée,
+        sinon un appel à Garmin), et les enregistre avec l'activité. À vélo : pas de VAP."""
+        details, garmin_appele = self.details(uid, str(int(id_activite)))
         velo = sport == "velo"
         resultat: dict[str, Any] = {} if velo else vap.calculer(details) or {}
         analyse = terrains.analyser(details, "velo" if velo else "course")
         # Même sans profil exploitable, on note la version : l'app ne redemandera pas l'analyse
         champs = {**resultat, "terrains": analyse or {"v": terrains.version(sport), "vide": True}}
         self.base.completer_activite(uid, str(id_activite), champs)
-        return {"vap_min_km": None, **resultat, "terrains": terrains.version(sport)}
+        return {"vap_min_km": None, **resultat, "terrains": terrains.version(sport), "garmin": garmin_appele}
 
     # ---------- Analyse de tout l'historique (tâche de fond) ----------
 
@@ -305,6 +332,7 @@ class Garmins:
             self._maj_lot(uid, total=len(a_faire), message=None)
             freinages = 0
             for a in a_faire:
+                garmin_appele = True
                 if uid in self._arrets:
                     self._maj_lot(uid, message="Arrêtée")
                     break
@@ -316,7 +344,7 @@ class Garmins:
                     dernier_reveil = time.time()
                 while True:  # on réessaie la même sortie après une pause si Garmin freine
                     try:
-                        self.vap(uid, str(a["id"]), "velo" if a["sport"] == "velo" else None)
+                        garmin_appele = self.vap(uid, str(a["id"]), "velo" if a["sport"] == "velo" else None).get("garmin")
                         freinages = 0
                         with self._verrou:
                             self._lots[uid]["faites"] += 1
@@ -338,7 +366,8 @@ class Garmins:
                 if freinages >= 3:
                     self._maj_lot(uid, message="Garmin limite les requêtes : analyse arrêtée, relance-la plus tard.")
                     break
-                time.sleep(self.PAUSE_LOT)
+                if garmin_appele:  # recalcul depuis la copie gardée : pas besoin de ménager Garmin
+                    time.sleep(self.PAUSE_LOT)
         except Exception as e:
             print(f"Analyse de l'historique : {type(e).__name__} : {e}", flush=True)
             self._maj_lot(uid, message="L'analyse s'est arrêtée sur une erreur : relance-la.")

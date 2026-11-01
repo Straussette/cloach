@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-01.1">
+<meta name="app-version" content="2026-11-01.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2118,7 +2118,9 @@ const TRANCHES = ['2-6', '6-12', '12+'];
 const analyseUtile = (a) => ['course', 'trail', 'velo'].includes(a.sport) && Number(a.distance_km) >= 1 && /^\d+$/.test(a.id);
 const veloVue = () => choixStats.sportTerrain === 'velo';
 const interieur = (x) => x.type === 'virtual_ride' || x.type === 'indoor_cycling';
-const analyseAFaire = (a) => analyseUtile(a) && ((vapUtile(a) && !a.vap_min_km) || !(Number(a.tv) >= versionTerrains(a.sport)));
+// La VAP est calculée dans le même appel : seule la version de l'analyse compte (une sortie sans VAP
+// possible, sur tapis par exemple, est quand même analysée et ne doit pas revenir à chaque fois)
+const analyseAFaire = (a) => analyseUtile(a) && !(Number(a.tv) >= versionTerrains(a.sport));
 let lignesTerrain = []; // sorties analysées des 26 dernières semaines : { id, jour, nom, sport, terrains }
 let analyseTerrainEnCours = false;
 

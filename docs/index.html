@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-01.7">
+<meta name="app-version" content="2026-11-01.8">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -210,6 +210,16 @@
   .graph .ligne-1 { fill:none; stroke:var(--serie-1); stroke-width:2; }
   .graph .ligne-2 { fill:none; stroke:var(--serie-2); stroke-width:2; }
   .graph .repere { stroke:var(--muted); stroke-width:1; }
+  /* Comparaison (même période avant) et meilleur de tous les temps : tirets neutres, jamais une couleur de série */
+  .graph .repere-comparaison { stroke:var(--text); stroke-width:2; stroke-dasharray:3 2; opacity:.55; }
+  .graph .ligne-ref { fill:none; stroke:var(--muted); stroke-width:2; stroke-dasharray:5 4; }
+  .graph .ligne-velo { fill:none; stroke:var(--serie-2); stroke-width:2; }
+  .graph .point { stroke:var(--surface); stroke-width:2; }
+  .cle.pointillee { height:0; border-top:2px dashed var(--muted); }
+  .liste-sorties { flex-basis:100%; display:grid; }
+  .liste-sorties .record { padding:6px 0; }
+  .comparaison { display:block; font-size:.78rem; color:var(--muted); margin-top:2px; }
+  .badges-record { font-size:.8rem; margin-top:4px; }
   .infobulle {
     position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border); box-shadow:var(--shadow);
     border-radius:8px; padding:6px 10px; font-size:.82rem; white-space:nowrap; transform:translate(-50%, -100%); z-index:2;
@@ -350,6 +360,7 @@
       <div class="carte">
         <div class="semaine-h"><h3 id="titreVolume">Volume</h3><span id="uniteVolume"></span></div>
         <div class="puces" id="filtreMesure" style="margin-bottom:10px"></div>
+        <div class="puces" id="filtreComparaison" style="margin-bottom:10px"></div>
         <div class="graph" id="graphVolume"></div>
         <p class="legende" id="legendeVolume"></p>
         <details class="petit" style="margin-top:8px"><summary class="muted">Voir le tableau</summary><div id="tableVolume"></div></details>
@@ -365,6 +376,7 @@
     <details class="carte repli" id="carteRecords" data-repli="records" hidden>
       <summary><h3>Records</h3><p class="resume-repli">Plus longues sorties, plus gros dénivelé, meilleures semaines, meilleurs efforts Garmin</p></summary>
       <div class="semaine-h"><span></span><span id="periodeRecords"></span></div>
+      <div id="recordsRecents"></div>
       <div id="records"></div>
     </details>
     <details class="carte repli" id="carteTerrain" data-repli="terrain" hidden>
@@ -1236,7 +1248,7 @@ function htmlActivite(a) {
   const avis = c ? `<div class="commentaire">${c.ressenti ? `Ressenti ${esc(c.ressenti)}/5. ` : ''}${esc(c.notes || '')}</div>` : '';
   return `<div class="seance fait-garmin">
     <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
-    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div>${notes}${avis}${htmlAvisCoach(a.id, a)}
+    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div>${htmlBadges(a)}${notes}${avis}${htmlAvisCoach(a.id, a)}
       ${/^\d+$/.test(a.id) ? `<a class="lien-garmin-connect" href="https://connect.garmin.com/modern/activity/${esc(a.id)}" target="_blank" rel="noopener">Ouvrir dans Garmin Connect ↗</a>` : ''}</div>
     <div><button class="etat-seance" type="button" data-commenter="${esc(a.id)}" title="Ajouter un commentaire">💬</button></div>
   </div>`;
@@ -1882,8 +1894,14 @@ const FAMILLES = [
   { nom: 'Ski de rando', sports: ['ski_rando'], classe: 's4', barre: 'f4' },
   { nom: 'Autres', sports: null, classe: 's3', barre: 'f3' },
 ];
+// « +12 % » / « −8 % » / « = » entre une valeur et sa référence (texte seul : jamais la couleur pour dire mieux ou moins bien)
+function evolutionTexte(valeur, reference) {
+  if (!(reference > 0)) return '';
+  const pct = (valeur / reference - 1) * 100;
+  return Math.abs(pct) < 1 ? '=' : `${pct > 0 ? '+' : '−'}${nombre(Math.abs(pct))} %`;
+}
 const familleDe = (sport) => FAMILLES.findIndex((f) => !f.sports || f.sports.includes(sport));
-const choixStats = Object.assign({ periode: '12s', sport: '', mesure: 'km' }, (() => { try { return JSON.parse(localStorage.getItem('cloach-stats')) || {}; } catch { return {}; } })());
+const choixStats = Object.assign({ periode: '12s', sport: '', mesure: 'km', comparer: 'an' }, (() => { try { return JSON.parse(localStorage.getItem('cloach-stats')) || {}; } catch { return {}; } })());
 const cleDe = (iso, pas) => pas === 'semaine' ? lundiDe(iso) : pas === 'mois' ? iso.slice(0, 7) : iso.slice(0, 4);
 function libelleDe(cle, pas) {
   if (pas === 'semaine') return versDate(cle).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
@@ -1971,6 +1989,15 @@ function afficherStats() {
   puces($('#filtreSport'), [['', 'Tous les sports'], ...(avecPied ? [['pied', '🏃⛰️ Course + trail']] : []), ...Object.entries(SPORTS).filter(([k]) => sportsPresents.includes(k) && k !== 'autre').map(([k, x]) => [k, `${x.icone} ${x.nom}`]), ...autres],
     choixStats.sport, (c) => { choixStats.sport = c; });
   puces($('#filtreMesure'), Object.entries(MESURES).map(([k, m]) => [k, m.nom]), choixStats.mesure, (c) => { choixStats.mesure = c; });
+  // Comparaison : la même période juste avant, ou un an plus tôt (pas pour « Tout »)
+  const decalage = !periode.jours ? 0 : choixStats.comparer === 'avant' ? periode.jours : choixStats.comparer === 'an' ? 364 : 0;
+  $('#filtreComparaison').hidden = !periode.jours;
+  if (periode.jours) {
+    puces($('#filtreComparaison'), [['', 'Sans comparaison'], ['avant', `${periode.nom} d'avant`], ['an', 'Il y a un an']], choixStats.comparer || '', (c) => { choixStats.comparer = c; });
+  }
+  const nomComparaison = choixStats.comparer === 'avant' ? `${periode.nom.toLowerCase()} d'avant` : 'il y a un an';
+  const avantDebut = decalage ? decaler(debut, -decalage) : null, avantFin = decalage ? decaler(fin, -decalage) : null;
+  const choisiesAvant = decalage ? activites.filter((x) => x.jour >= avantDebut && x.jour <= avantFin && garder(x)) : [];
 
   // Totaux de la période, et leur répartition par famille quand tous les sports sont affichés
   const somme = (m, liste = choisies) => liste.reduce((n, x) => n + MESURES[m].valeur(x), 0);
@@ -1980,7 +2007,8 @@ function afficherStats() {
     const parts = familles.length > 1
       ? `<div class="repartition">${familles.map((f, i) => `<span><i class="cle carre ${f.classe}"></i>${nombre(somme(m, choisies.filter((x) => indexFamille(x) === i)))} ${esc(f.nom.toLowerCase())}</span>`).join('')}</div>`
       : '';
-    return `<div class="tuile"><b>${nombre(somme(m))}</b><span>${l}</span>${parts}</div>`;
+    const comparaison = decalage && somme(m, choisiesAvant) > 0 ? `<span class="comparaison">${esc(evolutionTexte(somme(m), somme(m, choisiesAvant)))} vs ${esc(nomComparaison)}</span>` : '';
+    return `<div class="tuile"><b>${nombre(somme(m))}</b><span>${l}</span>${comparaison}${parts}</div>`;
   }).join('');
 
   // Volume par période
@@ -1991,17 +2019,45 @@ function afficherStats() {
     const t = totaux[cleDe(x.jour, pas)];
     if (t) t[indexFamille(x)] += mesure.valeur(x);
   }
-  const points = cles.map((c) => ({ libelle: libelleDe(c, pas), parts: totaux[c], valeur: totaux[c].reduce((n, v) => n + v, 0) }));
+  // La même période avant (décalée de toute la durée choisie, ou d'un an) : un repère sur chaque barre.
+  // Les décalages tombent juste : 84, 182 et 364 jours font un nombre entier de semaines, et en mois le
+  // premier jour décalé reste dans le bon mois.
+  const debutCle = (c) => (pas === 'semaine' ? c : pas === 'mois' ? c + '-01' : c + '-01-01');
+  const cleAvant = (c) => cleDe(decaler(debutCle(c), -decalage), pas);
+  const totauxAvant = {};
+  if (decalage) {
+    for (const x of activites) {
+      if (!garder(x) || x.jour < decaler(avantDebut, -31) || x.jour > avantFin) continue;
+      const c = cleDe(x.jour, pas);
+      totauxAvant[c] = (totauxAvant[c] || 0) + mesure.valeur(x);
+    }
+  }
+  const sortiesDe = {};
+  for (const x of choisies) (sortiesDe[cleDe(x.jour, pas)] ||= []).push(x);
+  const points = cles.map((c) => ({
+    libelle: libelleDe(c, pas), parts: totaux[c], valeur: totaux[c].reduce((n, v) => n + v, 0),
+    repere: decalage ? totauxAvant[cleAvant(c)] || 0 : null,
+  }));
   const nomPas = { semaine: 'par semaine', mois: 'par mois', annee: 'par année' }[pas];
   $('#titreVolume').textContent = `${mesure.nom} ${nomPas}`;
   $('#uniteVolume').textContent = mesure.unite;
   const decimales = choixStats.mesure === 'heures' ? 1 : 0;
-  graphBarres($('#graphVolume'), points, familles, (v) => `${nombre(v, decimales)} ${mesure.unite}`);
+  // Toucher une barre liste ses sorties ; toucher une sortie l'ouvre dans le Calendrier
+  const liste = (i) => {
+    const s = (sortiesDe[cles[i]] || []).slice().sort((a, b) => (b.debut || b.jour).localeCompare(a.debut || a.jour));
+    if (!s.length) return '<span class="muted">Aucune sortie sur cette période.</span>';
+    return s.slice(0, 8).map((a) => `<button type="button" class="record" data-aller-jour="${esc(a.jour)}">
+        <span>${(SPORTS[a.sport] || SPORTS.autre).icone} ${esc(a.nom || (SPORTS[a.sport] || SPORTS.autre).nom)}</span><span class="valeur">${esc(`${nombre(mesure.valeur(a), decimales)} ${mesure.unite}`)}</span>
+        <span class="quand">${esc([dateLisible(a.jour), a.distance_km ? `${nombre(Number(a.distance_km), 1)} km` : '', a.duree_min ? dureeLisible(Math.round(a.duree_min)) : '', Number(a.denivele_m) ? `${nombre(Number(a.denivele_m))} m D+` : ''].filter(Boolean).join(' · '))} ›</span></button>`).join('')
+      + (s.length > 8 ? `<span class="muted petit">et ${s.length - 8} autre${s.length > 9 ? 's' : ''}</span>` : '');
+  };
+  graphBarres($('#graphVolume'), points, familles, (v) => `${nombre(v, decimales)} ${mesure.unite}`, { nomRepere: decalage ? nomComparaison : '', liste });
   // Toucher une couleur de la légende ne garde que ce sport (le filtre « Tous les sports » revient au total)
-  $('#legendeVolume').innerHTML = familles.length > 1
+  $('#legendeVolume').innerHTML = (familles.length > 1
     ? familles.map((f) => `<button type="button" class="cle-legende" data-famille="${FAMILLES.indexOf(f)}" title="Ne voir que ${esc(f.nom.toLowerCase())}"><i class="cle carre ${f.classe}"></i>${esc(f.nom)}</button>`).join('')
-      + '<span class="muted petit">Touche une couleur pour ne garder que ce sport.</span>'
-    : '';
+    : '')
+    + (decalage ? `<span><i class="cle pointillee"></i>${esc(nomComparaison[0].toUpperCase() + nomComparaison.slice(1))}</span>` : '')
+    + `<span class="muted petit">${familles.length > 1 ? 'Touche une couleur pour ne garder que ce sport, ' : 'Touche '}une barre pour voir ses sorties.</span>`;
   $('#legendeVolume').onclick = (e) => {
     const b = e.target.closest('[data-famille]');
     if (!b) return;
@@ -2029,6 +2085,60 @@ function afficherStats() {
   graphLignes($('#graphForme'), serie, ['Forme', 'Fatigue']);
   // Les records sont de tous les temps : seul le filtre de sport s'applique
   afficherRecords(activites.filter(garder));
+}
+
+/* ---------- Records récents (badges) ---------- */
+// Pour chaque activité : les records qu'elle détient, de tous les temps ou des 12 derniers mois, dans sa famille
+// (course + trail, vélo, ski de rando) : distance, dénivelé, durée, et meilleure puissance sur 1, 5, 20 min et 1 h.
+// [code, valeur, texte court du record]
+const MESURES_RECORD = [
+  ['distance', (a) => Number(a.distance_km) || 0, (v) => `${nombre(v, 1)} km`],
+  ['denivele', (a) => Number(a.denivele_m) || 0, (v) => `${nombre(v)} m D+`],
+  ['duree', (a) => Number(a.duree_min) || 0, (v) => `durée ${dureeLisible(Math.round(v))}`],
+  ...[[60, '1 min'], [300, '5 min'], [1200, '20 min'], [3600, '1 h']].map(([d, nom]) => [`p${d}`, (a) => Number(a.puissances_max?.[d]) || 0, (v) => `${nombre(v)} W sur ${nom}`]),
+];
+let cacheBadges = { cle: '', parId: new Map() };
+function badgesRecords() {
+  const cle = `${activites.length}|${activites[activites.length - 1]?.id}|${jourISO()}`;
+  if (cacheBadges.cle === cle) return cacheBadges.parId;
+  const parId = new Map(), unAn = decaler(jourISO(), -365);
+  const familles = {};
+  for (const a of activites) {
+    const f = familleDe(a.sport);
+    if (FAMILLES[f].sports) (familles[f] ||= []).push(a); // pas de records pour « Autres »
+  }
+  for (const [f, liste] of Object.entries(familles)) {
+    for (const [code, valeur, format] of MESURES_RECORD) {
+      const meilleure = (sel) => sel.reduce((m, a) => (valeur(a) > (m ? valeur(m) : 0) ? a : m), null);
+      const tout = meilleure(liste), annee = meilleure(liste.filter((a) => a.jour >= unAn));
+      for (const [a, portee] of [[tout, 'tout'], [annee !== tout ? annee : null, 'an']]) {
+        if (a) (parId.get(a.id) || parId.set(a.id, []).get(a.id)).push({ code, portee, famille: FAMILLES[f].nom.toLowerCase(), texte: format(valeur(a)) });
+      }
+    }
+  }
+  cacheBadges = { cle, parId };
+  return parId;
+}
+// Une ligne par niveau : « 🏆 Records de tous les temps (vélo) : 120 km · 2 100 m D+ »
+function resumeBadges(badges) {
+  return [['tout', '🏆 Record', 'de tous les temps'], ['an', '🏅 Meilleur', 'des 12 derniers mois']].map(([portee, debut, fin]) => {
+    const liste = badges.filter((x) => x.portee === portee);
+    return liste.length ? `${debut}${liste.length > 1 ? 's' : ''} ${fin} (${liste[0].famille}) : ${liste.map((x) => x.texte).join(' · ')}` : '';
+  }).filter(Boolean);
+}
+const htmlBadges = (a) => {
+  const b = badgesRecords().get(a.id);
+  return b ? `<div class="badges-record">${resumeBadges(b).map(esc).join('<br>')}</div>` : '';
+};
+// Les records battus ces 30 derniers jours, en tête de la carte Records
+function htmlRecordsRecents() {
+  const depuis = decaler(jourISO(), -30), parId = badgesRecords();
+  const recents = activites.filter((a) => a.jour >= depuis && parId.has(a.id)).sort((x, y) => y.jour.localeCompare(x.jour));
+  if (!recents.length) return '';
+  return `<h4 class="sous-titre-carte" style="margin-top:0">Records des 30 derniers jours</h4>${recents.map((a) => `<button type="button" class="record" data-aller-jour="${esc(a.jour)}">
+      <span>${(SPORTS[a.sport] || SPORTS.autre).icone} ${esc(a.nom || (SPORTS[a.sport] || SPORTS.autre).nom)}</span><span class="valeur">${parId.get(a.id).length} record${parId.get(a.id).length > 1 ? 's' : ''}</span>
+      <span class="quand">${resumeBadges(parId.get(a.id)).map(esc).join('<br>')}<br>${esc(dateLisible(a.jour, false))} ›</span></button>`).join('')}
+    <h4 class="sous-titre-carte">De tous les temps</h4>`;
 }
 
 /* ---------- Records (de tous les temps, filtre de sport seulement) ---------- */
@@ -2087,6 +2197,11 @@ function sorties(liste) {
 function afficherRecords(toutes) {
   $('#carteRecords').hidden = !toutes.length;
   if (!toutes.length) return;
+  $('#recordsRecents').innerHTML = htmlRecordsRecents();
+  const nbRecents = activites.filter((a) => a.jour >= decaler(jourISO(), -30) && badgesRecords().has(a.id)).length;
+  $('#carteRecords .resume-repli').textContent = nbRecents
+    ? `🏅 ${nbRecents} sortie${nbRecents > 1 ? 's' : ''} avec un record ces 30 derniers jours · plus longues sorties, dénivelé, meilleures semaines`
+    : 'Plus longues sorties, plus gros dénivelé, meilleures semaines, meilleurs efforts Garmin';
   const liste = sorties(toutes);
   $('#periodeRecords').textContent = 'depuis toujours';
   const meilleur = (sel, valeur, sens = 1) => sel.filter((a) => valeur(a) != null && valeur(a) > 0)
@@ -2500,6 +2615,7 @@ function afficherTerrain() {
 // l'import : tout l'historique), sinon de celle calculée à partir des détails (efforts « tout »).
 const FACTEURS_SEUIL = [[3600, 1, '1 h'], [1200, 0.95, '20 min']];
 const COURBE_PUISSANCE = [[5, '5 s'], [60, '1 min'], [300, '5 min'], [1200, '20 min'], [3600, '1 h']];
+const DUREES_COURBE = [[5, '5 s'], [30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min'], [600, '10 min'], [1200, '20 min'], [3600, '1 h'], [7200, '2 h']];
 const depuis6Mois = () => decaler(jourISO(), -182);
 function courbeSortie(a, calculees) {
   const courbe = {};
@@ -2604,6 +2720,16 @@ function afficherPuissance() {
   if (parFc) html += `<tr><th scope="row">À la même FC</th><td>${fois(parFc.ratio)}<span class="evol">${esc(`${nombre(parFc.course)} W en course contre ${nombre(parFc.velo)} W à vélo, vers ${nombre(parFc.fc)} bpm`)}</span></td></tr>`;
   html += '</tbody></table>';
 
+  // Graphe : la courbe des 6 derniers mois sur celle de tous les temps, pour un sport (durées en échelle
+  // presque logarithmique : un point par durée, espacés également)
+  const veloCourbe = choixStats.courbeSport ? choixStats.courbeSport === 'velo' : !!recVelo[1200];
+  const recentes = meilleursPuissance(sortiesSport(veloCourbe, depuis6Mois())), toutes = meilleursPuissance(sortiesSport(veloCourbe, null));
+  const pointsCourbe = DUREES_COURBE.filter(([d]) => toutes[d]).map(([d, nom]) => ({ libelle: nom, a: recentes[d]?.valeur ?? null, b: toutes[d].valeur }));
+  if (pointsCourbe.length >= 3) {
+    html += `<h4 class="sous-titre-carte">Courbe de puissance</h4><div class="puces" id="sportCourbe" style="margin-bottom:8px"></div><div class="graph" id="graphCourbe"></div>
+      <p class="legende"><span><i class="cle ${veloCourbe ? 's2' : 's1'}"></i>6 derniers mois</span><span><i class="cle pointillee"></i>Meilleur de tous les temps</span></p>`;
+  }
+
   // Courbe de puissance : meilleurs efforts par durée dans chaque sport
   const durees = COURBE_PUISSANCE.filter(([d]) => recCourse[d] || recVelo[d]);
   if (durees.length) {
@@ -2623,6 +2749,13 @@ function afficherPuissance() {
     html += `<p class="statut" id="statutPuissance"></p><button class="btn secondaire" type="button" id="btnAnalyserVelo">Analyser ${manquantes.length} sortie${manquantes.length > 1 ? 's' : ''} vélo avec puissance</button>`;
   }
   $('#puissance').innerHTML = html;
+  if ($('#graphCourbe')) {
+    puces($('#sportCourbe'), [['course', '🏃 Course'], ['velo', '🚴 Vélo']], veloCourbe ? 'velo' : 'course', (c) => { choixStats.courbeSport = c; });
+    graphLignes($('#graphCourbe'), pointsCourbe, ['6 derniers mois', 'Meilleur de tous les temps'], {
+      classes: [veloCourbe ? 'ligne-velo' : 'ligne-1', 'ligne-ref'], cles: [`cle ${veloCourbe ? 's2' : 's1'}`, 'cle pointillee'],
+      format: (w) => `${nombre(w)} W${poidsProfil() ? ` · ${wKg(w)} W/kg` : ''}`, titre: 'Courbe de puissance', marqueurs: true,
+    });
+  }
   const bc = $('#btnCourbes');
   if (bc) {
     bc.disabled = recuperationEnCours;
@@ -2691,10 +2824,11 @@ function infobulle(conteneur) {
   return b;
 }
 
-// points : [{ libelle, valeur (total), parts: [une valeur par série] }] ; series : [{ nom, classe, barre }]
-function graphBarres(conteneur, points, series, format) {
+// points : [{ libelle, valeur (total), parts: [une valeur par série], repere (facultatif : la même période avant) }] ;
+// series : [{ nom, classe, barre }] ; options : nomRepere (légende du repère), liste(i) (HTML des sorties de la barre i)
+function graphBarres(conteneur, points, series, format, options = {}) {
   const L = Math.max(280, conteneur.clientWidth || 320), l = L - MARGE.gauche - MARGE.droite, h = H_GRAPH - MARGE.haut - MARGE.bas;
-  const ech = echelle(Math.max(...points.map((p) => p.valeur), 0));
+  const ech = echelle(Math.max(...points.map((p) => Math.max(p.valeur, p.repere || 0)), 0));
   const larg = l / points.length, barre = Math.max(2, Math.min(28, larg - 2));
   const x = (i) => MARGE.gauche + larg * i + larg / 2;
   const base = MARGE.haut + h;
@@ -2713,9 +2847,12 @@ function graphBarres(conteneur, points, series, format) {
       return `<path class="barre ${series[j].barre}" data-i="${i}" d="${d}"/>`;
     }).join('');
   }).join('');
-  conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${H_GRAPH}" role="img" aria-label="Graphique en barres">${grilleEtAxes(l, h, ech)}${barres}${etiquettes(points, x, l)}</svg>`;
+  // Repère de comparaison : un trait en tirets à la hauteur de la même période avant
+  const reperes = points.map((p, i) => (p.repere > 0
+    ? `<line class="repere-comparaison" x1="${x(i) - barre / 2 - 2}" x2="${x(i) + barre / 2 + 2}" y1="${base - (p.repere / ech.max) * h}" y2="${base - (p.repere / ech.max) * h}"/>` : '')).join('');
+  conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${H_GRAPH}" role="img" aria-label="Graphique en barres">${grilleEtAxes(l, h, ech)}${barres}${reperes}${etiquettes(points, x, l)}</svg>`;
   const bulle = infobulle(conteneur), svg = conteneur.querySelector('svg');
-  const detail = document.createElement('p');
+  const detail = document.createElement('div');
   detail.className = 'detail-graph';
   conteneur.appendChild(detail);
   // Le détail de la barre choisie s'affiche sous le graphique : un simple toucher suffit sur téléphone
@@ -2723,7 +2860,9 @@ function graphBarres(conteneur, points, series, format) {
     for (const el of svg.querySelectorAll('.barre')) el.classList.toggle('survol', Number(el.dataset.i) === i);
     const p = points[i];
     detail.innerHTML = `<span><b>${esc(format(p.valeur))}</b> <span class="muted">${esc(p.libelle)}</span></span>`
-      + (series.length > 1 ? series.map((sr, j) => (p.parts[j] ? `<span><i class="cle carre ${sr.classe}"></i>${esc(format(p.parts[j]))} <span class="muted">${esc(sr.nom.toLowerCase())}</span></span>` : '')).join('') : '');
+      + (series.length > 1 ? series.map((sr, j) => (p.parts[j] ? `<span><i class="cle carre ${sr.classe}"></i>${esc(format(p.parts[j]))} <span class="muted">${esc(sr.nom.toLowerCase())}</span></span>` : '')).join('') : '')
+      + (p.repere != null && options.nomRepere ? `<span><i class="cle pointillee"></i>${esc(format(p.repere))} <span class="muted">${esc(options.nomRepere)}${p.repere > 0 ? ` (${evolutionTexte(p.valeur, p.repere)})` : ''}</span></span>` : '')
+      + (options.liste ? `<div class="liste-sorties">${options.liste(i)}</div>` : '');
   };
   const indexDe = (e) => {
     const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) * (L / rect.width);
@@ -2747,14 +2886,19 @@ function graphBarres(conteneur, points, series, format) {
   montrer(points.length - 1); // par défaut : la période en cours
 }
 
-function graphLignes(conteneur, points, noms) {
+// points : [{ libelle, a, b }] (a ou b peut manquer : la ligne s'interrompt) ; options : classes et cles (légende) des
+// deux lignes, format des valeurs, titre pour les lecteurs d'écran, marqueurs (points sur chaque valeur)
+function graphLignes(conteneur, points, noms, options = {}) {
+  const classes = options.classes || ['ligne-1', 'ligne-2'], cles = options.cles || ['cle s1', 'cle s2'];
+  const format = options.format || ((v) => nombre(v));
   const L = Math.max(280, conteneur.clientWidth || 320), l = L - MARGE.gauche - MARGE.droite, h = H_GRAPH - MARGE.haut - MARGE.bas;
-  const ech = echelle(Math.max(...points.flatMap((p) => [p.a, p.b]), 0));
+  const ech = echelle(Math.max(...points.flatMap((p) => [p.a || 0, p.b || 0]), 0));
   const x = (i) => MARGE.gauche + (points.length > 1 ? (l * i) / (points.length - 1) : l / 2);
   const y = (v) => MARGE.haut + h - (v / ech.max) * h;
-  const trace = (k) => points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join('');
-  conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${H_GRAPH}" role="img" aria-label="Forme et fatigue">${grilleEtAxes(l, h, ech)}
-    <path class="ligne-1" d="${trace('a')}"/><path class="ligne-2" d="${trace('b')}"/>
+  const trace = (k) => points.map((p, i) => (p[k] == null ? '' : `${i && points[i - 1][k] != null ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`)).join('');
+  const marqueurs = (k, classe) => (options.marqueurs ? points.map((p, i) => (p[k] == null ? '' : `<circle class="point ${classe}" cx="${x(i).toFixed(1)}" cy="${y(p[k]).toFixed(1)}" r="4"/>`)).join('') : '');
+  conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${H_GRAPH}" role="img" aria-label="${esc(options.titre || 'Forme et fatigue')}">${grilleEtAxes(l, h, ech)}
+    <path class="${classes[1]}" d="${trace('b')}"/><path class="${classes[0]}" d="${trace('a')}"/>${marqueurs('a', classes[0])}
     <line class="repere" y1="${MARGE.haut}" y2="${MARGE.haut + h}" visibility="hidden"/>${etiquettes(points, x, l)}</svg>`;
   const svg = conteneur.querySelector('svg'), repere = svg.querySelector('.repere');
   const detail = document.createElement('p');
@@ -2763,7 +2907,8 @@ function graphLignes(conteneur, points, noms) {
   // Le repère et les valeurs du jour choisi s'affichent sous le graphique : un toucher suffit
   const montrer = (i) => {
     repere.setAttribute('x1', x(i)); repere.setAttribute('x2', x(i)); repere.setAttribute('visibility', 'visible');
-    detail.innerHTML = `<span class="muted">${esc(points[i].libelle)}</span><span><i class="cle s1"></i><b>${nombre(points[i].a)}</b> ${esc(noms[0].toLowerCase())}</span><span><i class="cle s2"></i><b>${nombre(points[i].b)}</b> ${esc(noms[1].toLowerCase())}</span>`;
+    detail.innerHTML = `<span class="muted">${esc(points[i].libelle)}</span>` + ['a', 'b'].map((k, j) => (points[i][k] == null ? ''
+      : `<span><i class="${cles[j]}"></i><b>${esc(format(points[i][k]))}</b> ${esc(noms[j].toLowerCase())}</span>`)).join('');
   };
   const survoler = (e) => {
     const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) * (L / rect.width);

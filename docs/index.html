@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-01.2">
+<meta name="app-version" content="2026-11-01.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -232,6 +232,8 @@
   .record { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:8px 0; border-top:1px solid var(--border); background:none; border-left:0; border-right:0; border-bottom:0; width:100%; text-align:left; font:inherit; color:inherit; cursor:pointer; }
   .record .valeur { font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
   .record .quand { grid-column:1 / -1; font-size:.8rem; color:var(--muted); }
+  .cellule-record { background:none; border:0; padding:0; font:inherit; color:inherit; text-align:right; cursor:pointer; width:100%; }
+  .lien-garmin-connect { display:inline-block; font-size:.8rem; margin-top:4px; }
 
   /* ---------- Par terrain ---------- */
   table.terrains { width:100%; border-collapse:collapse; font-size:.88rem; font-variant-numeric:tabular-nums; }
@@ -1213,7 +1215,8 @@ function htmlActivite(a) {
   const avis = c ? `<div class="commentaire">${c.ressenti ? `Ressenti ${esc(c.ressenti)}/5. ` : ''}${esc(c.notes || '')}</div>` : '';
   return `<div class="seance fait-garmin">
     <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
-    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div>${notes}${avis}${htmlAvisCoach(a.id, a)}</div>
+    <div><div class="titre">${esc(a.nom || sport.nom)}</div><div class="meta">${meta}</div>${notes}${avis}${htmlAvisCoach(a.id, a)}
+      ${/^\d+$/.test(a.id) ? `<a class="lien-garmin-connect" href="https://connect.garmin.com/modern/activity/${esc(a.id)}" target="_blank" rel="noopener">Ouvrir dans Garmin Connect ↗</a>` : ''}</div>
     <div><button class="etat-seance" type="button" data-commenter="${esc(a.id)}" title="Ajouter un commentaire">💬</button></div>
   </div>`;
 }
@@ -2095,13 +2098,14 @@ function afficherRecords(toutes) {
   chargerRecordsGarmin();
 }
 
-// Toucher un record ouvre ce jour dans le Calendrier
+// Toucher un record (Stats, Par terrain, Course et vélo) ouvre ce jour dans le Calendrier, sur la carte du jour
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-aller-jour]');
   if (!b) return;
   jourChoisi = b.dataset.allerJour;
   allerA('jour');
   afficherJour();
+  requestAnimationFrame(() => $('#carteJour').scrollIntoView({ behavior: 'smooth', block: 'start' }));
 });
 
 /* ---------- Par terrain (course et trail) ---------- */
@@ -2226,7 +2230,7 @@ function recordsTerrain(lignes) {
       for (const [duree, mesures] of Object.entries(l.terrains.efforts?.[t] || {})) {
         for (const [mesure, valeur] of Object.entries(mesures)) {
           const caseRec = (rec[t][duree] ||= {});
-          if (valeur > (caseRec[mesure]?.valeur || 0)) caseRec[mesure] = { valeur, jour: l.jour, sortie: l.nom };
+          if (valeur > (caseRec[mesure]?.valeur || 0)) caseRec[mesure] = { valeur, jour: l.jour, sortie: l.nom, id: l.id };
         }
       }
     }
@@ -2323,13 +2327,16 @@ function afficherTerrain() {
           return `<td>${v ? esc(f(v)) : '—'}${sous ? `<span class="evol">${esc(sous)}</span>` : ''}</td>`;
         }).join('')}</tr>`).join('')}</tbody></table>`;
       const choisie = durees.find(([d]) => d === dureeChoisie);
-      html += `<p class="muted petit" id="detailEffort" style="margin:6px 0 0">${choisie
-        ? esc(mesures.filter(([m]) => rec[choisie[0]][m]).map(([m, nom, f]) => {
+      html += choisie
+        ? `<div id="detailEffort" style="margin-top:6px">${mesures.filter(([m]) => rec[choisie[0]][m]).map(([m, nom, f]) => {
             const c = rec[choisie[0]][m], a = recAvant[choisie[0]]?.[m];
             const autres = m === 'puissance' ? [`${nombre(c.valeur)} W`, parKg(c.valeur), seuilVue() ? `${nombre((c.valeur / seuilVue()) * 100)} % ${velo ? 'de la FTP' : 'du seuil'}` : ''].filter((x) => x && x !== f(c.valeur)) : [];
-            return `${nom} sur ${choisie[1]} : ${f(c.valeur)}${autres.length ? ` (${autres.join(', ')})` : ''} le ${dateLisible(c.jour, false)}${c.sortie ? ` (${c.sortie})` : ''}${a ? `, avant ${f(a.valeur)}` : ''}`;
-          }).join(' · '))
-        : `Touche une durée pour voir la sortie de chaque record${avant.length ? ' et la valeur d\'avant' : ''}.`}</p>`;
+            // Toucher le record ouvre la sortie dans le Calendrier (data-aller-jour, comme les records de Stats)
+            return `<button type="button" class="record" data-aller-jour="${esc(c.jour)}">
+              <span>${esc(`${nom} sur ${choisie[1]}`)}</span><span class="valeur">${esc(f(c.valeur))}</span>
+              <span class="quand">${esc([`${dateLisible(c.jour, false)} ${c.jour.slice(0, 4)}`, c.sortie, ...autres, a ? `avant ${f(a.valeur)}` : ''].filter(Boolean).join(' · '))} ›</span></button>`;
+          }).join('')}</div>`
+        : `<p class="muted petit" id="detailEffort" style="margin:6px 0 0">Touche une durée pour voir ses records${avant.length ? ' et les valeurs d\'avant' : ''}, puis un record pour ouvrir la sortie.</p>`;
     } else {
       html += `<p class="muted petit">Pas encore d'effort de 30 s ou plus ${NOMS_TERRAINS[vue]} sur la période.</p>`;
     }
@@ -2521,7 +2528,7 @@ function afficherPuissance() {
   // Courbe de puissance : meilleurs efforts par durée dans chaque sport
   const durees = COURBE_PUISSANCE.filter(([d]) => recCourse[d] || recVelo[d]);
   if (durees.length) {
-    const cellule = (r) => (r ? `${nombre(r.valeur)} W<span class="evol">${esc([parKg(r.valeur), toujours ? moisAnnee(r.jour) : dateLisible(r.jour, false)].filter(Boolean).join(' · '))}</span>` : '—');
+    const cellule = (r) => (r ? `<button type="button" class="cellule-record" data-aller-jour="${esc(r.jour)}" title="${esc(r.sortie || '')}">${nombre(r.valeur)} W<span class="evol">${esc([parKg(r.valeur), toujours ? moisAnnee(r.jour) : dateLisible(r.jour, false)].filter(Boolean).join(' · '))} ›</span></button>` : '—');
     html += `<h4 class="sous-titre-carte">Meilleures puissances</h4><table class="terrains"><thead><tr><th scope="col">Durée</th><th scope="col">Course</th><th scope="col">Vélo</th></tr></thead><tbody>
       ${durees.map(([d, nom]) => `<tr><th scope="row">${nom}</th><td>${cellule(recCourse[d])}</td><td>${cellule(recVelo[d])}</td></tr>`).join('')}</tbody></table>`;
   }

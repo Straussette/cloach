@@ -8,9 +8,9 @@ Ce fichier guide Claude Code lorsqu'il travaille sur ce dépôt.
 
 Le coaching se passe dans le Claude de chaque utilisateur, sur son propre abonnement, via un connecteur MCP. **Ni l'app ni le serveur n'appellent l'API Claude** : ne pas en ajouter sans que ce soit demandé, car le coût retomberait sur le propriétaire.
 
-- `docs/index.html` : l'app (HTML + CSS + JavaScript sans framework, sans dépendance, sans build), publiée par GitHub Pages sur https://straussette.github.io/cloach/.
+- `docs/index.html` : l'app (HTML + CSS + JavaScript sans framework, sans dépendance, sans build), publiée par GitHub Pages sur https://cloach.pstrauss.org/ (domaine `pstrauss.org` chez Cloudflare ; l'ancienne adresse https://straussette.github.io/cloach/ y redirige).
 - `docs/confidentialite.html` : la politique de confidentialité, liée depuis l'inscription et l'onglet Profil. La mettre à jour si les données conservées, les hébergeurs ou les accès changent.
-- `serveur/` : le serveur MCP (Python, SDK `mcp`, hébergé sur Render, voir `render.yaml`).
+- `serveur/` : le serveur MCP (Python, SDK `mcp`, hébergé sur Render, voir `render.yaml` ; adresse https://api.cloach.pstrauss.org, connecteur `/mcp`).
   - `serveur.py` : consignes de coach (`CONSIGNES`), outils (profil, plan, journal, Garmin), prompts, routes HTTP ;
   - `acces.py` : OAuth sans stockage ; la page de connexion vérifie le compte Cloach auprès de Supabase, et les jetons portent l'identifiant de l'utilisateur (`subject`) ;
   - `donnees.py` : accès à Supabase avec la clé secrète (filtrer toujours sur l'identifiant de l'utilisateur) ; `lire_activites()` ne lit que les colonnes légères (`COLONNES_LEGERES`) sauf `complet=True` (analyses par terrain et courbes de puissance, pour `profil_terrain`, `seuils_puissance` et l'analyse de l'historique) ;

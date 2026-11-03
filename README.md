@@ -2,7 +2,7 @@
 
 Coach sportif personnel : course à pied, trail, vélo, renforcement, natation. Le coaching se passe dans **le Claude de chaque utilisateur** (claude.ai, appli mobile ou de bureau), sur son propre abonnement, grâce à un connecteur MCP.
 
-- **App** : https://straussette.github.io/cloach/ (`docs/index.html`, publié par GitHub Pages). Compte, profil sportif, plan d'entraînement, journal des séances, import de l'historique Garmin, statistiques (distance, durée, dénivelé, charge, forme et fatigue), branchement de Garmin et de Claude.
+- **App** : https://cloach.pstrauss.org/ (`docs/index.html`, publié par GitHub Pages). Compte, profil sportif, plan d'entraînement, journal des séances, import de l'historique Garmin, statistiques (distance, durée, dénivelé, charge, forme et fatigue), branchement de Garmin et de Claude.
 - **Serveur MCP** (`serveur/`, Python, hébergé sur Render) : le connecteur que chacun ajoute dans Claude. Il donne à Claude le profil, le plan et le journal de l'utilisateur, ses données Garmin, des consignes de coach et son historique d'activités (détail et statistiques), et quatre prompts (« Que faire aujourd'hui ? », « Créer ou réajuster mon plan », « Analyser mon historique », « Bilan de la semaine »).
 - **Supabase** (projet `cloach`, schéma dans `supabase/schema.sql`) : comptes, données de chaque compte (table `donnees`), historique des activités (table `activites`), jetons Garmin chiffrés (table `garmin_comptes`).
 
@@ -11,20 +11,20 @@ Personne ne paie l'IA pour les autres : l'app et le serveur n'appellent jamais l
 ## Comment ça marche
 
 1. L'utilisateur crée son compte dans l'app, remplit son profil et, s'il le veut, branche Garmin (e-mail, mot de passe, code de double authentification). Le mot de passe Garmin n'est stocké nulle part : seuls les jetons d'accès le sont, chiffrés.
-2. Dans claude.ai → Paramètres → Connecteurs, il ajoute un connecteur personnalisé avec l'URL `https://cloach.onrender.com/mcp` et se connecte avec son compte Cloach (OAuth, voir `serveur/acces.py`).
+2. Dans claude.ai → Paramètres → Connecteurs, il ajoute un connecteur personnalisé avec l'URL `https://api.cloach.pstrauss.org/mcp` et se connecte avec son compte Cloach (OAuth, voir `serveur/acces.py`).
 3. Il parle à son coach dans Claude. Claude lit son contexte, ses données Garmin, et enregistre le plan et les séances : l'app les affiche aussitôt (table `donnees`, partagée).
 
 ## Mise en route
 
 ### Supabase
 1. Exécuter `supabase/schema.sql` (déjà fait sur le projet `cloach`).
-2. Authentication → URL Configuration : Site URL `https://straussette.github.io/cloach/`, et l'ajouter aux Redirect URLs (liens de confirmation et de mot de passe oublié).
+2. Authentication → URL Configuration : Site URL `https://cloach.pstrauss.org/`, et l'ajouter aux Redirect URLs (liens de confirmation et de mot de passe oublié).
 3. Récupérer la clé secrète (Project Settings → API Keys → `sb_secret_…`) pour Render.
 
 ### Render
 1. « New » → « Blueprint » → ce dépôt (`render.yaml` est fourni). `CLE_SIGNATURE` est générée automatiquement.
 2. Renseigner `SUPABASE_CLE_SECRETE`.
-3. Une fois « Live », `https://cloach.onrender.com/sante` affiche `ok` et l'adresse du connecteur. Si le service a un autre nom, mettre son adresse dans `SERVEUR` (`docs/index.html`).
+3. Domaine personnalisé `api.cloach.pstrauss.org` (Settings → Custom Domains, CNAME vers `cloach.onrender.com` chez Cloudflare, nuage gris), et variable `URL_PUBLIQUE=https://api.cloach.pstrauss.org`. Une fois « Live », `https://api.cloach.pstrauss.org/sante` affiche `ok` et l'adresse du connecteur. Si l'adresse change, la mettre dans `SERVEUR` (`docs/index.html`).
 
 | Variable | Rôle |
 |---|---|
@@ -39,7 +39,7 @@ Personne ne paie l'IA pour les autres : l'app et le serveur n'appellent jamais l
 Sur l'offre gratuite de Render, le service s'endort après 15 min d'inactivité : le premier appel prend environ 30 s (l'app le réveille dès l'ouverture).
 
 ### Strava (facultatif, pour ceux qui n'ont pas Garmin)
-1. Sur https://www.strava.com/settings/api, créer une application : nom « Cloach », site `https://straussette.github.io/cloach/`, **Authorization Callback Domain** : `cloach.onrender.com`.
+1. Sur https://www.strava.com/settings/api, créer une application : nom « Cloach », site `https://cloach.pstrauss.org/`, **Authorization Callback Domain** : `api.cloach.pstrauss.org`.
 2. Dans Render, renseigner `STRAVA_CLIENT_ID` et `STRAVA_CLIENT_SECRET`.
 3. Une nouvelle application Strava ne peut brancher qu'un seul compte (le tien) tant que Strava n'a pas validé une demande d'augmentation (formulaire « Developer Program » de Strava).
 

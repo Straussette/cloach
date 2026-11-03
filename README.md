@@ -31,7 +31,8 @@ Personne ne paie l'IA pour les autres : l'app et le serveur n'appellent jamais l
 | `CLE_SIGNATURE` | **obligatoire**, 32 caractères minimum : signe les jetons donnés à Claude et chiffre les jetons Garmin. La changer déconnecte tout le monde et oblige chacun à rebrancher Garmin. |
 | `SUPABASE_URL`, `SUPABASE_CLE` | projet Supabase et sa clé publique (`sb_publishable_…`) |
 | `SUPABASE_CLE_SECRETE` | clé secrète (`sb_secret_…`) : le serveur lit et écrit les données de chaque compte |
-| `ORIGINE_APP` | origine de l'app, par défaut `https://straussette.github.io` |
+| `ORIGINES_APP` | origines autorisées de l'app, séparées par des virgules ; par défaut `https://cloach.pstrauss.org,https://straussette.github.io` (l'ancienne adresse, gardée pendant la transition) |
+| `URL_APP` | adresse de l'app où Strava renvoie l'utilisateur, par défaut `https://cloach.pstrauss.org/` |
 | `URL_PUBLIQUE` | adresse publique du serveur ; inutile sur Render |
 | `FUSEAU` | fuseau horaire des dates, par défaut `Europe/Paris` |
 

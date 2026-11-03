@@ -14,8 +14,10 @@ Variables d'environnement :
   oblige chacun à rebrancher Garmin.
 - SUPABASE_URL, SUPABASE_CLE (clé publique sb_publishable_…) et
   SUPABASE_CLE_SECRETE (clé secrète sb_secret_…) du projet Supabase « cloach ».
-- ORIGINE_APP : origine de l'app (par défaut https://straussette.github.io) ; URL_APP : adresse de
-  l'app (par défaut ORIGINE_APP + /cloach/), où Strava renvoie l'utilisateur.
+- ORIGINES_APP : origines autorisées de l'app, séparées par des virgules (par défaut
+  https://cloach.pstrauss.org et https://straussette.github.io, l'ancienne adresse, gardée pendant
+  la transition) ; URL_APP : adresse de l'app (par défaut https://cloach.pstrauss.org/), où Strava
+  renvoie l'utilisateur.
 - STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET (facultatif) : application Strava, pour les utilisateurs sans
   Garmin (voir strava.py).
 - URL_PUBLIQUE : adresse publique du serveur ; inutile sur Render (RENDER_EXTERNAL_URL).
@@ -53,7 +55,11 @@ if len(CLE_SIGNATURE) < 32:
 URL_PUBLIQUE = (
     os.environ.get("URL_PUBLIQUE") or os.environ.get("RENDER_EXTERNAL_URL") or "http://localhost:8000"
 ).strip().rstrip("/")
-ORIGINE_APP = os.environ.get("ORIGINE_APP", "https://straussette.github.io").strip().rstrip("/")
+ORIGINES_APP = {
+    o.strip().rstrip("/")
+    for o in os.environ.get("ORIGINES_APP", "https://cloach.pstrauss.org,https://straussette.github.io").split(",")
+    if o.strip()
+}
 FUSEAU = ZoneInfo(os.environ.get("FUSEAU", "Europe/Paris"))
 
 base = Supabase(
@@ -62,9 +68,9 @@ base = Supabase(
     os.environ.get("SUPABASE_CLE_SECRETE", "").strip(),
     CLE_SIGNATURE,
 )
-garmins = Garmins(base, {ORIGINE_APP})
-URL_APP = os.environ.get("URL_APP", ORIGINE_APP + "/cloach/").strip()
-stravas = Stravas(base, {ORIGINE_APP}, CLE_SIGNATURE, URL_PUBLIQUE, URL_APP)
+garmins = Garmins(base, ORIGINES_APP)
+URL_APP = os.environ.get("URL_APP", "https://cloach.pstrauss.org/").strip()
+stravas = Stravas(base, ORIGINES_APP, CLE_SIGNATURE, URL_PUBLIQUE, URL_APP)
 acces = Acces(CLE_SIGNATURE, URL_PUBLIQUE, base.verifier_compte)
 
 CONSIGNES = """Tu es Cloach, le coach sportif personnel de l'utilisateur : bienveillant, précis, exigeant juste ce qu'il faut. Tu coaches la course à pied, le trail, le vélo (y compris home trainer / Zwift), le ski de randonnée, le renforcement musculaire, la natation et le multisport. Tu parles en français et tu tutoies, sauf si l'utilisateur écrit dans une autre langue.
@@ -998,11 +1004,13 @@ async def route_strava(request: Request):
 async def supprimer_compte(request: Request):
     """Suppression du compte depuis l'app : accès Strava retiré, session Garmin fermée,
     puis compte supprimé avec toutes ses données (profil, plan, journal, activités, jetons)."""
-    cors = {"Access-Control-Allow-Origin": ORIGINE_APP, "Access-Control-Allow-Headers": "authorization, content-type",
+    origine = request.headers.get("origin", "")
+    cors = {"Access-Control-Allow-Origin": origine if origine in ORIGINES_APP else "https://cloach.pstrauss.org",
+            "Access-Control-Allow-Headers": "authorization, content-type",
             "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin"}
     if request.method == "OPTIONS":
         return Response(status_code=204, headers=cors)
-    if request.headers.get("origin", "") != ORIGINE_APP:
+    if origine not in ORIGINES_APP:
         return JSONResponse({"erreur": "Origine non autorisée"}, 403, headers=cors)
     jeton = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     uid = await anyio.to_thread.run_sync(base.utilisateur, jeton)

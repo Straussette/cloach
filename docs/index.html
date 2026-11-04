@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-03.1">
+<meta name="app-version" content="2026-11-04.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -910,21 +910,28 @@ async function traiterLienEmail() {
 /* ---------- Synchronisation (table donnees) ---------- */
 // Une ligne par compte : { user_id, data, maj }. La version la plus récente l'emporte.
 // Claude écrit aussi dans cette ligne (plan, journal, profil) : on relit avant chaque modification.
+// distantLu : le compte dont on a réussi à lire la ligne distante. Tant qu'elle n'a pas été lue, on n'envoie
+// jamais l'état local : sur un nouvel appareil (ou une nouvelle adresse), il est vide et écraserait tout le compte.
+let distantLu = null;
 async function synchroniser() {
-  if (!session()) return;
+  if (!session()) return false;
   try {
     const lignes = await sbFetch(`/rest/v1/donnees?select=data&user_id=eq.${session().user.id}`);
-    const distant = lignes?.[0]?.data;
+    if (!Array.isArray(lignes)) throw new Error('lecture des données impossible');
+    distantLu = session().user.id;
+    const distant = lignes[0]?.data;
     if (distant && (distant.maj || 0) > (etat.maj || 0)) {
       etat = Object.assign(ETAT_VIDE(), distant);
       ecrireLocal(CLE_ETAT, etat);
     } else if (etat.maj && (distant?.maj || 0) < etat.maj) {
       await envoyerEtat();
     }
-  } catch (e) { console.warn('Sync', e); }
+    return true;
+  } catch (e) { console.warn('Sync', e); return false; }
 }
 
 async function envoyerEtat() {
+  if (!session() || distantLu !== session().user.id) throw new Error('données du compte pas encore lues : envoi reporté');
   await sbFetch('/rest/v1/donnees', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -934,12 +941,14 @@ async function envoyerEtat() {
 
 // Relit la dernière version, applique la modification, enregistre et envoie
 async function modifier(changer) {
-  await synchroniser();
+  const lu = await synchroniser();
   changer();
   etat.maj = Date.now();
   ecrireLocal(CLE_ETAT, etat);
   toutAfficher();
-  if (session()) await envoyerEtat().catch((e) => console.warn('Sync', e));
+  // Sans lecture réussie, on garde la modification sur l'appareil : la prochaine synchronisation l'enverra
+  // si elle est plus récente, sans risquer d'écraser le compte avec un état incomplet.
+  if (session() && lu) await envoyerEtat().catch((e) => console.warn('Sync', e));
 }
 
 /* ---------- Questions à Claude ---------- */

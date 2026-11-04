@@ -1,0 +1,19 @@
+# Surveillance de la bibliothèque Garmin du serveur : Garmin change régulièrement sa connexion,
+# et seule une version récente de garminconnect suit ces changements.
+# Dependabot ouvre une PR dès qu'une nouvelle version sort (vérification chaque lundi).
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/serveur"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Paris"
+    allow:
+      - dependency-name: "garminconnect"
+    commit-message:
+      prefix: "Garmin"
+    labels:
+      - "garmin"
+    open-pull-requests-limit: 3

@@ -518,7 +518,7 @@ class Garmins:
 
 def _message_erreur(e: Exception) -> str:
     texte = f"{type(e).__name__} {e}".lower()
-    if "429" in texte or "too many" in texte:
+    if "429" in texte or "427" in texte or "too many" in texte or "rate limited" in texte or "blocked" in texte:
         return "Garmin refuse temporairement les connexions : réessaie dans quelques minutes."
     if "mfa" in texte or ("code" in texte and "invalid" in texte):
         return "Code de vérification refusé, réessaie."

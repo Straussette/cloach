@@ -102,3 +102,33 @@ create table if not exists public.admins (
 );
 alter table public.admins enable row level security;
 revoke all on public.admins from anon, authenticated;
+
+-- ---------- Historique des documents ----------
+-- Filet de sécurité : les 30 dernières versions du document de chaque compte (copie de l'ancienne version
+-- à chaque modification), pour pouvoir restaurer après une écriture malheureuse. Lue par le serveur seul
+-- (RLS sans règle), effacée avec le compte.
+create table if not exists public.donnees_historique (
+  id bigserial primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  data jsonb not null,
+  archive timestamptz not null default now()
+);
+create index if not exists donnees_historique_user on public.donnees_historique (user_id, archive desc);
+alter table public.donnees_historique enable row level security;
+
+create or replace function public.archiver_donnees() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if old.data is distinct from new.data then
+    insert into public.donnees_historique (user_id, data) values (old.user_id, old.data);
+    delete from public.donnees_historique h
+     where h.user_id = old.user_id
+       and h.id not in (select id from public.donnees_historique where user_id = old.user_id order by archive desc, id desc limit 30);
+  end if;
+  return new;
+end $$;
+revoke all on function public.archiver_donnees() from public, anon, authenticated;
+
+drop trigger if exists archiver_donnees on public.donnees;
+create trigger archiver_donnees before update on public.donnees
+  for each row execute function public.archiver_donnees();

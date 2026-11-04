@@ -73,7 +73,7 @@ URL_APP = os.environ.get("URL_APP", "https://cloach.pstrauss.org/").strip()
 stravas = Stravas(base, ORIGINES_APP, CLE_SIGNATURE, URL_PUBLIQUE, URL_APP)
 acces = Acces(CLE_SIGNATURE, URL_PUBLIQUE, base.verifier_compte)
 
-CONSIGNES = """Tu es Cloach, le coach sportif personnel de l'utilisateur : bienveillant, précis, exigeant juste ce qu'il faut. Tu coaches la course à pied, le trail, le vélo (y compris home trainer / Zwift), le ski de randonnée, le renforcement musculaire, la natation et le multisport. Tu parles en français et tu tutoies, sauf si l'utilisateur écrit dans une autre langue.
+CONSIGNES = """Tu es Cloach, le coach sportif personnel de l'utilisateur : bienveillant, précis, exigeant juste ce qu'il faut. Tu coaches la course à pied, le trail, le vélo (y compris home trainer / Zwift), le ski de randonnée, la natation, le renforcement et la musculation, les sports de raquette (tennis, padel), les sports collectifs (foot, basket) et le multisport. Tu parles en français et tu tutoies, sauf si l'utilisateur écrit dans une autre langue.
 
 Avant de conseiller, appuie-toi sur ses vraies données :
 - contexte_du_jour donne en un appel la date, le profil, les séances prévues autour d'aujourd'hui, le journal récent, les activités des 14 derniers jours et si Garmin ou Strava est branché (avec Strava seul, les outils Garmin ne marchent pas : appuie-toi sur l'historique, et demande à l'utilisateur son sommeil et sa fatigue) ;
@@ -82,7 +82,11 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan : le jour J, vérifie avec forme_du_jour si la séance prévue reste pertinente, puis enregistre ton verdict avec avis_du_jour (garder, alléger, remplacer ou repos), avec la séance de remplacement s'il y en a une. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Pour chaque séance, écris son objectif (son intérêt en une courte phrase) : c'est ce que l'utilisateur voit d'abord dans le plan. Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Pour une séance de course sur tapis, ajoute toujours une alternative structurée « Sur route » (et pour une séance sur route ou sur piste, une alternative « Sur tapis »), qui garde le même effet : allures adaptées, côtes remplacées par l'inclinaison du tapis ou l'inverse. Structure aussi les alternatives. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app. Pour la course et le trail, profil_terrain montre comment l'athlète court à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP, montées), et à vélo (sport velo, dehors et home trainer à part) comment il roule sur chaque terrain : quand tu construis un plan, cible le terrain le plus faible au regard de l'objectif ; quand tu fais ce diagnostic, enregistre-le avec enregistrer_analyse_terrain (même sport). Pour comparer la course et le vélo, ou traduire une séance de l'un dans l'autre, passe par seuils_puissance : la puissance de course Garmin sort bien plus haut qu'à vélo, raisonne donc en % du seuil de chaque sport."""
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Pour chaque séance, écris son objectif (son intérêt en une courte phrase) : c'est ce que l'utilisateur voit d'abord dans le plan. Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Pour une séance de course sur tapis, ajoute toujours une alternative structurée « Sur route » (et pour une séance sur route ou sur piste, une alternative « Sur tapis »), qui garde le même effet : allures adaptées, côtes remplacées par l'inclinaison du tapis ou l'inverse. Structure aussi les alternatives. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app. Pour la course et le trail, profil_terrain montre comment l'athlète court à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP, montées), et à vélo (sport velo, dehors et home trainer à part) comment il roule sur chaque terrain : quand tu construis un plan, cible le terrain le plus faible au regard de l'objectif ; quand tu fais ce diagnostic, enregistre-le avec enregistrer_analyse_terrain (même sport). Pour comparer la course et le vélo, ou traduire une séance de l'un dans l'autre, passe par seuils_puissance : la puissance de course Garmin sort bien plus haut qu'à vélo, raisonne donc en % du seuil de chaque sport.
+
+Renfo et musculation : ils font partie du plan (en général 1 à 2 séances par semaine selon le temps disponible, 30 à 50 min), et sont adaptés au sport que l'athlète veut privilégier (profil.sportPrioritaire, sinon son objectif) : trail et course → excentrique des quadriceps, mollets et pieds, fessiers, gainage, proprioception, un peu de pliométrie ; vélo → squats et fentes, soulevé de terre roumain, gainage, haut du dos ; tennis et padel → rotations du tronc, épaules (coiffe des rotateurs), appuis latéraux, changements de direction, avant-bras ; foot et basket → ischios (nordic hamstrings), adducteurs, pliométrie, vitesse et changements de direction, gainage ; natation → dos, épaules, gainage. Tiens compte des blessures et du matériel indiqués (salle, haltères, élastiques ou poids du corps) et de la période (plus de force loin de l'objectif, entretien près de lui, rien de lourd dans les 48 h avant une séance clé ou une compétition). Écris chaque séance de renfo avec le sport « renfo » et ses exercices (champ exercices : nom, séries, répétitions ou durée, charge, repos, consigne) ; donne une alternative sans matériel. L'app les affiche en tableau et peut les envoyer sur la montre Garmin comme séance de musculation.
+
+Sports de raquette et collectifs : compte les matchs et les entraînements de club (tennis, padel, foot, basket) dans la charge, place les séances dures loin d'eux, et propose au besoin des séances spécifiques (vitesse, appuis, répétition de sprints, endurance intermittente) en les structurant étape par étape avec le sport course quand elles se font en courant."""
 
 mcp = MCPServer(
     name="cloach",
@@ -97,7 +101,7 @@ mcp = MCPServer(
     ),
 )
 
-Sport = Literal["course", "trail", "velo", "renfo", "natation", "ski_rando", "autre"]
+Sport = Literal["course", "trail", "velo", "renfo", "natation", "ski_rando", "tennis", "padel", "foot", "basket", "autre"]
 Intensite = Literal["repos", "facile", "modere", "soutenu", "tres-soutenu"]
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 
@@ -219,6 +223,16 @@ class Etape(EtapeSimple):
     etapes: list[EtapeSimple] | None = Field(default=None, description="Pour une répétition : les étapes répétées (ex. effort puis récupération)")
 
 
+class Exercice(BaseModel):
+    nom: str = Field(description="Nom de l'exercice, ex. « Squat goblet », « Nordic hamstrings », « Gainage planche »")
+    series: int = Field(ge=1, le=20, description="Nombre de séries")
+    repetitions: str | None = Field(default=None, description="Répétitions par série, ex. « 8 », « 8-10 », « 6 par jambe »")
+    duree_s: int | None = Field(default=None, ge=1, le=3600, description="Ou durée par série en secondes (gainage, isométrie)")
+    charge: str | None = Field(default=None, description="Ex. « 2 × 12 kg », « poids du corps », « élastique moyen », « RPE 7 »")
+    repos_s: int | None = Field(default=None, ge=0, le=600, description="Repos entre les séries, en secondes")
+    consigne: str | None = Field(default=None, description="Point technique ou tempo, ex. « descente en 3 s »")
+
+
 class Alternative(BaseModel):
     pour: str = Field(description="Dans quel cas la choisir, ex. « Si fatigue », « Si peu de temps », « En intérieur »")
     sport: Sport
@@ -227,6 +241,7 @@ class Alternative(BaseModel):
     intensite: Intensite
     details: str = Field(description="Contenu précis de la séance")
     etapes: list[Etape] = Field(default_factory=list, description="Structure étape par étape (facultatif)")
+    exercices: list[Exercice] = Field(default_factory=list, description="Pour une séance de renfo ou de musculation : les exercices")
 
 
 class Seance(BaseModel):
@@ -239,6 +254,7 @@ class Seance(BaseModel):
     objectif: str = Field(default="", description="L'intérêt de la séance en une courte phrase, affichée dans le plan simplifié (ex. « Développer la VMA », « Endurance fondamentale, récupération active »)")
     alternatives: list[Alternative] = Field(default_factory=list, description="1 à 3 variantes que l'utilisateur peut choisir à la place")
     etapes: list[Etape] = Field(default_factory=list, description="Structure étape par étape, pour l'envoyer sur la montre Garmin ou dans Zwift : échauffement, efforts (souvent dans une répétition effort + récupération), retour au calme, avec des cibles (zones de FC, allures, puissance ou % de FTP)")
+    exercices: list[Exercice] = Field(default_factory=list, description="Pour une séance de renfo ou de musculation (sport « renfo ») : les exercices, avec séries, répétitions ou durée, charge et repos ; elle peut alors partir sur la montre Garmin comme séance de musculation")
 
 
 class Semaine(BaseModel):
@@ -279,25 +295,37 @@ async def enregistrer_plan(resume: str, semaines: list[Semaine], conseils: list[
             message += (f" {len(a_structurer)} séance(s) de course, trail ou vélo sans étapes : structure-les maintenant avec "
                         "structurer_seance (ids : " + ", ".join(s["id"] for s in a_structurer) + ") pour qu'elles puissent "
                         "partir sur la montre Garmin ou dans Zwift.")
+        sans_exercices = [s for w in nouvelles for s in w["seances"] if s["sport"] == "renfo" and not s.get("exercices")]
+        if sans_exercices:
+            message += (f" {len(sans_exercices)} séance(s) de renfo sans exercices : détaille-les avec structurer_seance "
+                        "(paramètre exercices ; ids : " + ", ".join(s["id"] for s in sans_exercices) + ").")
         return message
 
     return await _modifier(uid, changer)
 
 
 @mcp.tool()
-async def structurer_seance(id_seance: str, etapes: list[Etape]) -> str:
-    """Donne (ou remplace) la structure étape par étape d'une séance du plan, pour qu'elle puisse partir sur
-    la montre Garmin ou dans Zwift. Exemple de fractionné : échauffement 15 min zone_fc 2, répétition 6 fois
-    [effort 3 min allure 4:10-4:20, récupération 2 min zone_fc 1], retour au calme 10 min."""
+async def structurer_seance(id_seance: str, etapes: list[Etape] | None = None,
+                            exercices: list[Exercice] | None = None) -> str:
+    """Donne (ou remplace) la structure d'une séance du plan, pour qu'elle puisse partir sur la montre Garmin
+    ou dans Zwift. etapes (course, trail, vélo), ex. de fractionné : échauffement 15 min zone_fc 2, répétition
+    6 fois [effort 3 min allure 4:10-4:20, récupération 2 min zone_fc 1], retour au calme 10 min.
+    exercices (renfo, musculation), ex. : Squat goblet 4 × 8 à 16 kg, repos 90 s ; Gainage planche 3 × 45 s."""
     uid = _uid()
+    if not etapes and not exercices:
+        raise ToolError("Donne les etapes (course, trail, vélo) ou les exercices (renfo).")
 
     def changer(etat: dict[str, Any]) -> str:
         seance = next((x for x in _seances(etat) if x.get("id") == id_seance), None)
         if not seance:
             raise ToolError("Séance introuvable dans le plan.")
-        seance["etapes"] = [e.model_dump(exclude_none=True) for e in etapes]
+        if etapes:
+            seance["etapes"] = [e.model_dump(exclude_none=True) for e in etapes]
+        if exercices:
+            seance["exercices"] = [e.model_dump(exclude_none=True) for e in exercices]
         seance.pop("garmin", None)
-        return f"Séance « {seance.get('titre', '')} » structurée ({len(etapes)} étapes) : elle peut partir sur la montre depuis l'app."
+        quoi = f"{len(etapes)} étapes" if etapes else f"{len(exercices or [])} exercices"
+        return f"Séance « {seance.get('titre', '')} » structurée ({quoi}) : elle peut partir sur la montre depuis l'app."
 
     return await _modifier(uid, changer)
 
@@ -451,11 +479,13 @@ async def modifier_profil(
     contraintes: str | None = None, sports: list[Sport] | None = None, ftp: int | None = None,
     poids: float | None = Field(default=None, ge=30, le=200),
     seuil_course: int | None = Field(default=None, ge=100, le=900),
+    sport_prioritaire: Sport | None = None,
 ) -> dict[str, Any]:
     """Met à jour le profil sportif (seuls les champs donnés changent) : objectif, date de l'objectif
     (AAAA-MM-JJ), niveau, séances par semaine, jours disponibles (lundi…dimanche), contraintes ou
     blessures, sports pratiqués, FTP vélo en watts, poids en kg (pour les W/kg), seuil de puissance course en
-    watts (puissance Garmin tenue environ 1 h). Renvoie le profil à jour."""
+    watts (puissance Garmin tenue environ 1 h), sport à privilégier (les séances de renfo du plan lui sont
+    adaptées). Renvoie le profil à jour."""
     uid = _uid()
     changements = {
         "objectif": objectif, "dateObjectif": date_objectif, "niveau": niveau,
@@ -465,6 +495,7 @@ async def modifier_profil(
         "ftp": str(ftp) if ftp else None,
         "poids": f"{poids:g}" if poids else None,
         "seuilCourse": str(seuil_course) if seuil_course else None,
+        "sportPrioritaire": sport_prioritaire,
     }
 
     def changer(etat: dict[str, Any]) -> dict[str, Any]:

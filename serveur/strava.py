@@ -41,6 +41,9 @@ SPORTS_STRAVA = {
               "Elliptical", "StairStepper", "Rowing"},
     "natation": {"Swim"},
     "ski_rando": {"BackcountrySki"},
+    "tennis": {"Tennis"},
+    "padel": {"Padel", "Pickleball"},
+    "foot": {"Soccer"},
 }
 
 

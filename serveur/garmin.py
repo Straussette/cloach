@@ -44,6 +44,10 @@ SPORTS_GARMIN = {
               "elliptical", "stair_climbing", "indoor_rowing"},
     "natation": {"lap_swimming", "open_water_swimming", "swimming"},
     "ski_rando": {"backcountry_skiing", "backcountry_skiing_snowboarding_ws", "backcountry_snowboarding"},
+    "tennis": {"tennis"},
+    "padel": {"padel", "pickleball"},
+    "foot": {"soccer", "football", "indoor_soccer"},
+    "basket": {"basketball"},
 }
 
 
@@ -62,7 +66,9 @@ RECORDS_GARMIN = {
 
 
 def sport_cloach(type_garmin: str) -> str:
-    return next((s for s, types in SPORTS_GARMIN.items() if type_garmin in types), "autre")
+    # Garmin renomme certains types en « …_v2 » (tennis_v2, rowing_v2…) : on compare aussi sans le suffixe
+    base = type_garmin.removesuffix("_v2")
+    return next((s for s, types in SPORTS_GARMIN.items() if type_garmin in types or base in types), "autre")
 
 
 def puissances_max(a: dict[str, Any]) -> dict[str, int] | None:

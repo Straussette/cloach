@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-04.1">
+<meta name="app-version" content="2026-11-04.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -159,6 +159,12 @@
   .choix-activite input { width:auto; margin-top:3px; }
   .structure { margin:8px 0 0; padding-left:18px; font-size:.86rem; line-height:1.5; }
   .actions-seance { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .exercices { list-style:none; margin:8px 0 0; padding:0; font-size:.88rem; }
+  .exercices li { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:2px 10px; padding:7px 0; border-bottom:1px solid var(--border); }
+  .exercices li:last-child { border-bottom:0; }
+  .exercices .nom { font-weight:600; }
+  .exercices .nb { white-space:nowrap; font-variant-numeric:tabular-nums; font-weight:600; }
+  .exercices .detail { grid-column:1 / -1; color:var(--muted); font-size:.82rem; }
   .actions-seance .btn { padding:7px 12px; font-size:.85rem; }
   .actions-seance .ok { font-size:.82rem; color:var(--ok); align-self:center; }
   .semaines-plan { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; margin-bottom:12px; }
@@ -438,6 +444,8 @@
           </select>
         </label>
         <div><p class="muted petit" style="margin:0 0 6px">Sports pratiqués</p><div class="cases" id="p-sports"></div></div>
+        <label>Sport à privilégier<select id="p-sportPrioritaire"></select>
+          <span class="muted petit">Les séances de renfo et de muscu du plan lui seront adaptées.</span></label>
         <label>Objectif<textarea id="p-objectif" placeholder="Ex. trail de 40 km et 2 000 m D+ ; semi-marathon en moins de 1 h 45 ; reprendre la forme…"></textarea></label>
         <div class="deux">
           <label>Date de l'objectif<input type="date" id="p-dateObjectif"></label>
@@ -452,7 +460,7 @@
           <span class="muted petit" id="aideSeuil" style="align-self:end"></span>
         </div>
         <div><p class="muted petit" style="margin:0 0 6px">Jours disponibles</p><div class="cases" id="p-jours"></div></div>
-        <label>Contraintes, blessures, matériel<textarea id="p-contraintes" placeholder="Ex. genou fragile, home trainer avec capteur de puissance, piscine le mardi…"></textarea></label>
+        <label>Contraintes, blessures, matériel<textarea id="p-contraintes" placeholder="Ex. genou fragile, home trainer avec capteur de puissance, salle de muscu ou haltères à la maison, match de tennis le samedi…"></textarea></label>
         <p class="statut" id="statutProfil"></p>
         <button class="btn large" type="submit">Enregistrer</button>
       </form>
@@ -634,9 +642,13 @@ const SPORTS = {
   course: { nom: 'Course à pied', icone: '🏃' },
   trail: { nom: 'Trail', icone: '⛰️' },
   velo: { nom: 'Vélo', icone: '🚴' },
-  renfo: { nom: 'Renforcement', icone: '💪' },
+  renfo: { nom: 'Renfo / muscu', icone: '💪' },
   natation: { nom: 'Natation', icone: '🏊' },
   ski_rando: { nom: 'Ski de rando', icone: '🎿' },
+  tennis: { nom: 'Tennis', icone: '🎾' },
+  padel: { nom: 'Padel', icone: '🏓' },
+  foot: { nom: 'Foot', icone: '⚽' },
+  basket: { nom: 'Basket', icone: '🏀' },
   autre: { nom: 'Autre', icone: '✨' },
 };
 const INTENSITES = { repos: 'repos', facile: 'facile', modere: 'modéré', soutenu: 'soutenu', 'tres-soutenu': 'très soutenu' };
@@ -1062,16 +1074,26 @@ function texteEtape(e) {
   return [quantite, texteCible(e.cible)].filter(Boolean).join(' à ');
 }
 // s : la séance, ou une alternative (index = son numéro dans s.alternatives, idSeance = la séance)
+// Exercices d'une séance de renfo : { nom, series, repetitions | duree_s, charge, repos_s, consigne }
+function htmlExercices(exercices) {
+  const quantite = (x) => `${x.series || 1} × ${x.duree_s ? texteEtape({ duree_s: x.duree_s }) : x.repetitions || '—'}`;
+  return `<ul class="exercices">${exercices.map((x) => {
+    const detail = [x.charge, x.repos_s ? `repos ${texteEtape({ duree_s: x.repos_s })}` : '', x.consigne].filter(Boolean).join(' · ');
+    return `<li><span class="nom">${esc(x.nom)}</span><span class="nb">${esc(quantite(x))}</span>${detail ? `<span class="detail">${esc(detail)}</span>` : ''}</li>`;
+  }).join('')}</ul>`;
+}
+
 function htmlStructure(s, index = null, idSeance = s.id) {
-  if (!s.etapes?.length) return '';
-  const lignes = s.etapes.map((e) => (e.type === 'repetition'
+  const exercices = s.sport === 'renfo' && s.exercices?.length;
+  if (!s.etapes?.length && !exercices) return '';
+  const lignes = (s.etapes || []).map((e) => (e.type === 'repetition'
     ? `<li>${esc(e.repetitions || 1)} × (${(e.etapes || []).map((x) => esc(texteEtape(x))).join(' + ')})</li>`
     : `<li>${esc(NOMS_ETAPES[e.type] || e.type)} : ${esc(texteEtape(e))}</li>`)).join('');
-  const surMontre = ['course', 'trail', 'velo'].includes(s.sport) && etat.garmin?.connecte;
+  const surMontre = ['course', 'trail', 'velo', 'renfo'].includes(s.sport) && etat.garmin?.connecte;
   const garmin = s.garmin?.workoutId
     ? `<span class="ok">✓ Sur ta montre (programmé le ${esc(dateLisible(s.garmin.programme, false))})</span><button class="btn secondaire" type="button" data-garmin-seance="${esc(idSeance)}" data-alt="${index ?? ''}">Renvoyer</button>`
     : `<button class="btn secondaire" type="button" data-garmin-seance="${esc(idSeance)}" data-alt="${index ?? ''}">⌚ Envoyer sur ma montre</button>`;
-  return `<ol class="structure">${lignes}</ol><div class="actions-seance">${surMontre ? garmin : ''}${s.sport === 'velo' ? `<button class="btn secondaire" type="button" data-zwift-seance="${esc(idSeance)}" data-alt="${index ?? ''}">🚴 Fichier Zwift</button>` : ''}</div>`;
+  return `${exercices ? htmlExercices(s.exercices) : `<ol class="structure">${lignes}</ol>`}<div class="actions-seance">${surMontre ? garmin : ''}${s.sport === 'velo' ? `<button class="btn secondaire" type="button" data-zwift-seance="${esc(idSeance)}" data-alt="${index ?? ''}">🚴 Fichier Zwift</button>` : ''}</div>`;
 }
 
 document.addEventListener('click', async (e) => {
@@ -1607,6 +1629,8 @@ document.addEventListener('click', (e) => {
 /* ---------- Onglet Profil ---------- */
 $('#p-sports').innerHTML = Object.entries(SPORTS).filter(([k]) => k !== 'autre')
   .map(([k, s]) => `<label><input type="checkbox" value="${k}">${s.icone} ${esc(s.nom)}</label>`).join('');
+$('#p-sportPrioritaire').innerHTML = '<option value="">—</option>' + Object.entries(SPORTS).filter(([k]) => k !== 'autre')
+  .map(([k, s]) => `<option value="${k}">${s.icone} ${esc(s.nom)}</option>`).join('');
 $('#p-jours').innerHTML = JOURS.map((j) => `<label><input type="checkbox" value="${j}">${j.slice(0, 3)}</label>`).join('');
 $('#adresseConnecteur').value = SERVEUR + '/mcp';
 $('#btnCopier').onclick = async () => {
@@ -1615,7 +1639,7 @@ $('#btnCopier').onclick = async () => {
   setTimeout(() => { $('#btnCopier').textContent = 'Copier'; }, 2000);
 };
 
-const CHAMPS_PROFIL = ['prenom', 'age', 'niveau', 'objectif', 'dateObjectif', 'seancesSemaine', 'ftp', 'poids', 'seuilCourse', 'contraintes'];
+const CHAMPS_PROFIL = ['prenom', 'age', 'niveau', 'sportPrioritaire', 'objectif', 'dateObjectif', 'seancesSemaine', 'ftp', 'poids', 'seuilCourse', 'contraintes'];
 function afficherProfil() {
   // On ne réécrit pas le formulaire pendant qu'on le remplit
   if ($('#formProfil').contains(document.activeElement)) return;

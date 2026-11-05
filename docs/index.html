@@ -1849,8 +1849,15 @@ async function chargerActivites() {
   if (!activites.length) afficherStats(); // indicateur de chargement plutôt que « Importer ton historique »
   try {
     const lignes = [];
+    // puissances_calculees : colonne ajoutée par une migration ; si elle manque encore, on lit sans elle
+    let colonnes = 'id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,puissance_moy,puissances_max,pc:puissances_calculees,tv:terrains->v';
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
-      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,puissance_moy,puissances_max,pc:puissances_calculees,tv:terrains->v&order=jour.asc,id.asc&limit=1000&offset=${lignes.length}`);
+      const url = () => `/rest/v1/activites?select=${colonnes}&order=jour.asc,id.asc&limit=1000&offset=${lignes.length}`;
+      const page = await sbFetch(url()).catch((e) => {
+        if (!colonnes.includes('puissances_calculees') || !/puissances_calculees/.test(e.message)) throw e;
+        colonnes = colonnes.replace(',pc:puissances_calculees', '');
+        return sbFetch(url());
+      });
       lignes.push(...(page || []));
       if (!page || page.length < 1000) break;
     }

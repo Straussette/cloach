@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-05.1">
+<meta name="app-version" content="2026-11-05.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1850,7 +1850,7 @@ async function chargerActivites() {
   try {
     const lignes = [];
     for (;;) { // l'API renvoie au plus 1000 lignes par appel
-      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,puissance_moy,puissances_max,tv:terrains->v&order=jour.asc,id.asc&limit=1000&offset=${lignes.length}`);
+      const page = await sbFetch(`/rest/v1/activites?select=id,jour,debut,sport,type,nom,distance_km,duree_min,denivele_m,fc_moy,charge,vap_min_km,puissance_moy,puissances_max,pc:puissances_calculees,tv:terrains->v&order=jour.asc,id.asc&limit=1000&offset=${lignes.length}`);
       lignes.push(...(page || []));
       if (!page || page.length < 1000) break;
     }
@@ -2193,11 +2193,14 @@ function afficherStats() {
 // Pour chaque activité : les records qu'elle détient, de tous les temps ou des 12 derniers mois, dans sa famille
 // (course + trail, vélo, ski de rando) : distance, dénivelé, durée, et meilleure puissance sur 1, 5, 20 min et 1 h.
 // [code, valeur, texte court du record]
+// Meilleure puissance d'une sortie sur une durée (secondes) : courbe de Garmin (vélo), sinon celle calculée par
+// Cloach à partir du profil détaillé (colonne puissances_calculees, tenue à jour par la base) : course, trail…
+const puissanceMax = (a, d) => Number(a.puissances_max?.[d]) || Number(a.pc?.[d]) || 0;
 const MESURES_RECORD = [
   ['distance', (a) => Number(a.distance_km) || 0, (v) => `${nombre(v, 1)} km`],
   ['denivele', (a) => Number(a.denivele_m) || 0, (v) => `${nombre(v)} m D+`],
   ['duree', (a) => Number(a.duree_min) || 0, (v) => `durée ${dureeLisible(Math.round(v))}`],
-  ...[[60, '1 min'], [300, '5 min'], [1200, '20 min'], [3600, '1 h']].map(([d, nom]) => [`p${d}`, (a) => Number(a.puissances_max?.[d]) || 0, (v) => `${nombre(v)} W sur ${nom}`]),
+  ...[[60, '1 min'], [300, '5 min'], [1200, '20 min'], [3600, '1 h']].map(([d, nom]) => [`p${d}`, (a) => puissanceMax(a, d), (v) => `${nombre(v)} W sur ${nom}`]),
 ];
 let cacheBadges = { cle: '', parId: new Map() };
 function badgesRecords() {
@@ -2430,7 +2433,7 @@ function trierParPertinence(liste) {
   const recent = decaler(jourISO(), -168);
   const familles = {};
   for (const a of liste) (familles[a.sport === 'velo' ? (interieur(a) ? 'ht' : 'velo') : 'pied'] ||= []).push(a);
-  const champs = [(a) => Number(a.denivele_m), (a) => Number(a.duree_min), (a) => Number(a.charge), (a) => Number(a.puissances_max?.['1200'])];
+  const champs = [(a) => Number(a.denivele_m), (a) => Number(a.duree_min), (a) => Number(a.charge), (a) => puissanceMax(a, 1200)];
   const score = new Map();
   for (const groupe of Object.values(familles)) {
     // Rang de chaque valeur dans sa famille, entre 0 et 1
@@ -2722,6 +2725,7 @@ const depuis6Mois = () => decaler(jourISO(), -182);
 function courbeSortie(a, calculees) {
   const courbe = {};
   for (const [d, p] of Object.entries(a.puissances_max || {})) if (p > 0) courbe[d] = p;
+  for (const [d, p] of Object.entries(a.pc || {})) if (p > 0 && !courbe[d]) courbe[d] = p;
   for (const [d, m] of Object.entries(calculees.get(a.id) || {})) if (m.puissance && !courbe[d]) courbe[d] = m.puissance;
   return courbe;
 }

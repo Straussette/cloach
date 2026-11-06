@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-06.3">
+<meta name="app-version" content="2026-11-06.4">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2474,7 +2474,8 @@ let analyseTerrainEnCours = false;
 
 // 26 semaines d'habitude ; tout l'historique quand la période « Tout l'historique » est choisie
 let terrainsTout = false, terrainsCharges = false, terrainsEnCours = false;
-const CHAMPS_TERRAINS = ['v', 'vide', 'sport', 'temps_s', 'plat', 'montee', 'descente', 'montees', 'efforts'];
+// (pas « sport » : le nom entrerait en conflit avec la colonne sport de l'activité, et seul le vélo l'a)
+const CHAMPS_TERRAINS = ['v', 'vide', 'temps_s', 'plat', 'montee', 'descente', 'montees', 'efforts'];
 async function chargerTerrains() {
   if (!session()) { lignesTerrain = []; return; }
   const tout = choixStats.terrain === 'tout';

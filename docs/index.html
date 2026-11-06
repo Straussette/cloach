@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-06.4">
+<meta name="app-version" content="2026-11-06.5">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -573,6 +573,7 @@
     </div>
 
     <p class="muted petit pied"><a href="confidentialite.html">Confidentialité</a> · <button class="btn discret" type="button" id="btnAfficherGuide">Guide de démarrage</button></p>
+    <p class="muted petit pied" id="versionApp"></p>
   </section>
 </main>
 
@@ -718,6 +719,8 @@ const JOURS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dim
 
 /* ---------- Utilitaires ---------- */
 const $ = (s) => document.querySelector(s);
+// Version affichée en bas du Profil, pour savoir quelle version tourne sur un téléphone
+addEventListener('DOMContentLoaded', () => { const v = document.querySelector('#versionApp'); if (v) v.textContent = 'Version ' + document.querySelector('meta[name="app-version"]').content; });
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

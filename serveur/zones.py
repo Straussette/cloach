@@ -128,17 +128,29 @@ def seuil1_derive(analysees: list[dict[str, Any]], famille: str, fc_s2: float) -
             "confiance": confiance, "correlation": round(r, 2) if r is not None else None}
 
 
+# Tapis : la montre ne connaît pas l'inclinaison, une côte à 10 % y passe pour du plat (allure et puissance fausses)
+TYPES_INTERIEUR = {"treadmill_running", "indoor_running", "virtual_run"}
+
+
 def droites(analysees: list[dict[str, Any]], fc_bas: float, fc_haut: float) -> dict[str, tuple[float, float]]:
-    """Droites FC → puissance et FC → vitesse « à plat » (m/s), entre deux FC, d'après les histogrammes."""
+    """Droites FC → puissance et FC → vitesse (m/s), entre deux FC, d'après les histogrammes. Hors tapis ; la
+    vitesse vient des passages plats quand l'analyse les distingue (version 7), sinon de la vitesse « à plat »."""
     pts_p, pts_v = [], []
     for a in analysees:
-        for bpm, (t, t_p, somme_p, dist) in ((_physio(a) or {}).get("h") or {}).items():
+        if a.get("type") in TYPES_INTERIEUR:
+            continue
+        for bpm, valeurs in ((_physio(a) or {}).get("h") or {}).items():
+            t, t_p, somme_p, dist = valeurs[:4]
+            t_plat, dist_plat = (valeurs[4], valeurs[5]) if len(valeurs) >= 6 else (None, None)
             fc = float(bpm)
             if not fc_bas <= fc <= fc_haut:
                 continue
             if t_p >= 30:
                 pts_p.append((fc, somme_p / t_p, t_p))
-            if t >= 30 and dist > 0:
+            if t_plat is not None:
+                if t_plat >= 30 and dist_plat > 0:
+                    pts_v.append((fc, dist_plat / t_plat, t_plat))
+            elif t >= 30 and dist > 0:
                 pts_v.append((fc, dist / t, t))
     resultat = {}
     for nom, pts in (("puissance", pts_p), ("vitesse", pts_v)):

@@ -23,7 +23,7 @@ from vap import LISSAGE, PAS_M, VITESSE_ARRET, coefficient
 
 # Versions du calcul, à augmenter si la méthode change : l'app et le serveur réanalysent alors les sorties
 # de ce sport ; les analyses d'au moins VERSION_AFFICHAGE restent affichées en attendant
-VERSION = 6           # course et trail (5 : meilleure VAP par durée ; 6 : analyse cardiaque pour les zones)
+VERSION = 7           # course et trail (5 : meilleure VAP par durée ; 6 : analyse cardiaque ; 7 : vitesse à plat par FC)
 VERSION_VELO = 5      # (5 : analyse cardiaque pour les zones)
 VERSION_AFFICHAGE = 4
 PLAT_PCT = 2.0        # entre −2 % et +2 % : plat
@@ -254,10 +254,13 @@ def _montees(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float]
     return montees
 
 
-def _physio(s: dict[str, list[Any]], mouvement: list[float], coef: list[float], velo: bool) -> dict[str, Any] | None:
+def _physio(s: dict[str, list[Any]], mouvement: list[float], coef: list[float], velo: bool,
+            plat: list[bool] | None = None) -> dict[str, Any] | None:
     """Analyse cardiaque d'une sortie, pour les zones (zones.py) :
     - h : pour chaque battement par minute, le temps passé (s), le temps où la puissance est connue,
-      la somme puissance × temps et la distance « à plat » parcourue (VAP en course, distance à vélo) :
+      la somme puissance × temps, la distance « à plat » parcourue (VAP en course, distance à vélo),
+      puis le temps et la distance sur les passages réellement plats (pente entre −2 et +2 %) : l'allure aux
+      seuils se lit là, car en côte la FC reste haute alors qu'on ralentit ou qu'on marche :
       de quoi relier la FC à la puissance ou à l'allure, et compter le temps par zone quelles qu'elles soient ;
     - hp : temps par tranche de 10 W (zones de puissance) ;
     - max : meilleures FC moyennes sur 20, 30 et 60 min (seuil 2) ;
@@ -284,9 +287,12 @@ def _physio(s: dict[str, list[Any]], mouvement: list[float], coef: list[float], 
         if not f:
             continue
         dd = (s["dist"][i] - s["dist"][i - 1]) * (1.0 if velo else coef[i])
-        e = h.setdefault(int(round(f)), [0.0, 0.0, 0.0, 0.0])
+        e = h.setdefault(int(round(f)), [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         e[0] += dt
         e[3] += dd
+        if plat and plat[i]:
+            e[4] += dt
+            e[5] += s["dist"][i] - s["dist"][i - 1]
         if p is not None:
             e[1] += dt
             e[2] += p * dt
@@ -308,7 +314,8 @@ def _physio(s: dict[str, list[Any]], mouvement: list[float], coef: list[float], 
             meilleures[str(duree)] = round(meilleure, 1)
 
     resultat: dict[str, Any] = {
-        "h": {str(b): [round(e[0]), round(e[1]), round(e[2]), round(e[3], 1)] for b, e in sorted(h.items())},
+        "h": {str(b): [round(e[0]), round(e[1]), round(e[2]), round(e[3], 1), round(e[4]), round(e[5], 1)]
+              for b, e in sorted(h.items())},
         "max": meilleures,
     }
     if hp:
@@ -389,6 +396,7 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
     debut = 0
     plats: list[tuple[int, int]] = []  # tronçons plats qui se suivent, regroupés
     coef = [1.0] * n  # coût de la pente de chaque point (celle de son tronçon), pour la meilleure VAP
+    plat_pt = [False] * n  # point d'un tronçon plat (allure aux seuils, zones.py)
     for i in range(1, n):
         # Même découpage que la VAP : pente mesurée par tronçons d'environ PAS_M mètres
         if s["dist"][i] - s["dist"][debut] >= PAS_M or i == n - 1:
@@ -401,6 +409,7 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
                 mesures = _mesures(s, debut, i, mouvement)
                 terrains[terrain].ajouter(temps, troncon, pente, mesures)
                 if terrain == "plat":
+                    plat_pt[debut + 1:i + 1] = [True] * (i - debut)
                     if plats and plats[-1][1] == debut:
                         plats[-1] = (plats[-1][0], i)
                     else:
@@ -426,7 +435,7 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
                                        coef=None if velo else coef),
         "tout": {d: {k: v for k, v in m.items() if k != "vam"} for d, m in tout.items()},
     }
-    physio = _physio(s, mouvement, coef, velo)
+    physio = _physio(s, mouvement, coef, velo, plat_pt)
     if physio:
         resultat["fc"] = physio
     if velo:

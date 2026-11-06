@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-06.6">
+<meta name="app-version" content="2026-11-06.7">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2461,7 +2461,7 @@ document.addEventListener('click', (e) => {
 // L'app en fait la synthèse sur la période, comparée à la période d'avant, comme terrains.profil() pour Claude.
 // Version du calcul par sport (comme terrains.version() côté serveur) : en dessous, la sortie est à
 // réanalyser ; dès VERSION_AFFICHAGE, son analyse reste affichée en attendant
-const versionTerrains = (sport) => (sport === 'velo' ? 5 : 6);
+const versionTerrains = (sport) => (sport === 'velo' ? 5 : 7);
 const VERSION_AFFICHAGE = 4;
 const TERRAINS = [['plat', 'Plat'], ['montee', 'Montée'], ['descente', 'Descente']];
 const TRANCHES = ['2-6', '6-12', '12+'];

@@ -134,7 +134,7 @@ TYPES_INTERIEUR = {"treadmill_running", "indoor_running", "virtual_run"}
 
 def droites(analysees: list[dict[str, Any]], fc_bas: float, fc_haut: float) -> dict[str, tuple[float, float]]:
     """Droites FC → puissance et FC → vitesse (m/s), entre deux FC, d'après les histogrammes. Hors tapis ; la
-    vitesse vient des passages plats quand l'analyse les distingue (version 7), sinon de la vitesse « à plat »."""
+    vitesse ne vient que des passages plats (analyses de course de version 7 et plus)."""
     pts_p, pts_v = [], []
     for a in analysees:
         if a.get("type") in TYPES_INTERIEUR:
@@ -147,11 +147,10 @@ def droites(analysees: list[dict[str, Any]], fc_bas: float, fc_haut: float) -> d
                 continue
             if t_p >= 30:
                 pts_p.append((fc, somme_p / t_p, t_p))
-            if t_plat is not None:
-                if t_plat >= 30 and dist_plat > 0:
-                    pts_v.append((fc, dist_plat / t_plat, t_plat))
-            elif t >= 30 and dist > 0:
-                pts_v.append((fc, dist / t, t))
+            # Vitesse : seulement sur le plat (analyses récentes). Sans cette information, pas d'allure plutôt
+            # qu'une allure faussée par les côtes, où la FC reste haute alors qu'on ralentit ou qu'on marche
+            if t_plat is not None and t_plat >= 30 and dist_plat > 0:
+                pts_v.append((fc, dist_plat / t_plat, t_plat))
     resultat = {}
     for nom, pts in (("puissance", pts_p), ("vitesse", pts_v)):
         if sum(p for *_, p in pts) >= 3600:

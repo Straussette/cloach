@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-05.2">
+<meta name="app-version" content="2026-11-06.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -23,6 +23,7 @@
     --shadow:0 1px 3px rgba(20,33,31,.08), 0 4px 14px rgba(20,33,31,.06);
     --voile-clair:rgba(255,255,255,.16); --voile:rgba(0,0,0,.45);
     --serie-1:#008a7e; --serie-2:#d9581a; --serie-3:#7b5cc4; --serie-autre:#8a9593;
+    --zone-1:#86b6ef; --zone-2:#5598e7; --zone-3:#2a78d6; --zone-4:#1c5cab; --zone-5:#104281;
     color-scheme:light;
   }
   @media (prefers-color-scheme: dark) {
@@ -31,6 +32,7 @@
       --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
       --ok:#4fb378; --alerte:#f07b74; --attention:#e3a25a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
       --serie-1:#1f9e91; --serie-2:#e0703a; --serie-3:#9a7fe0; --serie-autre:#6f7c79;
+      --zone-1:#184f95; --zone-2:#256abf; --zone-3:#3987e5; --zone-4:#6da7ec; --zone-5:#9ec5f4;
     }
   }
   :root[data-theme="dark"] {
@@ -38,6 +40,7 @@
     --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
     --ok:#4fb378; --alerte:#f07b74; --attention:#e3a25a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
     --serie-1:#1f9e91; --serie-2:#e0703a; --serie-3:#9a7fe0; --serie-autre:#6f7c79;
+    --zone-1:#184f95; --zone-2:#256abf; --zone-3:#3987e5; --zone-4:#6da7ec; --zone-5:#9ec5f4;
   }
 
   * { box-sizing:border-box; }
@@ -249,6 +252,29 @@
   .cle.s3 { background:var(--serie-autre); }
   .cle.s4 { background:var(--serie-3); }
   .cle.carre { width:10px; height:10px; border-radius:2px; }
+  /* ---------- Zones ---------- */
+  .graph .barre.z1, .cle.z1, .bande-zones .z1 { fill:var(--zone-1); background:var(--zone-1); }
+  .graph .barre.z2, .cle.z2, .bande-zones .z2 { fill:var(--zone-2); background:var(--zone-2); }
+  .graph .barre.z3, .cle.z3, .bande-zones .z3 { fill:var(--zone-3); background:var(--zone-3); }
+  .graph .barre.z4, .cle.z4, .bande-zones .z4 { fill:var(--zone-4); background:var(--zone-4); }
+  .graph .barre.z5, .cle.z5, .bande-zones .z5 { fill:var(--zone-5); background:var(--zone-5); }
+  .seuils { display:grid; gap:8px; margin:8px 0 12px; }
+  .seuils .ligne { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:2px 10px; }
+  .seuils .nom { font-weight:600; }
+  .seuils .valeur { font-variant-numeric:tabular-nums; font-weight:600; text-align:right; }
+  .seuils .methode { grid-column:1 / -1; color:var(--muted); font-size:.8rem; }
+  .bande-zones { display:flex; gap:2px; height:14px; border-radius:4px; overflow:hidden; margin:8px 0 6px; }
+  .bande-zones span { display:block; min-width:2px; }
+  .legende-zones { display:flex; flex-wrap:wrap; gap:4px 12px; font-size:.82rem; color:var(--muted); margin:6px 0; }
+  .legende-zones span { white-space:nowrap; }
+  .table-zones { overflow-x:auto; }
+  .table-zones td { white-space:nowrap; }
+  .table-zones table { font-size:.84rem; }
+  .table-zones th, .table-zones td { padding:6px 3px; }
+  .table-zones .cle { margin-right:4px; }
+  .corriger summary { cursor:pointer; color:var(--accent); font-size:.9rem; margin:8px 0; }
+  .corriger .trois { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
+  .dfa-liste { list-style:none; margin:6px 0; padding:0; font-size:.85rem; display:grid; gap:4px; }
   .tuiles.detaillees { grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
   .repartition { display:grid; gap:2px; margin-top:6px; font-size:.75rem; color:var(--muted); font-variant-numeric:tabular-nums; }
   .repartition .cle { margin-right:5px; }
@@ -415,6 +441,13 @@
       <div id="puissance"></div>
       <a class="btn secondaire large" target="_blank" rel="noopener" data-question="puissance" style="margin-top:12px">🗣️ Demander au coach de comparer</a>
     </details>
+    <details class="carte repli" id="carteIntensite" data-repli="intensite" hidden>
+      <summary><h3>Répartition de l'intensité</h3><p class="resume-repli" id="resumeIntensite">Temps passé dans chacune de tes zones de fréquence cardiaque</p></summary>
+      <div class="puces compactes" id="periodeIntensite" style="margin-bottom:6px"></div>
+      <div class="puces compactes" id="sportIntensite" style="margin-bottom:10px"></div>
+      <div id="intensite"></div>
+      <a class="btn secondaire large" target="_blank" rel="noopener" data-question="intensite" style="margin-top:12px">🗣️ Demander au coach si mon intensité est bien répartie</a>
+    </details>
     <details class="carte repli" data-repli="analyse">
       <summary><h3>L'avis du coach</h3><p class="resume-repli" id="resumeAnalyse"></p></summary>
       <div class="semaine-h"><span></span><span id="dateAnalyse"></span></div>
@@ -490,6 +523,32 @@
     <div class="carte">
       <h2>Garmin</h2>
       <div id="blocGarmin"></div>
+    </div>
+
+    <div class="carte" id="carteZones" hidden>
+      <h2>Mes zones</h2>
+      <p class="muted petit">Calées sur tes deux seuils, estimés dans tes propres sorties plutôt que par des pourcentages de la FC max. Le coach s'en sert pour les cibles de tes séances.</p>
+      <div class="puces compactes" id="sportZones" style="margin:8px 0"></div>
+      <div id="zones"></div>
+      <details class="corriger" id="corrigerZones">
+        <summary>Corriger mes valeurs (test d'effort, labo…)</summary>
+        <form class="champs" id="formZones">
+          <div class="trois">
+            <label>FC max<input type="number" id="z-fc_max" min="120" max="230" inputmode="numeric"></label>
+            <label>Seuil 1<input type="number" id="z-fc_s1" min="80" max="220" inputmode="numeric"></label>
+            <label>Seuil 2<input type="number" id="z-fc_s2" min="90" max="225" inputmode="numeric"></label>
+          </div>
+          <p class="muted petit">En battements par minute. Laisse vide pour garder l'estimation.</p>
+          <p class="statut" id="statutZones"></p>
+          <button class="btn" type="submit">Enregistrer</button>
+        </form>
+      </details>
+      <div class="actions-seance">
+        <button class="btn secondaire" type="button" id="btnRecalculerZones">↻ Recalculer</button>
+        <button class="btn secondaire" type="button" id="btnDfa">🔬 Analyse fine (DFA α1)</button>
+      </div>
+      <div id="dfa"></div>
+      <p class="muted petit">Pour que ta montre affiche les mêmes zones : Garmin Connect → Paramètres de l'utilisateur → Zones de fréquence cardiaque, puis saisis les bornes ci-dessus.</p>
     </div>
 
     <div class="carte" id="carteStrava" hidden>
@@ -975,6 +1034,7 @@ const QUESTIONS = {
   verifier: () => 'Vérifie si ma séance prévue aujourd\'hui reste pertinente : regarde ma forme du jour (sommeil, VFC, Body Battery, FC de repos) et ma charge récente. Dis-moi s\'il faut la garder, l\'alléger, la remplacer ou me reposer, puis enregistre ton avis.',
   jour: () => 'Que dois-je faire aujourd\'hui ? Regarde mon contexte du jour et ma forme, dis-moi si je garde, allège ou décale la séance prévue, puis détaille la séance.',
   analyse: () => 'Analyse mon historique d\'activités : volume, régularité, progression, répartition par sport, équilibre endurance / intensité et points d\'attention, en lien avec mon objectif. Puis enregistre ton commentaire pour l\'app.',
+  intensite: () => 'Regarde la répartition de mon intensité par zone (repartition_intensite et mes_zones) sur les dernières semaines : est-elle bien polarisée pour mon objectif ? Repère les séances faciles faites trop vite et dis-moi ce que je dois changer.',
   puissance: () => 'Compare ma puissance en course et à vélo (seuils_puissance) : mes seuils, le ratio entre les deux, ce qu\'il dit de mon niveau dans chaque sport, et comment traduire une séance de l\'un dans l\'autre. Si mon seuil course ou ma FTP te semblent faux, propose-moi une valeur à mettre au profil.',
   terrain: () => (choixStats.sportTerrain === 'velo'
     ? 'Analyse mon profil par terrain à vélo (profil_terrain avec sport velo, dehors et home trainer) : comment je roule à plat, en montée et en descente (puissance, W/kg, VAM, vitesse, FC, cadence), comment je gère mes montées et ce qui évolue. Dis-moi mon point faible au regard de mes objectifs vélo, propose une ou deux séances ciblées, puis enregistre ton diagnostic pour l\'app (sport velo).'
@@ -2021,6 +2081,7 @@ function afficherStats() {
   $('#resumeAnalyse').textContent = a?.date ? `Analyse de ton historique par Claude, le ${dateLisible(a.date, false)}` : 'Pas encore d\'analyse de ton historique';
   afficherTerrain();
   afficherPuissance();
+  afficherIntensite();
 
   if (!activites.length) {
     $('#statsContenu').hidden = true;
@@ -2397,7 +2458,7 @@ document.addEventListener('click', (e) => {
 // L'app en fait la synthèse sur la période, comparée à la période d'avant, comme terrains.profil() pour Claude.
 // Version du calcul par sport (comme terrains.version() côté serveur) : en dessous, la sortie est à
 // réanalyser ; dès VERSION_AFFICHAGE, son analyse reste affichée en attendant
-const versionTerrains = (sport) => (sport === 'velo' ? 4 : 5);
+const versionTerrains = (sport) => (sport === 'velo' ? 5 : 6);
 const VERSION_AFFICHAGE = 4;
 const TERRAINS = [['plat', 'Plat'], ['montee', 'Montée'], ['descente', 'Descente']];
 const TRANCHES = ['2-6', '6-12', '12+'];
@@ -2896,6 +2957,159 @@ function afficherPuissance() {
   }
 }
 
+/* ---------- Mes zones (Profil) et répartition de l'intensité (Stats) ---------- */
+// Calculées par le serveur (zones.py, dfa.py) et gardées dans etat.zones : { date, fc_repos, pied|velo: { fc_max,
+// seuil1, seuil2 : { fc, puissance, vitesse (m/s « à plat »), methode, confiance }, zones: [{ zone, nom, fc: [bas, haut],
+// puissance, vitesse }], bornes_fc }, manuel: { pied|velo: { fc_max, fc_s1, fc_s2 } }, dfa: { date, sorties, pied, velo } }
+const FAMILLES_ZONES = [['pied', '🏃 Course + trail'], ['velo', '🚴 Vélo']];
+const NOMS_COURTS_ZONES = ['Récup', 'Endurance', 'Tempo', 'Seuil', 'VO2max'];
+let zonesEnCours = false;
+const allureDe = (v) => (v > 0 ? formatAllure(1000 / 60 / v) : '');
+function plage(bas, haut, f) {
+  if (bas == null && haut == null) return '—';
+  if (bas == null) return `< ${f(haut)}`;
+  if (haut == null) return `> ${f(bas)}`;
+  return `${f(bas)}–${f(haut)}`;
+}
+async function chargerZones(recalculer = false) {
+  if (!session() || !etat.garmin?.connecte || zonesEnCours) return;
+  const z = etat.zones;
+  const recent = z?.date && z.date >= decaler(jourISO(), -7);
+  if (!recalculer && recent && (z.pied || z.velo)) return;
+  zonesEnCours = true;
+  afficherZones();
+  try {
+    etat.zones = await appelerGarmin('zones', { recalculer });
+    await synchroniser(); // le serveur a enregistré les zones dans le compte
+  } catch (e) { console.warn('Zones', e); }
+  zonesEnCours = false;
+  afficherZones();
+}
+function afficherZones() {
+  const carte = $('#carteZones');
+  carte.hidden = !session() || !etat.garmin?.connecte;
+  if (carte.hidden) return;
+  const z = etat.zones;
+  const famille = choixStats.familleZones || (z?.pied?.seuil2 || !z?.velo?.seuil2 ? 'pied' : 'velo');
+  puces($('#sportZones'), FAMILLES_ZONES, famille, (c) => { choixStats.familleZones = c; afficherZones(); });
+  const f = z?.[famille];
+  if (!z || (!z.pied && !z.velo)) {
+    $('#zones').innerHTML = zonesEnCours ? '<p class="chargement">Calcul de tes zones à partir de tes sorties…</p>' : '<p class="muted petit">Pas encore calculées.</p>';
+  } else if (!f || !f.seuil2) {
+    $('#zones').innerHTML = `<p class="muted petit">${esc(f?.manque || 'Pas assez de sorties de ce sport.')} Les sorties s'analysent quand tu les ouvres dans le Calendrier, ou depuis Stats → Selon le relief → Analyser.</p>`;
+  } else {
+    const velo = famille === 'velo';
+    const avecP = f.zones.some((x) => x.puissance), avecV = f.zones.some((x) => x.vitesse);
+    const fmtV = (v) => (velo ? `${nombre(v * 3.6, 1)} km/h` : allureDe(v));
+    const sorties = (s) => [s.puissance ? `${nombre(s.puissance)} W` : '', s.vitesse ? fmtV(s.vitesse) : ''].filter(Boolean).join(' · ');
+    const ligne = (nom, valeur, detail, methode) => `<div class="ligne"><span class="nom">${nom}</span><span class="valeur">${valeur}</span>${detail ? `<span class="methode">${detail}</span>` : ''}${methode ? `<span class="methode">${methode}</span>` : ''}</div>`;
+    const confiance = (s) => (s.confiance && s.confiance !== 'saisie' ? ` · confiance ${esc(s.confiance)}` : '');
+    $('#zones').innerHTML = `<div class="seuils">
+      ${f.fc_max ? ligne('FC max', `${esc(f.fc_max.valeur)} bpm`, '', esc(f.fc_max.methode || '')) : ''}
+      ${z.fc_repos ? ligne('FC de repos', `${esc(z.fc_repos)} bpm`, '', 'moyenne sur 7 jours (Garmin)') : ''}
+      ${ligne('Seuil 1 <span class="muted">(aérobie)</span>', `${esc(f.seuil1.fc)} bpm`, esc(sorties(f.seuil1)), esc(f.seuil1.methode) + confiance(f.seuil1))}
+      ${ligne('Seuil 2 <span class="muted">(anaérobie)</span>', `${esc(f.seuil2.fc)} bpm`, esc(sorties(f.seuil2)), esc(f.seuil2.methode) + confiance(f.seuil2))}
+    </div>
+    <div class="table-zones"><table class="terrains">
+      <thead><tr><th scope="col">Zone</th><th scope="col">FC <span class="muted">bpm</span></th>${avecP ? '<th scope="col">Puiss. <span class="muted">W</span></th>' : ''}${avecV ? `<th scope="col">${velo ? 'Vitesse <span class="muted">km/h</span>' : 'Allure <span class="muted">VAP</span>'}</th>` : ''}</tr></thead>
+      <tbody>${f.zones.map((x) => `<tr>
+        <td><i class="cle carre z${x.zone}"></i>${x.zone} ${esc(NOMS_COURTS_ZONES[x.zone - 1])}</td>
+        <td>${esc(plage(x.fc[0], x.fc[1], (v) => v))}</td>
+        ${avecP ? `<td>${x.puissance ? esc(plage(x.puissance[0], x.puissance[1], (v) => nombre(v))) : ''}</td>` : ''}
+        ${avecV ? `<td>${x.vitesse ? esc(velo ? plage(x.vitesse[0], x.vitesse[1], (v) => nombre(v * 3.6, 1)) : plage(x.vitesse[1], x.vitesse[0], (v) => allureDe(v).replace(' /km', ''))) : ''}</td>` : ''}
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <p class="muted petit">Calculées le ${esc(dateLisible(z.date, false))} sur ${esc(f.sorties_analysees)} sorties analysées.${zonesEnCours ? ' Mise à jour…' : ''}</p>`;
+  }
+  // Corrections : les valeurs saisies de la famille affichée
+  if (!$('#formZones').contains(document.activeElement)) {
+    const m = (z?.manuel || {})[famille] || {};
+    for (const k of ['fc_max', 'fc_s1', 'fc_s2']) $('#z-' + k).value = m[k] ?? '';
+  }
+  // DFA α1
+  const d = z?.dfa;
+  $('#dfa').innerHTML = d ? `<p class="petit" style="margin:10px 0 0"><b>DFA α1</b> <span class="muted">(${esc(dateLisible(d.date, false))})</span></p>
+    <ul class="dfa-liste">${(d.sorties || []).map((x) => `<li>${x.valable ? '✓' : '✕'} ${esc(dateLisible(x.jour, false))} · ${esc(x.nom || '')} : ${x.valable
+      ? `seuil 1 à ${esc(x.fc_s1)} bpm, seuil 2 à ${esc(x.fc_s2)} bpm`
+      : `<span class="muted">${esc(x.raison || 'non exploitable')}</span>`}</li>`).join('')}</ul>
+    ${(d.sorties || []).some((x) => x.valable) ? '' : '<p class="muted petit">Le DFA α1 demande une ceinture cardio, l\'option d\'enregistrement de la VFC sur la montre, et une sortie où l\'intensité monte progressivement (par exemple un échauffement long puis des paliers).</p>'}` : '';
+}
+$('#btnRecalculerZones').onclick = () => chargerZones(true);
+$('#btnDfa').onclick = async () => {
+  const b = $('#btnDfa');
+  b.disabled = true;
+  b.textContent = 'Analyse des 6 dernières sorties…';
+  try {
+    const r = await appelerGarmin('dfa');
+    etat.zones = { ...(etat.zones || {}), dfa: r };
+    await synchroniser();
+  } catch (e) { alert('Échec : ' + e.message); }
+  b.disabled = false;
+  b.textContent = '🔬 Analyse fine (DFA α1)';
+  afficherZones();
+};
+$('#formZones').onsubmit = async (e) => {
+  e.preventDefault();
+  const famille = choixStats.familleZones || 'pied';
+  const valeurs = {};
+  for (const k of ['fc_max', 'fc_s1', 'fc_s2']) if ($('#z-' + k).value) valeurs[k] = Number($('#z-' + k).value);
+  const manuel = { ...((etat.zones || {}).manuel || {}), [famille]: valeurs };
+  document.activeElement?.blur();
+  statut($('#statutZones'), 'Enregistrement…');
+  try {
+    etat.zones = await appelerGarmin('zones', { manuel });
+    await synchroniser();
+    statut($('#statutZones'), '✓ Zones mises à jour.');
+  } catch (err) { statut($('#statutZones'), 'Échec : ' + err.message); }
+  afficherZones();
+};
+
+// Répartition de l'intensité : temps par zone de FC, semaine par semaine (route garmin/repartition)
+const cacheIntensite = new Map();
+const cleIntensite = () => `${Number(choixStats.semainesIntensite) || 12}|${choixStats.familleIntensite || ''}|${jourISO()}|${etat.zones?.date || ''}`;
+async function afficherIntensite() {
+  const carte = $('#carteIntensite');
+  carte.hidden = !etat.garmin?.connecte || !activites.some((a) => ['course', 'trail', 'velo'].includes(a.sport));
+  if (carte.hidden || !carte.open) return;
+  const semaines = Number(choixStats.semainesIntensite) || 12, famille = choixStats.familleIntensite || '';
+  puces($('#periodeIntensite'), [['4', '4 sem.'], ['12', '12 sem.'], ['26', '26 sem.']], String(semaines), (c) => { choixStats.semainesIntensite = c; });
+  puces($('#sportIntensite'), [['', 'Tous'], ['pied', '🏃 Course + trail'], ['velo', '🚴 Vélo']], famille, (c) => { choixStats.familleIntensite = c; });
+  const cle = cleIntensite();
+  let r = cacheIntensite.get(cle);
+  if (!r) {
+    $('#intensite').innerHTML = '<p class="chargement">Calcul du temps passé dans chaque zone…</p>';
+    try {
+      r = await appelerGarmin('repartition', { semaines, famille: famille || null });
+      cacheIntensite.set(cle, r);
+    } catch (e) { $('#intensite').innerHTML = `<p class="muted petit">Indisponible pour le moment : ${esc(e.message)}</p>`; return; }
+    if (cle !== cleIntensite()) return; // choix changé pendant le calcul
+  }
+  const total = r.total.reduce((a, b) => a + b, 0);
+  if (!total) {
+    $('#intensite').innerHTML = `<p class="muted petit">Pas encore de sortie analysée avec la fréquence cardiaque sur cette période${r.sans_detail ? ` (${r.sans_detail} à analyser : ouvre-les dans le Calendrier, ou Stats → Selon le relief → Analyser)` : ''}.</p>`;
+    return;
+  }
+  const pct = r.total.map((t) => (t / total) * 100);
+  const groupes = [['Facile (Z1-2)', pct[0] + pct[1]], ['Tempo (Z3)', pct[2]], ['Intense (Z4-5)', pct[3] + pct[4]]];
+  $('#resumeIntensite').textContent = groupes.map(([n, v]) => `${n} ${nombre(v)} %`).join(' · ');
+  // Une barre par semaine (lundi), empilée par zone, en heures
+  const debut = decaler(jourISO(), -((new Date().getDay() + 6) % 7) - 7 * (semaines - 1));
+  const parSemaine = new Map(r.semaines.map((x) => [x.debut, x]));
+  const points = [];
+  for (let k = 0; k < semaines; k++) {
+    const lundi = decaler(debut, 7 * k), x = parSemaine.get(lundi);
+    const parts = (x?.secondes || [0, 0, 0, 0, 0]).map((sec) => sec / 3600);
+    points.push({ libelle: dateLisible(lundi, false), valeur: parts.reduce((a, b) => a + b, 0), parts });
+  }
+  const series = NOMS_COURTS_ZONES.map((nom, k) => ({ nom: `Z${k + 1} ${nom}`, classe: `z${k + 1}`, barre: `z${k + 1}` }));
+  $('#intensite').innerHTML = `<div class="bande-zones" role="img" aria-label="${esc(groupes.map(([n, v]) => `${n} ${nombre(v)} %`).join(', '))}">${pct.map((v, k) => (v > 0 ? `<span class="z${k + 1}" style="flex:${v.toFixed(2)}"></span>` : '')).join('')}</div>
+    <div class="legende-zones">${pct.map((v, k) => `<span><i class="cle carre z${k + 1}"></i>Z${k + 1} ${NOMS_COURTS_ZONES[k]} ${nombre(v)} %</span>`).join('')}</div>
+    <p class="petit" style="margin:4px 0 10px">${groupes.map(([n, v]) => `<b>${nombre(v)} %</b> ${esc(n.toLowerCase())}`).join(' · ')}</p>
+    <div class="graph" id="graphIntensite"></div>
+    <p class="muted petit">Heures par semaine dans chaque zone${r.sans_detail ? ` · ${r.sans_detail} sortie${r.sans_detail > 1 ? 's' : ''} pas encore analysée${r.sans_detail > 1 ? 's' : ''}` : ''}. Zones de « Mes zones » (Profil).</p>`;
+  graphBarres($('#graphIntensite'), points, series, (v) => dureeLisible(Math.round(v * 60)));
+}
+
 /* ---------- Cartes repliables de l'onglet Stats ---------- */
 // Repliées par défaut ; l'état ouvert ou fermé de chaque carte est gardé sur l'appareil
 const CLE_REPLIS = 'cloach-stats-ouverts';
@@ -2906,6 +3120,7 @@ for (const d of document.querySelectorAll('details[data-repli]')) {
     ecrireLocal(CLE_REPLIS, { ...(lireLocal(CLE_REPLIS) || {}), [d.dataset.repli]: d.open });
     if (d.open && d.dataset.repli === 'terrain') afficherTerrain();
     if (d.open && d.dataset.repli === 'puissance') afficherPuissance();
+    if (d.open && d.dataset.repli === 'intensite') afficherIntensite();
   });
 }
 
@@ -3122,6 +3337,7 @@ $('#formAvis').onsubmit = async (e) => {
 function allerA(vue) {
   for (const s of document.querySelectorAll('[data-vue]')) s.hidden = s.dataset.vue !== vue;
   if (vue === 'stats') requestAnimationFrame(afficherStats); // les graphiques ont besoin de la largeur visible
+  if (vue === 'profil') chargerZones();
   for (const b of document.querySelectorAll('[data-onglet]')) b.classList.toggle('actif', b.dataset.onglet === vue);
   try { sessionStorage.setItem('cloach-vue', vue); } catch {}
   window.scrollTo(0, 0);
@@ -3137,6 +3353,7 @@ function toutAfficher() {
   afficherProfil();
   afficherGarmin();
   afficherStrava();
+  afficherZones();
   afficherStats();
   afficherGuide();
   majLiensClaude();

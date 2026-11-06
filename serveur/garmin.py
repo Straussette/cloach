@@ -14,7 +14,7 @@ import asyncio
 import gzip
 import json
 import os
-from datetime import date
+from datetime import date, timedelta
 import secrets
 import threading
 import time
@@ -27,8 +27,10 @@ from starlette.responses import JSONResponse, Response
 
 from donnees import Supabase
 from freins import Frein
+import dfa
 import terrains
 import vap
+import zones
 from entrainements import vers_garmin
 
 DUREE_ATTENTE_CODE = 5 * 60
@@ -293,6 +295,79 @@ class Garmins:
         self.base.completer_activite(uid, str(id_activite), champs)
         return {"vap_min_km": None, **resultat, "terrains": terrains.version(sport), "garmin": garmin_appele}
 
+    # ---------- Zones personnelles (zones.py) et DFA α1 (dfa.py) ----------
+
+    DFA_SORTIES = 6           # fichiers d'origine téléchargés au plus par analyse DFA
+    DFA_JOURS = 60
+
+    def _fc_repos(self, uid: str) -> float | None:
+        try:
+            resume = self.appeler(uid, "get_user_summary", date.today().isoformat()) or {}
+            return resume.get("lastSevenDaysAvgRestingHeartRate") or resume.get("restingHeartRate")
+        except Exception:
+            return None  # Garmin débranché ou indisponible : les zones n'en dépendent pas
+
+    def calculer_zones(self, uid: str, manuel: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Calcule les seuils et les zones (13 mois d'activités), les garde dans le document du compte
+        (zones) avec les corrections de l'athlète (manuel) et le dernier DFA α1, et les renvoie."""
+        etat = self.base.lire_etat(uid)
+        ancien = etat.get("zones") or {}
+        if manuel is not None:
+            ancien["manuel"] = manuel
+        activites = self.base.lire_activites(uid, (date.today() - timedelta(days=400)).isoformat(), complet=True)
+        calcul = zones.calculer(activites, date.today(), ancien.get("manuel"), (ancien.get("dfa") or {}),
+                                self._fc_repos(uid))
+        nouveau = {**calcul, **{k: ancien[k] for k in ("manuel", "dfa") if ancien.get(k)}}
+        etat = self.base.lire_etat(uid)  # relu : l'app a pu écrire entre-temps
+        etat["zones"] = nouveau
+        self.base.ecrire_etat(uid, etat)
+        return nouveau
+
+    def zones_du_compte(self, uid: str, recalculer: bool = False) -> dict[str, Any]:
+        z = self.base.lire_etat(uid).get("zones")
+        if recalculer or not z or not (z.get("pied") or z.get("velo")) or z.get("date", "") < (date.today() - timedelta(days=7)).isoformat():
+            z = self.calculer_zones(uid)
+        return z
+
+    def analyser_dfa(self, uid: str) -> dict[str, Any]:
+        """DFA α1 sur les dernières sorties de course, de trail et de vélo d'au moins 30 min : télécharge
+        leur fichier d'origine chez Garmin (un appel par sortie), puis recalcule les zones."""
+        depuis = (date.today() - timedelta(days=self.DFA_JOURS)).isoformat()
+        candidates = [a for a in self.base.lire_activites(uid, depuis)
+                      if zones.famille_de(a.get("sport")) and float(a.get("duree_min") or 0) >= 30 and str(a.get("id", "")).isdigit()]
+        sorties = []
+        for a in sorted(candidates, key=lambda x: x.get("debut") or "", reverse=True)[:self.DFA_SORTIES]:
+            info = {"id": a["id"], "jour": a.get("jour"), "nom": a.get("nom"), "sport": a.get("sport")}
+            try:
+                contenu = self.appeler(uid, "download_activity", str(a["id"]), Garmin.ActivityDownloadFormat.ORIGINAL)
+                rr = dfa.lire_rr(contenu)
+            except Exception as e:
+                print(f"DFA {a['id']} : {type(e).__name__} : {e}", flush=True)
+                sorties.append({**info, "valable": False, "raison": "fichier illisible"})
+                continue
+            if len(rr) < 600:
+                sorties.append({**info, "valable": False, "absent": True,
+                                "raison": "pas d'enregistrement battement par battement (ceinture cardio et option VFC)"})
+            else:
+                sorties.append({**info, **dfa.estimer(dfa.fenetres(rr))})
+            time.sleep(1.5)
+        resultat = {"date": date.today().isoformat(), "sorties": sorties, **dfa.synthese(sorties, zones.famille_de)}
+        etat = self.base.lire_etat(uid)
+        etat.setdefault("zones", {})["dfa"] = resultat
+        self.base.ecrire_etat(uid, etat)
+        self.calculer_zones(uid)
+        return resultat
+
+    def repartition(self, uid: str, semaines: int = 12, famille: str | None = None) -> dict[str, Any]:
+        """Temps par zone de FC, semaine par semaine (zones actuelles du compte)."""
+        z = self.zones_du_compte(uid)
+        fin = date.today()
+        debut = fin - timedelta(days=fin.weekday()) - timedelta(weeks=max(1, min(int(semaines), 104)) - 1)
+        activites = self.base.lire_activites(uid, debut.isoformat(), fin.isoformat(), complet=True)
+        r = zones.repartition(activites, z, debut.isoformat(), fin.isoformat(), famille if famille in zones.FAMILLES else None)
+        r["bornes"] = {f: (z.get(f) or {}).get("bornes_fc") for f in zones.FAMILLES}
+        return r
+
     # ---------- Analyse de tout l'historique (tâche de fond) ----------
 
     PAUSE_LOT = 2.0           # secondes entre deux sorties
@@ -455,6 +530,16 @@ class Garmins:
                 return repondre(await asyncio.to_thread(self.forme, uid, jour))
             if action == "importer":
                 return repondre(*await asyncio.to_thread(self._importer, uid, corps))
+            if action == "zones":
+                manuel = corps.get("manuel") if isinstance(corps.get("manuel"), dict) else None
+                if manuel is not None:
+                    return repondre(await asyncio.to_thread(self.calculer_zones, uid, _manuel_propre(manuel)))
+                return repondre(await asyncio.to_thread(self.zones_du_compte, uid, bool(corps.get("recalculer"))))
+            if action == "dfa":
+                return repondre(await asyncio.to_thread(self.analyser_dfa, uid))
+            if action == "repartition":
+                return repondre(await asyncio.to_thread(self.repartition, uid, int(corps.get("semaines") or 12),
+                                                        corps.get("famille")))
         except Exception as e:
             print(f"Garmin ({action}) : {type(e).__name__} : {e}", flush=True)
             await asyncio.sleep(2)  # freine les essais à la chaîne
@@ -520,6 +605,24 @@ class Garmins:
             self._clients[uid] = g
             self._derniers_sauves[uid] = jetons
         return {"connecte": True, "nom": g.get_full_name() or ""}
+
+
+def _manuel_propre(manuel: dict[str, Any]) -> dict[str, Any]:
+    """Corrections de l'athlète : seuls des nombres plausibles, par famille de sports."""
+    propre: dict[str, Any] = {}
+    for famille in zones.FAMILLES:
+        valeurs = manuel.get(famille) or {}
+        f = {}
+        for cle, (bas, haut) in {"fc_max": (120, 230), "fc_s1": (80, 220), "fc_s2": (90, 225)}.items():
+            try:
+                v = float(valeurs.get(cle))
+            except (TypeError, ValueError):
+                continue
+            if bas <= v <= haut:
+                f[cle] = round(v)
+        if f:
+            propre[famille] = f
+    return propre
 
 
 def _message_erreur(e: Exception) -> str:

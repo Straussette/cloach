@@ -23,8 +23,8 @@ from vap import LISSAGE, PAS_M, VITESSE_ARRET, coefficient
 
 # Versions du calcul, à augmenter si la méthode change : l'app et le serveur réanalysent alors les sorties
 # de ce sport ; les analyses d'au moins VERSION_AFFICHAGE restent affichées en attendant
-VERSION = 5           # course et trail (5 : meilleure VAP par durée)
-VERSION_VELO = 4
+VERSION = 6           # course et trail (5 : meilleure VAP par durée ; 6 : analyse cardiaque pour les zones)
+VERSION_VELO = 5      # (5 : analyse cardiaque pour les zones)
 VERSION_AFFICHAGE = 4
 PLAT_PCT = 2.0        # entre −2 % et +2 % : plat
 TRANCHES = ((2.0, 6.0, "2-6"), (6.0, 12.0, "6-12"), (12.0, 1000.0, "12+"))
@@ -33,6 +33,9 @@ TOLERANCE_M = 5.0     # replat ou petite descente toléré à l'intérieur d'une
 PAUSE_S = 10.0        # au-delà, un écart entre deux points est une pause, pas du mouvement
 TERRAINS = ("plat", "montee", "descente")
 DUREES = (30, 60, 120, 300, 600, 1200, 1800, 3600)  # durées des meilleurs efforts, en secondes
+DUREES_FC = (1200, 1800, 3600)  # meilleures FC moyennes tenues, pour le seuil 2 (zones.py)
+ECHAUFFEMENT_S = 600            # écarté du calcul de la dérive cardiaque
+BLOC_S = 300                    # blocs pour mesurer la régularité de l'effort
 
 # Mesures facultatives : nom → clés possibles dans les détails Garmin, par ordre de préférence
 MESURES = {
@@ -251,6 +254,106 @@ def _montees(s: dict[str, list[Any]], lisse: list[float], mouvement: list[float]
     return montees
 
 
+def _physio(s: dict[str, list[Any]], mouvement: list[float], coef: list[float], velo: bool) -> dict[str, Any] | None:
+    """Analyse cardiaque d'une sortie, pour les zones (zones.py) :
+    - h : pour chaque battement par minute, le temps passé (s), le temps où la puissance est connue,
+      la somme puissance × temps et la distance « à plat » parcourue (VAP en course, distance à vélo) :
+      de quoi relier la FC à la puissance ou à l'allure, et compter le temps par zone quelles qu'elles soient ;
+    - hp : temps par tranche de 10 W (zones de puissance) ;
+    - max : meilleures FC moyennes sur 20, 30 et 60 min (seuil 2) ;
+    - derive : découplage cardiaque entre les deux moitiés de la sortie (hors échauffement), avec la
+      régularité de l'effort : sous le seuil 1, la FC reste stable à effort constant (zones.py)."""
+    fc = s["fc"]
+    n = len(fc)
+    temps_fc = sum(mouvement[i] for i in range(1, n) if fc[i])
+    if temps_fc < 600:
+        return None
+    h: dict[int, list[float]] = {}
+    hp: dict[int, float] = {}
+    # Points en mouvement avec FC : temps cumulé, FC × temps, sortie (puissance ou vitesse « à plat ») × temps
+    cumul_t, cumul_fc = [0.0], [0.0]
+    points: list[tuple[float, float, float | None, float]] = []  # (dt, fc, puissance, distance « à plat »)
+    for i in range(1, n):
+        dt = mouvement[i]
+        if not dt:
+            continue
+        p = s["puissance"][i]
+        if p is not None:
+            hp[int(p // 10 * 10)] = hp.get(int(p // 10 * 10), 0.0) + dt
+        f = fc[i]
+        if not f:
+            continue
+        dd = (s["dist"][i] - s["dist"][i - 1]) * (1.0 if velo else coef[i])
+        e = h.setdefault(int(round(f)), [0.0, 0.0, 0.0, 0.0])
+        e[0] += dt
+        e[3] += dd
+        if p is not None:
+            e[1] += dt
+            e[2] += p * dt
+        points.append((dt, f, p, dd))
+        cumul_t.append(cumul_t[-1] + dt)
+        cumul_fc.append(cumul_fc[-1] + f * dt)
+
+    meilleures: dict[str, float] = {}
+    for duree in DUREES_FC:
+        if cumul_t[-1] < duree:
+            break
+        gauche, meilleure = 0, 0.0
+        for droite in range(1, len(cumul_t)):
+            while cumul_t[droite] - cumul_t[gauche + 1] >= duree:
+                gauche += 1
+            if cumul_t[droite] - cumul_t[gauche] >= duree:
+                meilleure = max(meilleure, (cumul_fc[droite] - cumul_fc[gauche]) / (cumul_t[droite] - cumul_t[gauche]))
+        if meilleure:
+            meilleures[str(duree)] = round(meilleure, 1)
+
+    resultat: dict[str, Any] = {
+        "h": {str(b): [round(e[0]), round(e[1]), round(e[2]), round(e[3], 1)] for b, e in sorted(h.items())},
+        "max": meilleures,
+    }
+    if hp:
+        resultat["hp"] = {str(w): round(t) for w, t in sorted(hp.items()) if t >= 1}
+
+    # Dérive cardiaque : moitiés égales en temps, après l'échauffement
+    total = cumul_t[-1]
+    if total >= 2400:
+        temps_puissance = sum(dt for dt, _, p, _ in points if p is not None)
+        avec_puissance = temps_puissance >= total * 0.9
+        if velo and not avec_puissance:
+            return resultat  # à vélo sans capteur, la vitesse dépend trop du vent et du relief
+        moities = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]  # temps, FC × temps, sortie × temps
+        blocs: dict[int, list[float]] = {}
+        t = 0.0
+        milieu = ECHAUFFEMENT_S + (total - ECHAUFFEMENT_S) / 2
+        for dt, f, p, dd in points:
+            t += dt
+            if t <= ECHAUFFEMENT_S:
+                continue
+            sortie = (p or 0.0) * dt if avec_puissance else dd
+            m = moities[0 if t <= milieu else 1]
+            m[0] += dt
+            m[1] += f * dt
+            m[2] += sortie
+            b = blocs.setdefault(int(t // BLOC_S), [0.0, 0.0])
+            b[0] += dt
+            b[1] += sortie
+        if all(m[0] > 0 and m[2] > 0 for m in moities):
+            fc1, fc2 = moities[0][1] / moities[0][0], moities[1][1] / moities[1][0]
+            o1, o2 = moities[0][2] / moities[0][0], moities[1][2] / moities[1][0]
+            valeurs = [b[1] / b[0] for b in blocs.values() if b[0] >= BLOC_S * 0.8]
+            cv = statistics.pstdev(valeurs) / statistics.mean(valeurs) if len(valeurs) >= 3 and statistics.mean(valeurs) > 0 else None
+            temps_derive = moities[0][0] + moities[1][0]
+            resultat["derive"] = {
+                "fc": round((moities[0][1] + moities[1][1]) / temps_derive, 1),
+                "sortie": round((moities[0][2] + moities[1][2]) / temps_derive, 3),
+                "mesure": "puissance" if avec_puissance else "vitesse",
+                "decouplage": round((1 - (o2 / fc2) / (o1 / fc1)) * 100, 1),
+                "cv": round(cv, 3) if cv is not None else None,
+                "duree_s": round(temps_derive),
+            }
+    return resultat
+
+
 def _retirer(objet: Any, cles: set[str]) -> Any:
     """Copie sans les clés données, à toutes les profondeurs."""
     if isinstance(objet, dict):
@@ -323,6 +426,9 @@ def analyser(details: dict[str, Any], sport: str = "course") -> dict[str, Any] |
                                        coef=None if velo else coef),
         "tout": {d: {k: v for k, v in m.items() if k != "vam"} for d, m in tout.items()},
     }
+    physio = _physio(s, mouvement, coef, velo)
+    if physio:
+        resultat["fc"] = physio
     if velo:
         resultat = _retirer(resultat, {"foulee_m", "vap_min_km"})
         resultat["sport"] = "velo"

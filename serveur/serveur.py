@@ -82,7 +82,7 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan : le jour J, vérifie avec forme_du_jour si la séance prévue reste pertinente, puis enregistre ton verdict avec avis_du_jour (garder, alléger, remplacer ou repos), avec la séance de remplacement s'il y en a une. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Pour chaque séance, écris son objectif (son intérêt en une courte phrase) : c'est ce que l'utilisateur voit d'abord dans le plan. Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Pour une séance de course sur tapis, ajoute toujours une alternative structurée « Sur route » (et pour une séance sur route ou sur piste, une alternative « Sur tapis »), qui garde le même effet : allures adaptées, côtes remplacées par l'inclinaison du tapis ou l'inverse. Structure aussi les alternatives. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app. Pour la course et le trail, profil_terrain montre comment l'athlète court à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP, montées), et à vélo (sport velo, dehors et home trainer à part) comment il roule sur chaque terrain : quand tu construis un plan, cible le terrain le plus faible au regard de l'objectif ; quand tu fais ce diagnostic, enregistre-le avec enregistrer_analyse_terrain (même sport). Pour comparer la course et le vélo, ou traduire une séance de l'un dans l'autre, passe par seuils_puissance : la puissance de course Garmin sort bien plus haut qu'à vélo, raisonne donc en % du seuil de chaque sport.
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Pour chaque séance, écris son objectif (son intérêt en une courte phrase) : c'est ce que l'utilisateur voit d'abord dans le plan. Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Pour une séance de course sur tapis, ajoute toujours une alternative structurée « Sur route » (et pour une séance sur route ou sur piste, une alternative « Sur tapis »), qui garde le même effet : allures adaptées, côtes remplacées par l'inclinaison du tapis ou l'inverse. Structure aussi les alternatives. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app. Pour la course et le trail, profil_terrain montre comment l'athlète court à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP, montées), et à vélo (sport velo, dehors et home trainer à part) comment il roule sur chaque terrain : quand tu construis un plan, cible le terrain le plus faible au regard de l'objectif ; quand tu fais ce diagnostic, enregistre-le avec enregistrer_analyse_terrain (même sport). Pour comparer la course et le vélo, ou traduire une séance de l'un dans l'autre, passe par seuils_puissance : la puissance de course Garmin sort bien plus haut qu'à vélo, raisonne donc en % du seuil de chaque sport. Les zones de l'athlète sont personnelles (mes_zones : seuils 1 et 2 estimés dans ses données, par famille de sports, avec leur confiance) : écris les cibles des séances en bornes de FC, de puissance ou d'allure tirées de ces zones (pas en numéros de zones Garmin, dont les bornes peuvent différer) ; repartition_intensite montre le temps passé par zone, pour vérifier la polarisation et repérer les séances faciles faites trop vite.
 
 Renfo et musculation : ils font partie du plan (en général 1 à 2 séances par semaine selon le temps disponible, 30 à 50 min), et sont adaptés au sport que l'athlète veut privilégier (profil.sportPrioritaire, sinon son objectif) : trail et course → excentrique des quadriceps, mollets et pieds, fessiers, gainage, proprioception, un peu de pliométrie ; vélo → squats et fentes, soulevé de terre roumain, gainage, haut du dos ; tennis et padel → rotations du tronc, épaules (coiffe des rotateurs), appuis latéraux, changements de direction, avant-bras ; foot et basket → ischios (nordic hamstrings), adducteurs, pliométrie, vitesse et changements de direction, gainage ; natation → dos, épaules, gainage. Tiens compte des blessures et du matériel indiqués (salle, haltères, élastiques ou poids du corps) et de la période (plus de force loin de l'objectif, entretien près de lui, rien de lourd dans les 48 h avant une séance clé ou une compétition). Écris chaque séance de renfo avec le sport « renfo » et ses exercices (champ exercices : nom, séries, répétitions ou durée, charge, repos, consigne) ; donne une alternative sans matériel. L'app les affiche en tableau et peut les envoyer sur la montre Garmin comme séance de musculation.
 
@@ -752,6 +752,60 @@ async def analyser_historique(ordre: Literal["etat", "lancer", "arreter"] = "eta
     if ordre == "arreter":
         return garmins.arreter_lot(uid)
     return garmins.lot(uid)
+
+
+@mcp.tool()
+async def mes_zones(recalculer: bool = False, sport: Literal["course", "velo"] | None = None,
+                    fc_max: int | None = Field(default=None, ge=120, le=230),
+                    fc_seuil1: int | None = Field(default=None, ge=80, le=220),
+                    fc_seuil2: int | None = Field(default=None, ge=90, le=225)) -> dict[str, Any]:
+    """Zones personnelles de l'athlète, par famille (pied = course + trail, velo) : FC max, FC de repos, seuil 1
+    (aérobie, haut de l'endurance) et seuil 2 (anaérobie), en FC et, si possible, en puissance (W) et en vitesse
+    « à plat » (m/s ; allure = 1000 / 60 / vitesse min/km), avec la méthode et la confiance de chaque estimation
+    (meilleures FC tenues, dérive cardiaque des sorties régulières, DFA α1 s'il a été calculé, ou saisie de
+    l'athlète), et les 5 zones (récupération, endurance, tempo, seuil, VO2max) en FC, puissance et vitesse.
+    Utilise ces valeurs pour les cibles des séances. recalculer : refait le calcul (sinon celui de moins de 7
+    jours). Pour corriger une valeur que l'athlète connaît (test d'effort, labo) : sport (course ou velo) avec
+    fc_max, fc_seuil1 et/ou fc_seuil2 ; elle prime alors sur l'estimation."""
+    uid = _uid()
+    try:
+        if sport and (fc_max or fc_seuil1 or fc_seuil2):
+            famille = "pied" if sport == "course" else "velo"
+            manuel = ((await _lire(uid)).get("zones") or {}).get("manuel") or {}
+            manuel[famille] = {**(manuel.get(famille) or {}), **{k: v for k, v in
+                               {"fc_max": fc_max, "fc_s1": fc_seuil1, "fc_s2": fc_seuil2}.items() if v}}
+            return await anyio.to_thread.run_sync(garmins.calculer_zones, uid, manuel)
+        return await anyio.to_thread.run_sync(garmins.zones_du_compte, uid, recalculer)
+    except Exception as exc:
+        raise ToolError(_causes(exc)) from exc
+
+
+@mcp.tool()
+async def repartition_intensite(semaines: int = Field(default=8, ge=1, le=104),
+                                sport: Literal["course", "velo"] | None = None) -> dict[str, Any]:
+    """Temps passé dans chaque zone de FC personnelle (1 à 5, voir mes_zones), semaine par semaine (lundi) :
+    secondes par zone, nombre de sorties, et total. Pour vérifier la polarisation (beaucoup de zones 1-2, peu
+    de zone 3, un peu de 4-5) et repérer les séances faciles faites trop vite. sans_detail : sorties de course,
+    trail ou vélo pas encore analysées (sans FC détaillée). sport : course (course + trail) ou velo, sinon tout."""
+    uid = _uid()
+    try:
+        return await anyio.to_thread.run_sync(garmins.repartition, uid, semaines,
+                                              {"course": "pied", "velo": "velo"}.get(sport or ""))
+    except Exception as exc:
+        raise ToolError(_causes(exc)) from exc
+
+
+@mcp.tool()
+async def analyse_dfa() -> dict[str, Any]:
+    """DFA α1 : estime le seuil 1 (α1 = 0,75) et le seuil 2 (α1 = 0,5) d'après la variabilité de la FC pendant
+    l'effort, sur les 6 dernières sorties de course, trail ou vélo d'au moins 30 min (fichiers d'origine
+    téléchargés chez Garmin). Il faut une ceinture cardio et l'option d'enregistrement de la VFC sur la montre ;
+    la sortie doit monter progressivement en intensité. Met à jour les zones (le DFA prime pour le seuil 1)."""
+    uid = _uid()
+    try:
+        return await anyio.to_thread.run_sync(garmins.analyser_dfa, uid)
+    except Exception as exc:
+        raise ToolError(_causes(exc)) from exc
 
 
 @mcp.tool()

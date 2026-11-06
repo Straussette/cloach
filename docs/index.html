@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-06.1">
+<meta name="app-version" content="2026-11-06.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2578,7 +2578,7 @@ function tableTerrain(colonnes, total) {
 
 // Meilleur effort de la période pour chaque terrain, durée et mesure (comme records() côté serveur)
 function recordsTerrain(lignes) {
-  const rec = { plat: {}, montee: {}, descente: {} };
+  const rec = { plat: {}, montee: {}, descente: {}, tout: {} };
   for (const l of lignes) {
     for (const t of Object.keys(rec)) {
       for (const [duree, mesures] of Object.entries(l.terrains.efforts?.[t] || {})) {
@@ -2597,14 +2597,17 @@ const MESURES_EFFORT_VELO = {
   montee: [['puissance', 'Puissance', (v) => fmtPuissance(v)], ['vam', 'VAM', (v) => `${nombre(v)} m/h`], ['vitesse', 'Vitesse', allureVitesse]],
   plat: [['puissance', 'Puissance', (v) => fmtPuissance(v)], ['vitesse', 'Vitesse', allureVitesse]],
   descente: [['vitesse', 'Vitesse', allureVitesse], ['vam', 'Descente', (v) => `${nombre(v)} m/h`]],
+  tout: [['puissance', 'Puissance', (v) => fmtPuissance(v)], ['vitesse', 'Vitesse', allureVitesse]],
 };
 const MESURES_EFFORT = {
   // VAP : meilleure allure ajustée à la pente sur la durée (gardée en vitesse équivalente à plat)
   montee: [['puissance', 'Puissance', fmtPuissance], ['vam', 'VAM', (v) => `${nombre(v)} m/h`], ['vitesse', 'Allure', allureVitesse], ['vitesse_vap', 'VAP', allureVitesse]],
   plat: [['puissance', 'Puissance', fmtPuissance], ['vitesse', 'Allure', allureVitesse]],
   descente: [['vitesse', 'Allure', allureVitesse], ['vitesse_vap', 'VAP', allureVitesse], ['vam', 'Descente', (v) => `${nombre(v)} m/h`], ['puissance', 'Puissance', fmtPuissance]],
+  // Tous terrains confondus : les efforts « tout » de chaque sortie (comme une courbe de puissance)
+  tout: [['puissance', 'Puissance', fmtPuissance], ['vitesse', 'Allure', allureVitesse]],
 };
-const NOMS_TERRAINS = { plat: 'à plat', montee: 'en montée', descente: 'en descente' };
+const NOMS_TERRAINS = { plat: 'à plat', montee: 'en montée', descente: 'en descente', tout: 'tous terrains confondus' };
 // Poids du profil (kg), pour les puissances en W/kg
 function poidsProfil() {
   const p = Number(String(etat.profil?.poids || '').replace(',', '.'));
@@ -2648,7 +2651,7 @@ function afficherTerrain() {
   const semaines = Number(choixStats.terrain) || 8;
   const vue = choixStats.vueTerrain || 'montee';
   puces($('#filtreTerrain'), [['4', '4 sem.'], ['8', '8 sem.'], ['12', '12 sem.'], ['tout', 'Tout l\'historique']], toutHistorique ? 'tout' : String(semaines), (c) => { choixStats.terrain = c; });
-  puces($('#vueTerrain'), TERRAINS.map(([cle, nom]) => [cle, nom]), vue, (c) => { choixStats.vueTerrain = c; dureeChoisie = null; });
+  puces($('#vueTerrain'), [...TERRAINS, ['tout', 'Tous terrains']], vue, (c) => { choixStats.vueTerrain = c; dureeChoisie = null; });
   // Tout l'historique : pas de période d'avant à comparer
   const debut = toutHistorique ? '0000' : decaler(jourISO(), -7 * semaines);
   const debutAvant = toutHistorique ? '0000' : decaler(jourISO(), -14 * semaines);

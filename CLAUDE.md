@@ -25,6 +25,10 @@ Le coaching se passe dans le Claude de chaque utilisateur, sur son propre abonne
 - `supabase/emails/` : modèles des e-mails de Supabase Auth en français (confirmation, mot de passe, changement d'adresse, lien magique), envoyés par Resend depuis `cloach@envoi.pstrauss.org` ; à recoller dans Supabase s'ils changent (voir `LISEZMOI.md`).
 - `supabase/schema.sql` : schéma du projet Supabase `cloach` (tables `donnees`, `donnees_historique`, `activites` (dont `terrains` et `puissances_max`, jsonb), `garmin_comptes`, `strava_comptes`, `retours` et `admins`, sans règle RLS : lue par le serveur seul). Toute nouvelle table liée à un utilisateur doit référencer `auth.users` avec `on delete cascade`, sinon la suppression du compte la laisserait derrière.
 
+## À faire
+
+- **Migration en attente** : la section « Puissances calculées » de `supabase/schema.sql` (colonne `activites.puissances_calculees` et déclencheur `calculer_puissances`) n'est pas encore appliquée sur le projet Supabase. L'app la lit déjà (`pc`, `puissanceMax()`, avec repli si la colonne manque) : tant qu'elle manque, les records de puissance de course et de trail (badges, « Records des 30 derniers jours ») restent vides. À appliquer, puis retirer la mention « À APPLIQUER » du schéma et cette ligne.
+
 ## Commandes
 
 - Syntaxe de l'app : `awk '/<script>/{f=1;next}/<\/script>/{f=0}f' docs/index.html > /tmp/app.js && node --check /tmp/app.js`

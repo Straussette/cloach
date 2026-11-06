@@ -132,3 +132,26 @@ revoke all on function public.archiver_donnees() from public, anon, authenticate
 drop trigger if exists archiver_donnees on public.donnees;
 create trigger archiver_donnees before update on public.donnees
   for each row execute function public.archiver_donnees();
+
+-- ---------- Puissances calculées (À APPLIQUER : migration pas encore passée sur le projet) ----------
+-- Meilleures puissances par durée calculées par Cloach (course, trail…) : Garmin ne donne sa courbe
+-- de puissance que pour le vélo. Colonne légère, tenue à jour par un déclencheur, lue par l'app pour les records.
+alter table public.activites add column if not exists puissances_calculees jsonb;
+
+create or replace function public.calculer_puissances() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  new.puissances_calculees := (
+    select nullif(jsonb_object_agg(d, new.terrains #> array['efforts', 'tout', d, 'puissance']), '{}'::jsonb)
+      from unnest(array['30', '60', '120', '300', '600', '1200', '1800', '3600']) d
+     where new.terrains #> array['efforts', 'tout', d, 'puissance'] is not null
+  );
+  return new;
+end $$;
+
+drop trigger if exists calculer_puissances on public.activites;
+create trigger calculer_puissances before insert or update of terrains on public.activites
+  for each row execute function public.calculer_puissances();
+
+-- Remplissage des sorties déjà analysées (une fois)
+update public.activites set terrains = terrains where terrains #> '{efforts,tout}' is not null;

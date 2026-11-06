@@ -35,7 +35,7 @@ Le coaching se passe dans le Claude de chaque utilisateur, sur son propre abonne
 
 - Syntaxe de l'app : `awk '/<script>/{f=1;next}/<\/script>/{f=0}f' docs/index.html > /tmp/app.js && node --check /tmp/app.js`
 - Serveur en local : voir README.md (`python serveur.py` dans `serveur/`, avec les variables d'environnement).
-- Déployer l'app : pousser sur `main`. Le serveur se redéploie aussi depuis `main` sur Render.
+- Déployer l'app : pousser sur `main`. Le serveur se redéploie aussi depuis `main` sur Render. Le `Dockerfile` copie tous les `*.py` de `serveur/` : un nouveau module y est pris automatiquement.
 
 ## Conventions
 

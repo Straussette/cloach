@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-06.2">
+<meta name="app-version" content="2026-11-06.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2474,6 +2474,7 @@ let analyseTerrainEnCours = false;
 
 // 26 semaines d'habitude ; tout l'historique quand la période « Tout l'historique » est choisie
 let terrainsTout = false, terrainsCharges = false, terrainsEnCours = false;
+const CHAMPS_TERRAINS = ['v', 'vide', 'sport', 'temps_s', 'plat', 'montee', 'descente', 'montees', 'efforts'];
 async function chargerTerrains() {
   if (!session()) { lignesTerrain = []; return; }
   const tout = choixStats.terrain === 'tout';
@@ -2482,8 +2483,10 @@ async function chargerTerrains() {
     // L'API renvoie au plus 1000 lignes par appel : on charge page par page (tout l'historique en dépasse souvent 1000)
     const lignes = [];
     for (;;) {
-      const page = await sbFetch(`/rest/v1/activites?select=id,jour,nom,sport,type,terrains&sport=in.(course,trail,velo)&terrains=not.is.null${tout ? '' : `&jour=gte.${decaler(jourISO(), -182)}`}&order=jour.asc,id.asc&limit=1000&offset=${lignes.length}`);
-      lignes.push(...(page || []));
+      // Sans le volet cardiaque (terrains.fc, lourd) : seul le serveur s'en sert, pour les zones
+      const page = await sbFetch(`/rest/v1/activites?select=id,jour,nom,sport,type,${CHAMPS_TERRAINS.map((c) => `${c}:terrains->${c}`).join(',')}&sport=in.(course,trail,velo)&terrains=not.is.null${tout ? '' : `&jour=gte.${decaler(jourISO(), -182)}`}&order=jour.asc,id.asc&limit=1000&offset=${lignes.length}`);
+      lignes.push(...(page || []).map((l) => ({ id: l.id, jour: l.jour, nom: l.nom, sport: l.sport, type: l.type,
+        terrains: Object.fromEntries(CHAMPS_TERRAINS.filter((c) => l[c] != null).map((c) => [c, l[c]])) })));
       if (!page || page.length < 1000) break;
     }
     lignesTerrain = lignes;
@@ -2527,8 +2530,9 @@ async function suivreLot(ordre = 'etat') {
   try { etatLot = await appelerGarmin('lot', { ordre }); } catch (e) { etatLot = { erreur: e.message }; }
   clearTimeout(minuterieLot);
   if (etatLot?.en_cours) minuterieLot = setTimeout(() => suivreLot(), 20000);
-  // Analyse finie (ou avancée) : on recharge les activités et les analyses
-  if (avant?.en_cours && (!etatLot?.en_cours || etatLot.faites !== avant.faites)) await chargerActivites();
+  // Analyse finie : on recharge les activités et les analyses (pas à chaque sortie : sur téléphone, recharger
+  // tout l'historique toutes les 20 s figeait l'app)
+  if (avant?.en_cours && !etatLot?.en_cours) await chargerActivites();
   afficherTerrain();
 }
 let minuterieTerrains = null;

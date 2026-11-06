@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-06.5">
+<meta name="app-version" content="2026-11-06.6">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1932,7 +1932,7 @@ async function chargerActivites() {
   afficherJour();
   afficherGuide();
   // Les analyses par terrain sont plus lourdes : seulement si leur carte est ouverte
-  if (carteOuverte('terrain')) { await chargerTerrains(); afficherTerrain(); afficherPuissance(); }
+  if (carteOuverte('terrain') && peutChargerTerrains()) { await chargerTerrains(); afficherTerrain(); afficherPuissance(); }
 }
 
 // Importe année par année, pour suivre l'avancement et rester sous les délais du serveur
@@ -2477,6 +2477,10 @@ let analyseTerrainEnCours = false;
 
 // 26 semaines d'habitude ; tout l'historique quand la période « Tout l'historique » est choisie
 let terrainsTout = false, terrainsCharges = false, terrainsEnCours = false;
+// Après un échec (base occupée, réseau…), on attend une minute avant de recharger : sans ce délai, chaque
+// réaffichage relançait aussitôt le chargement, en boucle, et l'app se figeait sur iPhone
+let echecTerrains = 0;
+const peutChargerTerrains = () => !terrainsEnCours && Date.now() - echecTerrains > 60000;
 // (pas « sport » : le nom entrerait en conflit avec la colonne sport de l'activité, et seul le vélo l'a)
 const CHAMPS_TERRAINS = ['v', 'vide', 'temps_s', 'plat', 'montee', 'descente', 'montees', 'efforts'];
 async function chargerTerrains() {
@@ -2496,7 +2500,8 @@ async function chargerTerrains() {
     lignesTerrain = lignes;
     terrainsTout = tout;
     terrainsCharges = true;
-  } catch (e) { console.warn('Terrains', e); }
+    echecTerrains = 0;
+  } catch (e) { console.warn('Terrains', e); echecTerrains = Date.now(); }
   terrainsEnCours = false;
 }
 const LOT_ANALYSE = 40; // sorties analysées par appui sur « Analyser » (une à la fois, avec une pause)
@@ -2537,12 +2542,15 @@ async function suivreLot(ordre = 'etat') {
   // Analyse finie : on recharge les activités et les analyses (pas à chaque sortie : sur téléphone, recharger
   // tout l'historique toutes les 20 s figeait l'app)
   if (avant?.en_cours && !etatLot?.en_cours) await chargerActivites();
-  afficherTerrain();
+  if (!$('[data-vue="stats"]').hidden) afficherTerrain(); // rien à redessiner si l'onglet Stats n'est pas affiché
 }
 let minuterieTerrains = null;
 function planifierTerrains() {
   clearTimeout(minuterieTerrains);
-  minuterieTerrains = setTimeout(async () => { await chargerTerrains(); afficherTerrain(); afficherPuissance(); }, 1500);
+  minuterieTerrains = setTimeout(async () => {
+    if (!peutChargerTerrains()) return;
+    await chargerTerrains(); afficherTerrain(); afficherPuissance();
+  }, 1500);
 }
 
 // Moyennes pondérées par le temps de plusieurs résumés (même calcul que _fusionner() côté serveur)
@@ -2640,8 +2648,12 @@ function afficherTerrain() {
   carte.hidden = !aDuVelo && !aDeLaCourse;
   if (carte.hidden || !carte.open) return;
   if (!terrainsCharges) {
-    $('#terrain').innerHTML = '<p class="chargement" role="status">Chargement des analyses…</p>';
-    if (!terrainsEnCours) chargerTerrains().then(afficherTerrain);
+    if (peutChargerTerrains()) {
+      $('#terrain').innerHTML = '<p class="chargement" role="status">Chargement des analyses…</p>';
+      chargerTerrains().then(afficherTerrain);
+    } else if (!terrainsEnCours) {
+      $('#terrain').innerHTML = '<p class="muted petit">Les analyses ne se chargent pas pour le moment (serveur occupé ?). Nouvel essai dans une minute.</p>';
+    }
     return;
   }
   if (!aDuVelo) choixStats.sportTerrain = 'course';
@@ -2655,7 +2667,7 @@ function afficherTerrain() {
   $('#lieuVelo').hidden = !velo;
   const duSport = (x) => (velo ? x.sport === 'velo' && interieur(x) === dedans : x.sport === 'course' || x.sport === 'trail');
   const toutHistorique = choixStats.terrain === 'tout';
-  if (toutHistorique && !terrainsTout) { chargerTerrains().then(afficherTerrain); }
+  if (toutHistorique && !terrainsTout && peutChargerTerrains()) { chargerTerrains().then(afficherTerrain); }
   const semaines = Number(choixStats.terrain) || 8;
   const vue = choixStats.vueTerrain || 'montee';
   puces($('#filtreTerrain'), [['4', '4 sem.'], ['8', '8 sem.'], ['12', '12 sem.'], ['tout', 'Tout l\'historique']], toutHistorique ? 'tout' : String(semaines), (c) => { choixStats.terrain = c; });

@@ -133,7 +133,7 @@ drop trigger if exists archiver_donnees on public.donnees;
 create trigger archiver_donnees before update on public.donnees
   for each row execute function public.archiver_donnees();
 
--- ---------- Puissances calculées (À APPLIQUER : migration pas encore passée sur le projet) ----------
+-- ---------- Puissances calculées ----------
 -- Meilleures puissances par durée calculées par Cloach (course, trail…) : Garmin ne donne sa courbe
 -- de puissance que pour le vélo. Colonne légère, tenue à jour par un déclencheur, lue par l'app pour les records.
 alter table public.activites add column if not exists puissances_calculees jsonb;

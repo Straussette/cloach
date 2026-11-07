@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-07.5">
+<meta name="app-version" content="2026-11-07.6">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -23,7 +23,7 @@
     --shadow:0 1px 3px rgba(20,33,31,.08), 0 4px 14px rgba(20,33,31,.06);
     --voile-clair:rgba(255,255,255,.16); --voile:rgba(0,0,0,.45);
     --serie-1:#008a7e; --serie-2:#d9581a; --serie-3:#7b5cc4; --serie-autre:#8a9593;
-    --zone-1:#86b6ef; --zone-2:#5598e7; --zone-3:#2a78d6; --zone-4:#1c5cab; --zone-5:#104281;
+    --zone-1:#9aa9b2; --zone-2:#2f9e5b; --zone-3:#d9a10b; --zone-4:#e36c2a; --zone-5:#c92f3a;
     color-scheme:light;
   }
   @media (prefers-color-scheme: dark) {
@@ -32,7 +32,7 @@
       --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
       --ok:#4fb378; --alerte:#f07b74; --attention:#e3a25a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
       --serie-1:#1f9e91; --serie-2:#e0703a; --serie-3:#9a7fe0; --serie-autre:#6f7c79;
-      --zone-1:#184f95; --zone-2:#256abf; --zone-3:#3987e5; --zone-4:#6da7ec; --zone-5:#9ec5f4;
+      --zone-1:#6f8189; --zone-2:#44b16f; --zone-3:#e8b730; --zone-4:#f0843f; --zone-5:#ec5a5f;
     }
   }
   :root[data-theme="dark"] {
@@ -40,7 +40,7 @@
     --accent:#3fb3a6; --on-accent:#06201d; --accent-doux:#1d3532; --vif:#f08a52; --shadow:none; color-scheme:dark;
     --ok:#4fb378; --alerte:#f07b74; --attention:#e3a25a; --voile-clair:rgba(255,255,255,.14); --voile:rgba(0,0,0,.6);
     --serie-1:#1f9e91; --serie-2:#e0703a; --serie-3:#9a7fe0; --serie-autre:#6f7c79;
-    --zone-1:#184f95; --zone-2:#256abf; --zone-3:#3987e5; --zone-4:#6da7ec; --zone-5:#9ec5f4;
+    --zone-1:#6f8189; --zone-2:#44b16f; --zone-3:#e8b730; --zone-4:#f0843f; --zone-5:#ec5a5f;
   }
 
   * { box-sizing:border-box; }
@@ -2962,7 +2962,8 @@ function afficherTerrain() {
 // l'import : tout l'historique), sinon de celle calculée à partir des détails (efforts « tout »).
 const FACTEURS_SEUIL = [[3600, 1, '1 h'], [1200, 0.95, '20 min']];
 const COURBE_PUISSANCE = [[5, '5 s'], [60, '1 min'], [300, '5 min'], [1200, '20 min'], [3600, '1 h']];
-const DUREES_COURBE = [[5, '5 s'], [30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min'], [600, '10 min'], [1200, '20 min'], [3600, '1 h'], [7200, '2 h']];
+// À partir de 30 s : le sprint de 5 s écrase le reste du graphe
+const DUREES_COURBE = [[30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min'], [600, '10 min'], [1200, '20 min'], [3600, '1 h'], [7200, '2 h']];
 const depuis6Mois = () => decaler(jourISO(), -182);
 function courbeSortie(a, calculees) {
   const courbe = {};

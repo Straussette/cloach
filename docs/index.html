@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-07.1">
+<meta name="app-version" content="2026-11-07.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -275,7 +275,13 @@
   .corriger summary { cursor:pointer; color:var(--accent); font-size:.9rem; margin:8px 0; }
   .corriger .trois { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
   .dfa-liste { list-style:none; margin:6px 0; padding:0; font-size:.85rem; display:grid; gap:4px; }
-  .tuiles.detaillees { grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
+  .filtres .puces { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
+  .filtres .puces::-webkit-scrollbar { display:none; }
+  .filtres .puce { flex:none; }
+  #tuiles { grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px; }
+  #tuiles .tuile { padding:8px; }
+  #tuiles .tuile b { font-size:1.15rem; }
+  .titre-groupe { margin:18px 4px 8px; font-size:.8rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
   .repartition { display:grid; gap:2px; margin-top:6px; font-size:.75rem; color:var(--muted); font-variant-numeric:tabular-nums; }
   .repartition .cle { margin-right:5px; }
   .legende { display:flex; gap:14px; flex-wrap:wrap; font-size:.85rem; color:var(--muted); margin:6px 0 0; }
@@ -415,20 +421,35 @@
         <p class="legende" id="legendeVolume"></p>
         <details class="petit" style="margin-top:8px"><summary class="muted">Voir le tableau</summary><div id="tableVolume"></div></details>
       </div>
-      <div class="carte">
-        <div class="semaine-h"><h3>Forme et fatigue</h3><span>d'après la charge Garmin</span></div>
-        <div class="graph" id="graphForme"></div>
-        <p class="legende"><span><i class="cle s1"></i>Forme (charge moyenne sur 42 jours)</span><span><i class="cle s2"></i>Fatigue (sur 7 jours)</span></p>
-        <p class="muted petit">Quand la fatigue dépasse nettement la forme, tu es en surcharge ; quand elle passe en dessous, tu récupères.</p>
-      </div>
     </div>
-    <!-- À partir des records, chaque carte est repliée sur une ligne de résumé (data-repli) -->
+    <!-- Sous le volume, chaque carte est repliée sur une ligne de résumé (data-repli) : l'avis du coach, les records,
+         l'intensité et la forme, puis les analyses détaillées (relief, puissance) -->
+    <details class="carte repli" data-repli="analyse">
+      <summary><h3>L'avis du coach</h3><p class="resume-repli" id="resumeAnalyse"></p></summary>
+      <div class="semaine-h"><span></span><span id="dateAnalyse"></span></div>
+      <div id="texteAnalyse" class="analyse"></div>
+      <a class="btn large" target="_blank" rel="noopener" data-question="analyse" style="margin-top:12px">🔎 Demander à Claude d'analyser mon historique</a>
+    </details>
     <details class="carte repli" id="carteRecords" data-repli="records" hidden>
       <summary><h3>Records</h3><p class="resume-repli">Plus longues sorties, plus gros dénivelé, meilleures semaines, meilleurs efforts Garmin</p></summary>
       <div class="semaine-h"><span></span><span id="periodeRecords"></span></div>
       <div id="recordsRecents"></div>
       <div id="records"></div>
     </details>
+    <details class="carte repli" id="carteIntensite" data-repli="intensite" hidden>
+      <summary><h3>Répartition de l'intensité</h3><p class="resume-repli" id="resumeIntensite">Temps passé dans chacune de tes zones de fréquence cardiaque</p></summary>
+      <div class="puces compactes" id="periodeIntensite" style="margin-bottom:6px"></div>
+      <div class="puces compactes" id="sportIntensite" style="margin-bottom:10px"></div>
+      <div id="intensite"></div>
+      <a class="btn secondaire large" target="_blank" rel="noopener" data-question="intensite" style="margin-top:12px">🗣️ Demander au coach si mon intensité est bien répartie</a>
+    </details>
+    <details class="carte repli" id="carteForme" data-repli="forme" hidden>
+      <summary><h3>Forme et fatigue</h3><p class="resume-repli" id="resumeForme">Charge d'entraînement sur 42 et 7 jours</p></summary>
+      <div class="graph" id="graphForme"></div>
+      <p class="legende"><span><i class="cle s1"></i>Forme (charge moyenne sur 42 jours)</span><span><i class="cle s2"></i>Fatigue (sur 7 jours)</span></p>
+      <p class="muted petit">D'après la charge Garmin. Quand la fatigue dépasse nettement la forme, tu es en surcharge ; quand elle passe en dessous, tu récupères.</p>
+    </details>
+    <h3 class="titre-groupe" id="titreDetail" hidden>Pour aller plus loin</h3>
     <details class="carte repli" id="carteTerrain" data-repli="terrain" hidden>
       <summary><h3>Selon le relief</h3><p class="resume-repli">Meilleurs efforts, VAP, moyennes et montées, à plat, en montée et en descente</p></summary>
       <div class="puces" id="sportTerrain" style="margin-bottom:8px"></div>
@@ -445,19 +466,6 @@
       <div class="puces" id="periodePuissance" style="margin-bottom:10px"></div>
       <div id="puissance"></div>
       <a class="btn secondaire large" target="_blank" rel="noopener" data-question="puissance" style="margin-top:12px">🗣️ Demander au coach de comparer</a>
-    </details>
-    <details class="carte repli" id="carteIntensite" data-repli="intensite" hidden>
-      <summary><h3>Répartition de l'intensité</h3><p class="resume-repli" id="resumeIntensite">Temps passé dans chacune de tes zones de fréquence cardiaque</p></summary>
-      <div class="puces compactes" id="periodeIntensite" style="margin-bottom:6px"></div>
-      <div class="puces compactes" id="sportIntensite" style="margin-bottom:10px"></div>
-      <div id="intensite"></div>
-      <a class="btn secondaire large" target="_blank" rel="noopener" data-question="intensite" style="margin-top:12px">🗣️ Demander au coach si mon intensité est bien répartie</a>
-    </details>
-    <details class="carte repli" data-repli="analyse">
-      <summary><h3>L'avis du coach</h3><p class="resume-repli" id="resumeAnalyse"></p></summary>
-      <div class="semaine-h"><span></span><span id="dateAnalyse"></span></div>
-      <div id="texteAnalyse" class="analyse"></div>
-      <a class="btn large" target="_blank" rel="noopener" data-question="analyse" style="margin-top:12px">🔎 Demander à Claude d'analyser mon historique</a>
     </details>
   </section>
 
@@ -2090,6 +2098,7 @@ function afficherStats() {
   afficherTerrain();
   afficherPuissance();
   afficherIntensite();
+  $('#titreDetail').hidden = $('#carteTerrain').hidden && $('#cartePuissance').hidden;
 
   if (!activites.length) {
     $('#statsContenu').hidden = true;
@@ -2151,14 +2160,11 @@ function afficherStats() {
 
   // Totaux de la période, et leur répartition par famille quand tous les sports sont affichés
   const somme = (m, liste = choisies) => liste.reduce((n, x) => n + MESURES[m].valeur(x), 0);
-  const tuiles = [['seances', 'séances'], ['km', 'km'], ['heures', 'heures'], ['denivele', 'm de D+'], ['charge', 'de charge']];
-  $('#tuiles').classList.toggle('detaillees', familles.length > 1);
+  // Quatre tuiles sur une ligne ; la répartition par famille se lit dans le graphe de volume
+  const tuiles = [['seances', 'séances'], ['km', 'km'], ['heures', 'heures'], ['denivele', 'm D+']];
   $('#tuiles').innerHTML = tuiles.map(([m, l]) => {
-    const parts = familles.length > 1
-      ? `<div class="repartition">${familles.map((f, i) => `<span><i class="cle carre ${f.classe}"></i>${nombre(somme(m, choisies.filter((x) => indexFamille(x) === i)))} ${esc(f.nom.toLowerCase())}</span>`).join('')}</div>`
-      : '';
-    const comparaison = decalage && somme(m, choisiesAvant) > 0 ? `<span class="comparaison">${esc(evolutionTexte(somme(m), somme(m, choisiesAvant)))} vs ${esc(nomComparaison)}</span>` : '';
-    return `<div class="tuile"><b>${nombre(somme(m))}</b><span>${l}</span>${comparaison}${parts}</div>`;
+    const comparaison = decalage && somme(m, choisiesAvant) > 0 ? `<span class="comparaison" title="vs ${esc(nomComparaison)}">${esc(evolutionTexte(somme(m), somme(m, choisiesAvant)))}</span>` : '';
+    return `<div class="tuile"><b>${nombre(somme(m))}</b><span>${l}</span>${comparaison}</div>`;
   }).join('');
 
   // Volume par période. Toucher une barre descend d'un niveau : une année → ses mois → les semaines d'un mois →
@@ -2260,9 +2266,19 @@ function afficherStats() {
     fatigue += (c - fatigue) / 7;
     if (j >= debut && (i % pasForme === 0 || j === fin)) serie.push({ libelle: versDate(j).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' }), a: forme, b: fatigue });
   }
-  graphLignes($('#graphForme'), serie, ['Forme', 'Fatigue']);
+  serieForme = serie;
+  $('#carteForme').hidden = !serie.some((x) => x.a > 0);
+  const dernier = serie[serie.length - 1];
+  $('#resumeForme').textContent = dernier ? `Aujourd'hui : forme ${nombre(dernier.a)} · fatigue ${nombre(dernier.b)}${dernier.b > dernier.a * 1.3 && dernier.b > 10 ? ' (surcharge)' : ''}` : 'Charge d\'entraînement sur 42 et 7 jours';
+  afficherForme();
   // Les records sont de tous les temps : seul le filtre de sport s'applique
   afficherRecords(activites.filter(garder));
+}
+
+/* ---------- Forme et fatigue ---------- */
+let serieForme = [];
+function afficherForme() {
+  if (carteOuverte('forme') && !$('[data-vue="stats"]').hidden) graphLignes($('#graphForme'), serieForme, ['Forme', 'Fatigue']);
 }
 
 /* ---------- Records récents (badges) ---------- */
@@ -3212,6 +3228,7 @@ for (const d of document.querySelectorAll('details[data-repli]')) {
     if (d.open && d.dataset.repli === 'terrain') afficherTerrain();
     if (d.open && d.dataset.repli === 'puissance') afficherPuissance();
     if (d.open && d.dataset.repli === 'intensite') afficherIntensite();
+    if (d.open && d.dataset.repli === 'forme') afficherForme();
   });
 }
 

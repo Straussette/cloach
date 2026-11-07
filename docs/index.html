@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-06.7">
+<meta name="app-version" content="2026-11-07.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -285,6 +285,11 @@
   .analyse { white-space:pre-line; line-height:1.5; }
   .famille-records { margin:12px 0 4px; font-size:.95rem; }
   .famille-records:first-child { margin-top:0; }
+  .suspect { color:var(--alerte); font-weight:600; }
+  .alerte-record { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; font-size:.82rem; padding:2px 0 8px; }
+  .alerte-record .btn { padding:4px 10px; font-size:.8rem; }
+  .exclusions { margin-top:10px; font-size:.85rem; }
+  .exclusions li { display:flex; justify-content:space-between; gap:8px; align-items:center; padding:4px 0; }
   .record { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:8px 0; border-top:1px solid var(--border); background:none; border-left:0; border-right:0; border-bottom:0; width:100%; text-align:left; font:inherit; color:inherit; cursor:pointer; }
   .record .valeur { font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
   .record .quand { grid-column:1 / -1; font-size:.8rem; color:var(--muted); }
@@ -2266,7 +2271,7 @@ function afficherStats() {
 // [code, valeur, texte court du record]
 // Meilleure puissance d'une sortie sur une durée (secondes) : courbe de Garmin (vélo), sinon celle calculée par
 // Cloach à partir du profil détaillé (colonne puissances_calculees, tenue à jour par la base) : course, trail…
-const puissanceMax = (a, d) => Number(a.puissances_max?.[d]) || Number(a.pc?.[d]) || 0;
+const puissanceMax = (a, d) => (exclu(a.id, 'puissance') ? 0 : Number(a.puissances_max?.[d]) || Number(a.pc?.[d]) || 0);
 const MESURES_RECORD = [
   ['distance', (a) => Number(a.distance_km) || 0, (v) => `${nombre(v, 1)} km`],
   ['denivele', (a) => Number(a.denivele_m) || 0, (v) => `${nombre(v)} m D+`],
@@ -2275,7 +2280,7 @@ const MESURES_RECORD = [
 ];
 let cacheBadges = { cle: '', parId: new Map() };
 function badgesRecords() {
-  const cle = `${activites.length}|${activites[activites.length - 1]?.id}|${jourISO()}`;
+  const cle = `${activites.length}|${activites[activites.length - 1]?.id}|${jourISO()}|${JSON.stringify(etat.exclusions || {})}`;
   if (cacheBadges.cle === cle) return cacheBadges.parId;
   const parId = new Map(), unAn = decaler(jourISO(), -365);
   const familles = {};
@@ -2389,7 +2394,7 @@ function afficherRecords(toutes) {
   const pied = liste.filter((a) => GROUPES.pied.includes(a.sport));
   if (pied.length) {
     // Allure : sorties d'au moins 5 km, en écartant les valeurs impossibles (GPS)
-    const rapide = meilleur(pied.filter((a) => Number(a.distance_km) >= 5 && allure(a) >= 2.5), allure, -1);
+    const rapide = meilleur(pied.filter((a) => Number(a.distance_km) >= 5 && allure(a) >= 2.5 && !exclu(a.id, 'vitesse')), allure, -1);
     blocs.push(`<h4 class="famille-records">🏃 Course + trail</h4>`
       + ligne('Plus longue sortie', meilleur(pied, (a) => Number(a.distance_km)), `${nombre(Number(meilleur(pied, (a) => Number(a.distance_km))?.distance_km || 0), 1)} km`)
       + ligne('Plus gros dénivelé', meilleur(pied, (a) => Number(a.denivele_m)), `${nombre(Number(meilleur(pied, (a) => Number(a.denivele_m))?.denivele_m || 0))} m D+`)
@@ -2399,7 +2404,7 @@ function afficherRecords(toutes) {
   const velo = liste.filter((a) => a.sport === 'velo');
   if (velo.length) {
     const vitesse = (a) => (allure(a) ? 60 / allure(a) : null);
-    const rapide = meilleur(velo.filter((a) => Number(a.distance_km) >= 20 && vitesse(a) <= 70), vitesse);
+    const rapide = meilleur(velo.filter((a) => Number(a.distance_km) >= 20 && vitesse(a) <= 70 && !exclu(a.id, 'vitesse')), vitesse);
     blocs.push(`<h4 class="famille-records">🚴 Vélo</h4>`
       + ligne('Plus longue sortie', meilleur(velo, (a) => Number(a.distance_km)), `${nombre(Number(meilleur(velo, (a) => Number(a.distance_km))?.distance_km || 0), 1)} km`)
       + ligne('Plus gros dénivelé', meilleur(velo, (a) => Number(a.denivele_m)), `${nombre(Number(meilleur(velo, (a) => Number(a.denivele_m))?.denivele_m || 0))} m D+`)
@@ -2593,14 +2598,70 @@ function tableTerrain(colonnes, total) {
 }
 
 // Meilleur effort de la période pour chaque terrain, durée et mesure (comme records() côté serveur)
+/* ---------- Records : valeurs suspectes et sorties exclues ---------- */
+const NOMS_MESURES_EXCLUES = { vitesse: 'vitesse et allure', puissance: 'puissance', vam: 'VAM', tout: 'tous les records' };
+function htmlExclusions() {
+  const liste = Object.entries(etat.exclusions || {});
+  if (!liste.length) return '';
+  const parId = new Map(activites.map((a) => [a.id, a]));
+  return `<details class="exclusions"><summary class="muted">${liste.length} sortie${liste.length > 1 ? 's' : ''} exclue${liste.length > 1 ? 's' : ''} des records</summary><ul style="list-style:none;padding:0;margin:4px 0">
+    ${liste.map(([id, e]) => { const a = parId.get(id); return `<li><span>${a ? `${esc(dateLisible(a.jour, false))} ${esc(a.jour.slice(0, 4))} · ${esc(a.nom || '')}` : esc(id)} <span class="muted">(${esc((e.mesures || []).map((x) => NOMS_MESURES_EXCLUES[x] || x).join(', '))})</span></span>
+      <button type="button" class="btn discret" data-retablir="${esc(id)}">Rétablir</button></li>`; }).join('')}</ul></details>`;
+}
+document.addEventListener('click', async (e) => {
+  const x = e.target.closest('[data-exclure]'), r = e.target.closest('[data-retablir]');
+  if (!x && !r) return;
+  e.stopPropagation();
+  if (x) {
+    const id = x.dataset.exclure, mesure = x.dataset.mesure;
+    await modifier(() => {
+      etat.exclusions ||= {};
+      const avant = etat.exclusions[id]?.mesures || [];
+      etat.exclusions[id] = { mesures: [...new Set([...avant, mesure])], date: jourISO() };
+    });
+  } else {
+    await modifier(() => { delete etat.exclusions?.[r.dataset.retablir]; });
+  }
+  cacheBadges = { cle: '', parId: new Map() };
+  dureeChoisie = null;
+  afficherTerrain();
+  afficherPuissance();
+});
+// etat.exclusions : { [idActivite]: { mesures: ['vitesse' | 'puissance' | 'vam' | 'tout'], date } } : une sortie
+// exclue d'une mesure (par exemple une erreur GPS, qui fausse la vitesse mais pas la puissance) ne compte plus
+// dans les records de cette mesure (Selon le relief, Records, Courbes de puissance, badges).
+const familleMesure = (m) => (m === 'vitesse_vap' || m === 'vitesse' ? 'vitesse' : m);
+function exclu(id, mesure) {
+  const e = etat.exclusions?.[id];
+  return !!e && (e.mesures?.includes('tout') || e.mesures?.includes(familleMesure(mesure)));
+}
+// Records du monde approximatifs par durée (m/s) : au-delà, c'est une erreur de mesure (GPS, sortie mal classée)
+const VITESSE_MAX_PIED = { 30: 9.5, 60: 9, 120: 8.2, 300: 7.3, 600: 6.9, 1200: 6.6, 1800: 6.4, 3600: 6 };
+// Pourquoi une valeur record paraît anormale : impossible physiquement, ou nettement au-dessus du 2e meilleur effort
+function motifSuspect(r, mesure, duree, velo) {
+  if (!r) return '';
+  const v = r.valeur;
+  if (!velo && familleMesure(mesure) === 'vitesse' && v > (VITESSE_MAX_PIED[duree] || 9.5)) return 'impossible à pied (au-delà du record du monde) : erreur GPS probable';
+  if (velo && mesure === 'vitesse' && v > 25) return 'vitesse impossible : erreur GPS probable';
+  if (mesure === 'puissance' && v > (velo ? 2200 : 1200)) return 'puissance impossible : erreur du capteur probable';
+  const seuil = mesure === 'vam' ? 1.15 : 1.1;
+  if (r.deuxieme > 0 && v > r.deuxieme * seuil) return `${nombre((v / r.deuxieme - 1) * 100)} % au-dessus de ton 2e meilleur effort : à vérifier`;
+  return '';
+}
 function recordsTerrain(lignes) {
   const rec = { plat: {}, montee: {}, descente: {}, tout: {} };
   for (const l of lignes) {
     for (const t of Object.keys(rec)) {
       for (const [duree, mesures] of Object.entries(l.terrains.efforts?.[t] || {})) {
         for (const [mesure, valeur] of Object.entries(mesures)) {
+          if (exclu(l.id, mesure)) continue;
           const caseRec = (rec[t][duree] ||= {});
-          if (valeur > (caseRec[mesure]?.valeur || 0)) caseRec[mesure] = { valeur, jour: l.jour, sortie: l.nom, id: l.id };
+          const actuel = caseRec[mesure];
+          if (valeur > (actuel?.valeur || 0)) {
+            caseRec[mesure] = { valeur, jour: l.jour, sortie: l.nom, id: l.id, deuxieme: actuel && actuel.id !== l.id ? actuel.valeur : actuel?.deuxieme || 0 };
+          } else if (actuel && actuel.id !== l.id && valeur > (actuel.deuxieme || 0)) {
+            actuel.deuxieme = valeur;
+          }
         }
       }
     }
@@ -2706,7 +2767,8 @@ function afficherTerrain() {
         ${durees.map(([d, nom]) => `<tr data-duree="${d}" class="${dureeChoisie === d ? 'choisie' : ''}"><th scope="row">${esc(nom)}</th>${mesures.map(([m, , f]) => {
           const v = rec[d][m]?.valeur;
           const sous = evolution(d, m);
-          return `<td>${v ? esc(f(v)) : '—'}${sous ? `<span class="evol">${esc(sous)}</span>` : ''}</td>`;
+          const louche = motifSuspect(rec[d][m], m, d, velo);
+          return `<td>${v ? `${louche ? '<span class="suspect" title="Valeur inhabituelle">⚠ </span>' : ''}${esc(f(v))}` : '—'}${sous ? `<span class="evol">${esc(sous)}</span>` : ''}</td>`;
         }).join('')}</tr>`).join('')}</tbody></table>`;
       const choisie = durees.find(([d]) => d === dureeChoisie);
       html += choisie
@@ -2714,14 +2776,19 @@ function afficherTerrain() {
             const c = rec[choisie[0]][m], a = recAvant[choisie[0]]?.[m];
             const autres = m === 'puissance' ? [`${nombre(c.valeur)} W`, parKg(c.valeur), seuilVue() ? `${nombre((c.valeur / seuilVue()) * 100)} % ${velo ? 'de la FTP' : 'du seuil'}` : ''].filter((x) => x && x !== f(c.valeur)) : [];
             // Toucher le record ouvre la sortie dans le Calendrier (data-aller-jour, comme les records de Stats)
+            const louche = motifSuspect(c, m, choisie[0], velo);
             return `<button type="button" class="record" data-aller-jour="${esc(c.jour)}">
-              <span>${esc(`${nom} sur ${choisie[1]}`)}</span><span class="valeur">${esc(f(c.valeur))}</span>
-              <span class="quand">${esc([`${dateLisible(c.jour, false)} ${c.jour.slice(0, 4)}`, c.sortie, ...autres, a ? `avant ${f(a.valeur)}` : ''].filter(Boolean).join(' · '))} ›</span></button>`;
+              <span>${esc(`${nom} sur ${choisie[1]}`)}</span><span class="valeur">${louche ? '<span class="suspect">⚠ </span>' : ''}${esc(f(c.valeur))}</span>
+              <span class="quand">${esc([`${dateLisible(c.jour, false)} ${c.jour.slice(0, 4)}`, c.sortie, ...autres, a ? `avant ${f(a.valeur)}` : ''].filter(Boolean).join(' · '))} ›</span></button>
+              <div class="alerte-record">${louche ? `<span class="suspect">⚠ ${esc(louche)}</span>` : ''}
+                <button type="button" class="btn ${louche ? 'secondaire' : 'discret'}" data-exclure="${esc(c.id)}" data-mesure="${esc(familleMesure(m))}">Exclure cette sortie des records ${esc(nom.toLowerCase())}</button></div>`;
           }).join('')}</div>`
         : `<p class="muted petit" id="detailEffort" style="margin:6px 0 0">Touche une durée pour voir ses records${avant.length ? ' et les valeurs d\'avant' : ''}, puis un record pour ouvrir la sortie.</p>`;
     } else {
       html += `<p class="muted petit">Pas encore d'effort de 30 s ou plus ${NOMS_TERRAINS[vue]} sur la période.</p>`;
     }
+
+    html += htmlExclusions();
 
     // Moyennes par terrain
     const parTerrain = TERRAINS.map(([cle, nom]) => [nom, fusionnerTerrains(lignes.map((l) => l.terrains[cle]))]);
@@ -2815,6 +2882,7 @@ const DUREES_COURBE = [[5, '5 s'], [30, '30 s'], [60, '1 min'], [120, '2 min'], 
 const depuis6Mois = () => decaler(jourISO(), -182);
 function courbeSortie(a, calculees) {
   const courbe = {};
+  if (exclu(a.id, 'puissance')) return courbe;
   for (const [d, p] of Object.entries(a.puissances_max || {})) if (p > 0) courbe[d] = p;
   for (const [d, p] of Object.entries(a.pc || {})) if (p > 0 && !courbe[d]) courbe[d] = p;
   for (const [d, m] of Object.entries(calculees.get(a.id) || {})) if (m.puissance && !courbe[d]) courbe[d] = m.puissance;

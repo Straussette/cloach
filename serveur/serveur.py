@@ -166,6 +166,33 @@ def _seances(etat: dict[str, Any]) -> list[dict[str, Any]]:
     return [s for w in (etat.get("plan") or {}).get("semaines", []) for s in w.get("seances", [])]
 
 
+def _sans_exclusions(lignes: list[dict[str, Any]], exclusions: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Activités sans les mesures que l'athlète a exclues des records (etat.exclusions, depuis l'app : erreur GPS,
+    capteur défaillant…) : vitesse (et VAP), puissance, VAM, ou tout."""
+    if not exclusions:
+        return lignes
+    resultat = []
+    for a in lignes:
+        mesures = set((exclusions.get(str(a.get("id"))) or {}).get("mesures") or [])
+        if not mesures:
+            resultat.append(a)
+            continue
+        if "tout" in mesures:
+            continue
+        retirer = {"vitesse": {"vitesse", "vitesse_vap"}, "puissance": {"puissance"}, "vam": {"vam"}}
+        cles = set().union(*(retirer.get(m, set()) for m in mesures))
+        copie = dict(a)
+        t = a.get("terrains")
+        if isinstance(t, dict) and isinstance(t.get("efforts"), dict):
+            copie["terrains"] = {**t, "efforts": {terrain: {d: {k: v for k, v in m.items() if k not in cles}
+                                                            for d, m in (efforts or {}).items()}
+                                                  for terrain, efforts in t["efforts"].items()}}
+        if "puissance" in mesures:
+            copie["puissances_max"] = None
+        resultat.append(copie)
+    return resultat
+
+
 def _id() -> str:
     return os.urandom(6).hex()
 
@@ -707,7 +734,9 @@ async def profil_terrain(semaines: int = 8, sport: Literal["course", "velo"] = "
                 break
             await anyio.sleep(1)
         lignes = await lire()
-    profil_sportif = (await _lire(uid)).get("profil") or {}
+    etat_compte = await _lire(uid)
+    profil_sportif = etat_compte.get("profil") or {}
+    lignes = _sans_exclusions(lignes, etat_compte.get("exclusions"))
     poids = puissance.nombre(profil_sportif.get("poids"))
     champ_seuil = "ftp" if velo else "seuilCourse"
     seuil = puissance.nombre(profil_sportif.get(champ_seuil)) or (puissance.estimer_seuil(lignes) or {}).get("valeur")
@@ -840,7 +869,9 @@ async def seuils_puissance() -> dict[str, Any]:
                 break
             await anyio.sleep(1)
         lignes = await lire()
-    profil_sportif = (await _lire(uid)).get("profil") or {}
+    etat_compte = await _lire(uid)
+    profil_sportif = etat_compte.get("profil") or {}
+    lignes = _sans_exclusions(lignes, etat_compte.get("exclusions"))
     recentes = [a for a in lignes if str(a["jour"]) >= debut]
     resultat = {
         "six_derniers_mois": puissance.seuils([a for a in recentes if a["sport"] != "velo"],

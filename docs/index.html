@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-07.3">
+<meta name="app-version" content="2026-11-07.4">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2639,6 +2639,22 @@ function htmlExclusions() {
 }
 document.addEventListener('click', async (e) => {
   const x = e.target.closest('[data-exclure]'), r = e.target.closest('[data-retablir]');
+  const v = e.target.closest('[data-valider]'), d = e.target.closest('[data-devalider]');
+  if (v || d) {
+    // Valider une valeur inhabituelle mais juste : le ⚠ ne s'affiche plus pour cette sortie et cette mesure
+    e.stopPropagation();
+    const id = (v || d).dataset.valider || (v || d).dataset.devalider, mesure = (v || d).dataset.mesure;
+    if (v && !confirm('Es-tu sûr que cette valeur est correcte ?\n\nLe ⚠ ne s\'affichera plus pour ce record, et il comptera normalement.')) return;
+    await modifier(() => {
+      etat.valides ||= {};
+      const mesures = new Set(etat.valides[id]?.mesures || []);
+      if (v) mesures.add(mesure); else mesures.delete(mesure);
+      if (mesures.size) etat.valides[id] = { mesures: [...mesures], date: jourISO() };
+      else delete etat.valides[id];
+    });
+    afficherTerrain();
+    return;
+  }
   if (!x && !r) return;
   e.stopPropagation();
   if (x) {
@@ -2667,8 +2683,11 @@ function exclu(id, mesure) {
 // Records du monde approximatifs par durée (m/s) : au-delà, c'est une erreur de mesure (GPS, sortie mal classée)
 const VITESSE_MAX_PIED = { 30: 9.5, 60: 9, 120: 8.2, 300: 7.3, 600: 6.9, 1200: 6.6, 1800: 6.4, 3600: 6 };
 // Pourquoi une valeur record paraît anormale : impossible physiquement, ou nettement au-dessus du 2e meilleur effort
-function motifSuspect(r, mesure, duree, velo) {
-  if (!r) return '';
+// etat.valides : { [idActivite]: { mesures: ['vitesse' | 'puissance' | 'vam'], date } } : valeurs inhabituelles
+// confirmées par l'athlète (« C'est correct ») : plus de ⚠ pour elles
+const valide = (id, mesure) => !!etat.valides?.[id]?.mesures?.includes(familleMesure(mesure));
+function motifSuspect(r, mesure, duree, velo, memeValide = false) {
+  if (!r || (!memeValide && valide(r.id, mesure))) return '';
   const v = r.valeur;
   if (!velo && familleMesure(mesure) === 'vitesse' && v > (VITESSE_MAX_PIED[duree] || 9.5)) return 'impossible à pied (au-delà du record du monde) : erreur GPS probable';
   if (velo && mesure === 'vitesse' && v > 25) return 'vitesse impossible : erreur GPS probable';
@@ -2805,12 +2824,16 @@ function afficherTerrain() {
             const c = rec[choisie[0]][m], a = recAvant[choisie[0]]?.[m];
             const autres = m === 'puissance' ? [`${nombre(c.valeur)} W`, parKg(c.valeur), seuilVue() ? `${nombre((c.valeur / seuilVue()) * 100)} % ${velo ? 'de la FTP' : 'du seuil'}` : ''].filter((x) => x && x !== f(c.valeur)) : [];
             // Toucher le record ouvre la sortie dans le Calendrier (data-aller-jour, comme les records de Stats)
-            const louche = motifSuspect(c, m, choisie[0], velo);
+            const brut = motifSuspect(c, m, choisie[0], velo, true);
+            const louche = brut && !valide(c.id, m) ? brut : '';
+            const attrs = `data-mesure="${esc(familleMesure(m))}"`;
             return `<button type="button" class="record" data-aller-jour="${esc(c.jour)}">
               <span>${esc(`${nom} sur ${choisie[1]}`)}</span><span class="valeur">${louche ? '<span class="suspect">⚠ </span>' : ''}${esc(f(c.valeur))}</span>
               <span class="quand">${esc([`${dateLisible(c.jour, false)} ${c.jour.slice(0, 4)}`, c.sortie, ...autres, a ? `avant ${f(a.valeur)}` : ''].filter(Boolean).join(' · '))} ›</span></button>
               <div class="alerte-record">${louche ? `<span class="suspect">⚠ ${esc(louche)}</span>` : ''}
-                <button type="button" class="btn ${louche ? 'secondaire' : 'discret'}" data-exclure="${esc(c.id)}" data-mesure="${esc(familleMesure(m))}">Exclure cette sortie des records ${esc(nom.toLowerCase())}</button></div>`;
+                ${louche ? `<button type="button" class="btn discret" data-valider="${esc(c.id)}" ${attrs}>✓ C'est correct</button>` : ''}
+                ${brut && !louche ? `<span class="muted">✓ Valeur validée par toi</span><button type="button" class="btn discret" data-devalider="${esc(c.id)}" ${attrs}>Annuler</button>` : ''}
+                <button type="button" class="btn ${louche ? 'secondaire' : 'discret'}" data-exclure="${esc(c.id)}" ${attrs}>Exclure cette sortie des records ${esc(nom.toLowerCase())}</button></div>`;
           }).join('')}</div>`
         : `<p class="muted petit" id="detailEffort" style="margin:6px 0 0">Touche une durée pour voir ses records${avant.length ? ' et les valeurs d\'avant' : ''}, puis un record pour ouvrir la sortie.</p>`;
     } else {

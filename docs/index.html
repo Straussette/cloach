@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-07.2">
+<meta name="app-version" content="2026-11-07.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2256,20 +2256,33 @@ function afficherStats() {
   // Forme et fatigue : moyennes exponentielles de la charge quotidienne (42 et 7 jours)
   const chargeJour = {};
   for (const x of activites) if (garder(x)) chargeJour[x.jour] = (chargeJour[x.jour] || 0) + (Number(x.charge) || 0);
-  const pasForme = periode.jours && periode.jours <= 182 ? 1 : 7;
+  // Sur une longue période, une valeur par jour ou un point par semaine devient illisible (la fatigue sur 7 jours
+  // oscille à chaque séance) : moyenne par semaine jusqu'à un an, par mois au-delà
+  const pasForme = periode.jours && periode.jours <= 182 ? 'jour' : periode.jours && periode.jours <= 400 ? 'semaine' : 'mois';
   const serie = [];
-  let forme = 0, fatigue = 0;
+  let forme = 0, fatigue = 0, paquet = null;
   const jourCourant = versDate(decaler(debut, -84));
-  for (let j = jourISO(jourCourant), i = 0; j <= fin; jourCourant.setDate(jourCourant.getDate() + 1), j = jourISO(jourCourant), i++) {
+  const libelleForme = (j) => (pasForme === 'mois'
+    ? versDate(j).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })
+    : versDate(j).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' }));
+  for (let j = jourISO(jourCourant); j <= fin; jourCourant.setDate(jourCourant.getDate() + 1), j = jourISO(jourCourant)) {
     const c = chargeJour[j] || 0;
     forme += (c - forme) / 42;
     fatigue += (c - fatigue) / 7;
-    if (j >= debut && (i % pasForme === 0 || j === fin)) serie.push({ libelle: versDate(j).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' }), a: forme, b: fatigue });
+    if (j < debut) continue;
+    const cle = pasForme === 'jour' ? j : pasForme === 'semaine' ? cleDe(j, 'semaine') : j.slice(0, 7);
+    if (!paquet || paquet.cle !== cle) {
+      paquet = { cle, libelle: libelleForme(j), sa: 0, sb: 0, n: 0 };
+      serie.push(paquet);
+    }
+    paquet.sa += forme; paquet.sb += fatigue; paquet.n++;
+    paquet.a = paquet.sa / paquet.n; paquet.b = paquet.sb / paquet.n;
   }
   serieForme = serie;
   $('#carteForme').hidden = !serie.some((x) => x.a > 0);
-  const dernier = serie[serie.length - 1];
-  $('#resumeForme').textContent = dernier ? `Aujourd'hui : forme ${nombre(dernier.a)} · fatigue ${nombre(dernier.b)}${dernier.b > dernier.a * 1.3 && dernier.b > 10 ? ' (surcharge)' : ''}` : 'Charge d\'entraînement sur 42 et 7 jours';
+  $('#carteForme .legende').innerHTML = `<span><i class="cle s1"></i>Forme (charge moyenne sur 42 jours)</span><span><i class="cle s2"></i>Fatigue (sur 7 jours)</span>${pasForme !== 'jour' ? `<span>moyennes par ${pasForme}</span>` : ''}`;
+  const dernier = { a: forme, b: fatigue };
+  $('#resumeForme').textContent = serie.length ? `Aujourd'hui : forme ${nombre(dernier.a)} · fatigue ${nombre(dernier.b)}${dernier.b > dernier.a * 1.3 && dernier.b > 10 ? ' (surcharge)' : ''}` : 'Charge d\'entraînement sur 42 et 7 jours';
   afficherForme();
   // Les records sont de tous les temps : seul le filtre de sport s'applique
   afficherRecords(activites.filter(garder));

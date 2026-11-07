@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-07.6">
+<meta name="app-version" content="2026-11-07.7">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -299,7 +299,8 @@
   .graph .aire-velo { fill:var(--serie-2); fill-opacity:.18; stroke:var(--serie-2); stroke-width:2; }
   .graph .aire-ref { fill:none; stroke:var(--muted); stroke-width:1.5; stroke-dasharray:5 4; }
   .graph text.etiquette-cercle { font-size:11px; fill:var(--muted); }
-  .graph text.valeur-cercle { font-size:10px; fill:var(--text); font-weight:600; }
+  .graph text.valeur-cercle { font-size:12px; fill:var(--text); font-weight:700; }
+  .graph text.valeur-cercle.ref { fill:var(--muted); font-weight:400; }
   .filtres .puces { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
   .filtres .puces::-webkit-scrollbar { display:none; }
   .filtres .puce { flex:none; }
@@ -3107,6 +3108,7 @@ function afficherPuissance() {
     if (cercle) {
       graphCercle($('#graphCourbe'), pointsCourbe, ['6 derniers mois', 'Meilleur de tous les temps'], {
         classes: [veloCourbe ? 'aire-velo' : 'aire-1', 'aire-ref'], cles: [`cle ${veloCourbe ? 's2' : 's1'}`, 'cle pointillee'], format, titre: 'Puissance maximale par durée',
+        court: (w) => `${nombre(w)} W`,
       });
     } else {
       graphLignes($('#graphCourbe'), pointsCourbe, ['6 derniers mois', 'Meilleur de tous les temps'], {
@@ -3450,7 +3452,7 @@ function graphLignes(conteneur, points, noms, options = {}) {
 function graphCercle(conteneur, points, noms, options = {}) {
   const classes = options.classes || ['aire-1', 'aire-ref'], cles = options.cles || ['cle s1', 'cle pointillee'];
   const format = options.format || ((v) => nombre(v));
-  const L = Math.min(360, Math.max(260, conteneur.clientWidth || 320)), c = L / 2, R = c - 38, r0 = R * 0.12;
+  const L = Math.min(380, Math.max(280, conteneur.clientWidth || 320)), c = L / 2, R = c - 46, r0 = R * 0.12;
   const n = points.length, max = Math.max(...points.flatMap((p) => [p.a || 0, p.b || 0]), 1);
   const angle = (i) => -Math.PI / 2 + (2 * Math.PI * i) / n;
   const rayon = (v) => r0 + ((R - r0) * v) / max;
@@ -3462,14 +3464,21 @@ function graphCercle(conteneur, points, noms, options = {}) {
   const ech = echelle(max);
   let grille = '';
   for (let v = ech.pas; v <= max + 1e-9; v += ech.pas) {
+    if (options.court) { grille += `<circle class="grille-cercle" cx="${c}" cy="${c}" r="${rayon(v).toFixed(1)}"/>`; continue; }
     // valeurs de la grille entre le premier et le dernier rayon, là où rien ne les recouvre
     const [gx, gy] = [c + rayon(v) * Math.cos(-Math.PI / 2 - Math.PI / n), c + rayon(v) * Math.sin(-Math.PI / 2 - Math.PI / n)];
     grille += `<circle class="grille-cercle" cx="${c}" cy="${c}" r="${rayon(v).toFixed(1)}"/><text class="etiquette-cercle" x="${gx.toFixed(1)}" y="${(gy + 4).toFixed(1)}" text-anchor="middle">${nombre(v)}</text>`;
   }
   const rayons = points.map((p, i) => { const [x, y] = xy(i, R); return `<line class="rayon" data-i="${i}" x1="${c}" y1="${c}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`; }).join('');
+  // Autour du cercle : la durée et, dessous, la valeur de la période (en gras), sinon la référence
+  const court = options.court || ((v) => nombre(v));
   const libelles = points.map((p, i) => {
-    const [x, y] = xy(i, R + 16), cos = Math.cos(angle(i));
-    return `<text class="etiquette-cercle" x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="${Math.abs(cos) < 0.3 ? 'middle' : cos > 0 ? 'start' : 'end'}">${esc(p.libelle)}</text>`;
+    const [x, y] = xy(i, R + 14), cos = Math.cos(angle(i)), sin = Math.sin(angle(i));
+    const ancre = Math.abs(cos) < 0.3 ? 'middle' : cos > 0 ? 'start' : 'end';
+    const y0 = y + (sin < -0.3 ? -10 : sin > 0.3 ? 8 : -2);
+    const v = p.a ?? p.b;
+    return `<text class="etiquette-cercle" x="${x.toFixed(1)}" y="${y0.toFixed(1)}" text-anchor="${ancre}">${esc(p.libelle)}</text>`
+      + (v == null ? '' : `<text class="valeur-cercle${p.a == null ? ' ref' : ''}" x="${x.toFixed(1)}" y="${(y0 + 13).toFixed(1)}" text-anchor="${ancre}">${esc(court(v))}</text>`);
   }).join('');
   const marques = points.map((p, i) => { if (p.a == null) return ''; const [x, y] = xy(i, rayon(p.a)); return `<circle class="point ${classes[0].replace('aire', 'ligne')}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5"/>`; }).join('');
   conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${L}" style="max-width:${L}px;display:block;margin:0 auto" role="img" aria-label="${esc(options.titre || 'Graphe circulaire')}">

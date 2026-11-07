@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-07.7">
+<meta name="app-version" content="2026-11-07.8">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -2262,13 +2262,16 @@ function afficherStats() {
     zoomVolume.pile.push(n);
     afficherStats();
   };
-  graphBarres($('#graphVolume'), points, familles, (v) => `${nombre(v, decimales)} ${mesure.unite}`, { nomRepere: decalageG ? nomComparaison : '', liste: zoom ? null : liste, zoom });
+  graphBarres($('#graphVolume'), points, familles, (v) => `${nombre(v, decimales)} ${mesure.unite}`, {
+    nomRepere: decalageG ? nomComparaison : '', liste: zoom ? null : liste, zoom,
+    texteZoom: (i) => `${gPas === 'annee' ? 'Voir les mois' : 'Voir les semaines'} de ${points[i].libelle} ›`,
+  });
   // Toucher une couleur de la légende ne garde que ce sport (le filtre « Tous les sports » revient au total)
   $('#legendeVolume').innerHTML = (familles.length > 1
     ? familles.map((f) => `<button type="button" class="cle-legende" data-famille="${FAMILLES.indexOf(f)}" title="Ne voir que ${esc(f.nom.toLowerCase())}"><i class="cle carre ${f.classe}"></i>${esc(f.nom)}</button>`).join('')
     : '')
     + (decalageG ? `<span><i class="cle pointillee"></i>${esc(nomComparaison[0].toUpperCase() + nomComparaison.slice(1))}</span>` : '')
-    + `<span class="muted petit">${familles.length > 1 ? 'Touche une couleur pour ne garder que ce sport, ' : 'Touche '}une barre pour ${zoom ? (gPas === 'annee' ? 'voir ses mois' : 'voir ses semaines') : 'voir ses sorties'}.</span>`;
+    + `<span class="muted petit">${familles.length > 1 ? 'Touche une couleur pour ne garder que ce sport, ' : 'Touche '}une barre pour ${zoom ? `voir son détail, touche-la encore pour ${gPas === 'annee' ? 'ses mois' : 'ses semaines'}` : 'voir ses sorties'}.</span>`;
   $('#legendeVolume').onclick = (e) => {
     const b = e.target.closest('[data-famille]');
     if (!b) return;
@@ -3388,8 +3391,11 @@ function graphBarres(conteneur, points, series, format, options = {}) {
     detail.innerHTML = `<span><b>${esc(format(p.valeur))}</b> <span class="muted">${esc(p.libelle)}</span></span>`
       + (series.length > 1 ? series.map((sr, j) => (p.parts[j] ? `<span><i class="cle carre ${sr.classe}"></i>${esc(format(p.parts[j]))} <span class="muted">${esc(sr.nom.toLowerCase())}</span></span>` : '')).join('') : '')
       + (p.repere != null && options.nomRepere ? `<span><i class="cle pointillee"></i>${esc(format(p.repere))} <span class="muted">${esc(options.nomRepere)}${p.repere > 0 ? ` (${evolutionTexte(p.valeur, p.repere)})` : ''}</span></span>` : '')
-      + (options.liste ? `<div class="liste-sorties">${options.liste(i)}</div>` : '');
+      + (options.liste ? `<div class="liste-sorties">${options.liste(i)}</div>` : '')
+      + (options.zoom ? `<button type="button" class="btn discret" data-zoom="${i}">${esc(options.texteZoom ? options.texteZoom(i) : 'Voir le détail ›')}</button>` : '');
+    choisi = i;
   };
+  let choisi = -1;
   const indexDe = (e) => {
     const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) * (L / rect.width);
     return Math.max(0, Math.min(points.length - 1, Math.floor((px - MARGE.gauche) / larg)));
@@ -3408,9 +3414,17 @@ function graphBarres(conteneur, points, series, format, options = {}) {
   svg.addEventListener('pointermove', survoler);
   svg.addEventListener('pointerdown', survoler);
   svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') bulle.hidden = true; });
-  if (options.zoom) { svg.style.cursor = 'zoom-in'; svg.addEventListener('click', (e) => options.zoom(indexDe(e))); }
+  // Zoom : un premier toucher choisit la barre (son détail s'affiche dessous), un second sur la même barre, ou le bouton
+  // du détail, descend d'un niveau. pointerdown a déjà choisi la barre : on compare avec le choix d'avant ce toucher
+  if (options.zoom) {
+    let avant = -1;
+    svg.addEventListener('pointerdown', () => { avant = choisi; }, { capture: true });
+    svg.addEventListener('click', (e) => { const i = indexDe(e); if (i === avant || e.pointerType === 'mouse') options.zoom(i); });
+    detail.addEventListener('click', (e) => { const b = e.target.closest('[data-zoom]'); if (b) options.zoom(Number(b.dataset.zoom)); });
+  }
   svg.addEventListener('contextmenu', (e) => e.preventDefault());
   montrer(points.length - 1); // par défaut : la période en cours
+  choisi = -1; // affichée sans avoir été touchée : le premier toucher ne zoome pas
 }
 
 // points : [{ libelle, a, b }] (a ou b peut manquer : la ligne s'interrompt) ; options : classes et cles (légende) des

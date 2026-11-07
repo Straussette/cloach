@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-07.4">
+<meta name="app-version" content="2026-11-07.5">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -275,6 +275,31 @@
   .corriger summary { cursor:pointer; color:var(--accent); font-size:.9rem; margin:8px 0; }
   .corriger .trois { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
   .dfa-liste { list-style:none; margin:6px 0; padding:0; font-size:.85rem; display:grid; gap:4px; }
+  .puces.defile { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+  .puces.defile::-webkit-scrollbar { display:none; }
+  .puces.defile .puce { flex:none; }
+  /* ---------- Anneau (intensité) et cercle (puissance) ---------- */
+  .anneau-zones { display:flex; flex-wrap:wrap; align-items:center; gap:12px 14px; margin:6px 0 12px; }
+  .anneau-zones svg { width:112px; height:112px; flex:none; }
+  .anneau-zones .part { fill:none; stroke-width:16; }
+  .anneau-zones .part.z1 { stroke:var(--zone-1); } .anneau-zones .part.z2 { stroke:var(--zone-2); }
+  .anneau-zones .part.z3 { stroke:var(--zone-3); } .anneau-zones .part.z4 { stroke:var(--zone-4); }
+  .anneau-zones .part.z5 { stroke:var(--zone-5); }
+  .anneau-zones .fond { fill:none; stroke:var(--border); stroke-width:16; }
+  .anneau-zones .centre { font-size:22px; font-weight:700; fill:var(--text); }
+  .anneau-zones .sous-centre { font-size:11px; fill:var(--muted); }
+  .liste-zones { flex:1; min-width:186px; white-space:nowrap; display:grid; gap:5px; font-size:.86rem; font-variant-numeric:tabular-nums; }
+  .liste-zones div { display:grid; grid-template-columns:auto 1fr auto auto; gap:8px; align-items:center; }
+  .liste-zones .h { color:var(--muted); text-align:right; }
+  .liste-zones .p { font-weight:600; text-align:right; min-width:3ch; }
+  .graph .grille-cercle { fill:none; stroke:var(--border); }
+  .graph .rayon { stroke:var(--border); }
+  .graph .rayon.choisi { stroke:var(--muted); stroke-width:1.5; }
+  .graph .aire-1 { fill:var(--serie-1); fill-opacity:.18; stroke:var(--serie-1); stroke-width:2; }
+  .graph .aire-velo { fill:var(--serie-2); fill-opacity:.18; stroke:var(--serie-2); stroke-width:2; }
+  .graph .aire-ref { fill:none; stroke:var(--muted); stroke-width:1.5; stroke-dasharray:5 4; }
+  .graph text.etiquette-cercle { font-size:11px; fill:var(--muted); }
+  .graph text.valeur-cercle { font-size:10px; fill:var(--text); font-weight:600; }
   .filtres .puces { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
   .filtres .puces::-webkit-scrollbar { display:none; }
   .filtres .puce { flex:none; }
@@ -445,6 +470,7 @@
     </details>
     <details class="carte repli" id="carteForme" data-repli="forme" hidden>
       <summary><h3>Forme et fatigue</h3><p class="resume-repli" id="resumeForme">Charge d'entraînement sur 42 et 7 jours</p></summary>
+      <div class="puces compactes" id="periodeForme" style="margin-bottom:8px"></div>
       <div class="graph" id="graphForme"></div>
       <p class="legende"><span><i class="cle s1"></i>Forme (charge moyenne sur 42 jours)</span><span><i class="cle s2"></i>Fatigue (sur 7 jours)</span></p>
       <p class="muted petit">D'après la charge Garmin. Quand la fatigue dépasse nettement la forme, tu es en surcharge ; quand elle passe en dessous, tu récupères.</p>
@@ -2256,42 +2282,48 @@ function afficherStats() {
   // Forme et fatigue : moyennes exponentielles de la charge quotidienne (42 et 7 jours)
   const chargeJour = {};
   for (const x of activites) if (garder(x)) chargeJour[x.jour] = (chargeJour[x.jour] || 0) + (Number(x.charge) || 0);
-  // Sur une longue période, une valeur par jour ou un point par semaine devient illisible (la fatigue sur 7 jours
-  // oscille à chaque séance) : moyenne par semaine jusqu'à un an, par mois au-delà
-  const pasForme = periode.jours && periode.jours <= 182 ? 'jour' : periode.jours && periode.jours <= 400 ? 'semaine' : 'mois';
-  const serie = [];
-  let forme = 0, fatigue = 0, paquet = null;
-  const jourCourant = versDate(decaler(debut, -84));
-  const libelleForme = (j) => (pasForme === 'mois'
-    ? versDate(j).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })
-    : versDate(j).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' }));
-  for (let j = jourISO(jourCourant); j <= fin; jourCourant.setDate(jourCourant.getDate() + 1), j = jourISO(jourCourant)) {
-    const c = chargeJour[j] || 0;
-    forme += (c - forme) / 42;
-    fatigue += (c - fatigue) / 7;
-    if (j < debut) continue;
-    const cle = pasForme === 'jour' ? j : pasForme === 'semaine' ? cleDe(j, 'semaine') : j.slice(0, 7);
-    if (!paquet || paquet.cle !== cle) {
-      paquet = { cle, libelle: libelleForme(j), sa: 0, sb: 0, n: 0 };
-      serie.push(paquet);
-    }
-    paquet.sa += forme; paquet.sb += fatigue; paquet.n++;
-    paquet.a = paquet.sa / paquet.n; paquet.b = paquet.sb / paquet.n;
-  }
-  serieForme = serie;
-  $('#carteForme').hidden = !serie.some((x) => x.a > 0);
-  $('#carteForme .legende').innerHTML = `<span><i class="cle s1"></i>Forme (charge moyenne sur 42 jours)</span><span><i class="cle s2"></i>Fatigue (sur 7 jours)</span>${pasForme !== 'jour' ? `<span>moyennes par ${pasForme}</span>` : ''}`;
-  const dernier = { a: forme, b: fatigue };
-  $('#resumeForme').textContent = serie.length ? `Aujourd'hui : forme ${nombre(dernier.a)} · fatigue ${nombre(dernier.b)}${dernier.b > dernier.a * 1.3 && dernier.b > 10 ? ' (surcharge)' : ''}` : 'Charge d\'entraînement sur 42 et 7 jours';
+  chargeForme = chargeJour;
   afficherForme();
   // Les records sont de tous les temps : seul le filtre de sport s'applique
   afficherRecords(activites.filter(garder));
 }
 
 /* ---------- Forme et fatigue ---------- */
-let serieForme = [];
+// Moyennes exponentielles de la charge quotidienne (42 et 7 jours), sur une période propre à la carte (puces), pour
+// zoomer sans toucher au reste de l'onglet. Sur une longue période, une valeur par jour devient illisible (la fatigue
+// sur 7 jours oscille à chaque séance) : moyenne par semaine jusqu'à un an, par mois au-delà
+const PERIODES_FORME = [['3m', '3 mois', 91], ['6m', '6 mois', 182], ['1a', '1 an', 365], ['3a', '3 ans', 1095], ['tout', 'Tout', 0]];
+let chargeForme = {};
+function serieFormeDe(jours) {
+  const fin = jourISO(), premier = Object.keys(chargeForme).sort()[0] || fin;
+  const debut = jours ? decaler(fin, -jours + 1) : premier;
+  const etendue = jours || Math.round((versDate(fin) - versDate(premier)) / 864e5);
+  const pas = etendue <= 182 ? 'jour' : etendue <= 400 ? 'semaine' : 'mois';
+  const libelle = (j) => versDate(j).toLocaleDateString('fr-FR', pas === 'mois' ? { month: 'short', year: '2-digit' } : { day: 'numeric', month: 'short', year: '2-digit' });
+  const serie = [];
+  let forme = 0, fatigue = 0, paquet = null;
+  const jour = versDate(decaler(debut < premier ? debut : premier, -84));
+  for (let j = jourISO(jour); j <= fin; jour.setDate(jour.getDate() + 1), j = jourISO(jour)) {
+    const c = chargeForme[j] || 0;
+    forme += (c - forme) / 42;
+    fatigue += (c - fatigue) / 7;
+    if (j < debut) continue;
+    const cle = pas === 'jour' ? j : pas === 'semaine' ? cleDe(j, 'semaine') : j.slice(0, 7);
+    if (!paquet || paquet.cle !== cle) serie.push(paquet = { cle, libelle: libelle(j), sa: 0, sb: 0, n: 0 });
+    paquet.sa += forme; paquet.sb += fatigue; paquet.n++;
+    paquet.a = paquet.sa / paquet.n; paquet.b = paquet.sb / paquet.n;
+  }
+  return { serie, pas, aujourdhui: { a: forme, b: fatigue } };
+}
 function afficherForme() {
-  if (carteOuverte('forme') && !$('[data-vue="stats"]').hidden) graphLignes($('#graphForme'), serieForme, ['Forme', 'Fatigue']);
+  const choix = PERIODES_FORME.find(([c]) => c === choixStats.periodeForme) || PERIODES_FORME[1];
+  const { serie, pas, aujourdhui } = serieFormeDe(choix[2]);
+  $('#carteForme').hidden = !Object.values(chargeForme).some((c) => c > 0);
+  $('#resumeForme').textContent = `Aujourd'hui : forme ${nombre(aujourdhui.a)} · fatigue ${nombre(aujourdhui.b)}${aujourdhui.b > aujourdhui.a * 1.3 && aujourdhui.b > 10 ? ' (surcharge)' : ''}`;
+  if (!carteOuverte('forme') || $('[data-vue="stats"]').hidden) return;
+  puces($('#periodeForme'), PERIODES_FORME.map(([c, n]) => [c, n]), choix[0], (c) => { choixStats.periodeForme = c; });
+  $('#carteForme .legende').innerHTML = `<span><i class="cle s1"></i>Forme (charge moyenne sur 42 jours)</span><span><i class="cle s2"></i>Fatigue (sur 7 jours)</span>${pas !== 'jour' ? `<span>moyennes par ${pas}</span>` : ''}`;
+  graphLignes($('#graphForme'), serie, ['Forme', 'Fatigue']);
 }
 
 /* ---------- Records récents (badges) ---------- */
@@ -3043,7 +3075,7 @@ function afficherPuissance() {
   const recentes = meilleursPuissance(sortiesSport(veloCourbe, depuis6Mois())), toutes = meilleursPuissance(sortiesSport(veloCourbe, null));
   const pointsCourbe = DUREES_COURBE.filter(([d]) => toutes[d]).map(([d, nom]) => ({ libelle: nom, a: recentes[d]?.valeur ?? null, b: toutes[d].valeur }));
   if (pointsCourbe.length >= 3) {
-    html += `<h4 class="sous-titre-carte">Courbe de puissance</h4><div class="puces" id="sportCourbe" style="margin-bottom:8px"></div><div class="graph" id="graphCourbe"></div>
+    html += `<h4 class="sous-titre-carte">Courbe de puissance</h4><div class="puces compactes" id="sportCourbe" style="margin-bottom:6px"></div><div class="puces compactes" id="vueCourbe" style="margin-bottom:8px"></div><div class="graph" id="graphCourbe"></div>
       <p class="legende"><span><i class="cle ${veloCourbe ? 's2' : 's1'}"></i>6 derniers mois</span><span><i class="cle pointillee"></i>Meilleur de tous les temps</span></p>`;
   }
 
@@ -3068,10 +3100,19 @@ function afficherPuissance() {
   $('#puissance').innerHTML = html;
   if ($('#graphCourbe')) {
     puces($('#sportCourbe'), [['course', '🏃 Course'], ['velo', '🚴 Vélo']], veloCourbe ? 'velo' : 'course', (c) => { choixStats.courbeSport = c; });
-    graphLignes($('#graphCourbe'), pointsCourbe, ['6 derniers mois', 'Meilleur de tous les temps'], {
-      classes: [veloCourbe ? 'ligne-velo' : 'ligne-1', 'ligne-ref'], cles: [`cle ${veloCourbe ? 's2' : 's1'}`, 'cle pointillee'],
-      format: (w) => `${nombre(w)} W${poidsProfil() ? ` · ${wKg(w)} W/kg` : ''}`, titre: 'Courbe de puissance', marqueurs: true,
-    });
+    const cercle = (choixStats.vueCourbe || 'cercle') === 'cercle';
+    puces($('#vueCourbe'), [['cercle', '◯ Cercle'], ['courbe', '📈 Courbe']], cercle ? 'cercle' : 'courbe', (c) => { choixStats.vueCourbe = c; });
+    const format = (w) => `${nombre(w)} W${poidsProfil() ? ` · ${wKg(w)} W/kg` : ''}`;
+    if (cercle) {
+      graphCercle($('#graphCourbe'), pointsCourbe, ['6 derniers mois', 'Meilleur de tous les temps'], {
+        classes: [veloCourbe ? 'aire-velo' : 'aire-1', 'aire-ref'], cles: [`cle ${veloCourbe ? 's2' : 's1'}`, 'cle pointillee'], format, titre: 'Puissance maximale par durée',
+      });
+    } else {
+      graphLignes($('#graphCourbe'), pointsCourbe, ['6 derniers mois', 'Meilleur de tous les temps'], {
+        classes: [veloCourbe ? 'ligne-velo' : 'ligne-1', 'ligne-ref'], cles: [`cle ${veloCourbe ? 's2' : 's1'}`, 'cle pointillee'],
+        format, titre: 'Courbe de puissance', marqueurs: true,
+      });
+    }
   }
   const bc = $('#btnCourbes');
   if (bc) {
@@ -3244,12 +3285,20 @@ async function afficherIntensite() {
     const parts = (x?.secondes || [0, 0, 0, 0, 0]).map((sec) => sec / 3600);
     points.push({ libelle: dateLisible(lundi, false), valeur: parts.reduce((a, b) => a + b, 0), parts });
   }
-  const series = NOMS_COURTS_ZONES.map((nom, k) => ({ nom: `Z${k + 1} ${nom}`, classe: `z${k + 1}`, barre: `z${k + 1}` }));
-  $('#intensite').innerHTML = `<div class="bande-zones" role="img" aria-label="${esc(groupes.map(([n, v]) => `${n} ${nombre(v)} %`).join(', '))}">${pct.map((v, k) => (v > 0 ? `<span class="z${k + 1}" style="flex:${v.toFixed(2)}"></span>` : '')).join('')}</div>
-    <div class="legende-zones">${pct.map((v, k) => `<span><i class="cle carre z${k + 1}"></i>Z${k + 1} ${NOMS_COURTS_ZONES[k]} ${nombre(v)} %</span>`).join('')}</div>
-    <p class="petit" style="margin:4px 0 10px">${groupes.map(([n, v]) => `<b>${nombre(v)} %</b> ${esc(n.toLowerCase())}`).join(' · ')}</p>
+  // Anneau des 5 zones avec la part facile au centre, liste claire à côté ; puis les semaines en trois groupes
+  // (facile, tempo, intense), plus lisibles que cinq couleurs proches
+  const series = [{ nom: 'Facile (Z1-2)', classe: 'z2', barre: 'z2' }, { nom: 'Tempo (Z3)', classe: 'z3', barre: 'z3' }, { nom: 'Intense (Z4-5)', classe: 'z5', barre: 'z5' }];
+  for (const p of points) p.parts = [p.parts[0] + p.parts[1], p.parts[2], p.parts[3] + p.parts[4]];
+  const heures = (sec) => dureeLisible(Math.round(sec / 60));
+  $('#intensite').innerHTML = `<div class="anneau-zones" role="img" aria-label="${esc(groupes.map(([n, v]) => `${n} ${nombre(v)} %`).join(', '))}">
+      ${anneau(pct, ['z1', 'z2', 'z3', 'z4', 'z5'], `${nombre(groupes[0][1])} %`, 'en facile')}
+      <div class="liste-zones">${pct.map((v, k) => `<div><i class="cle carre z${k + 1}"></i><span>Z${k + 1} ${esc(NOMS_COURTS_ZONES[k])}</span><span class="h">${esc(heures(r.total[k]))}</span><span class="p">${nombre(v)} %</span></div>`).join('')}</div>
+    </div>
+    <p class="petit" style="margin:0 0 10px">${groupes.map(([n, v]) => `<b>${nombre(v)} %</b> ${esc(n.toLowerCase())}`).join(' · ')} <span class="muted">(repère : environ 80 % facile)</span></p>
+    <h4 class="sous-titre-carte">Semaine par semaine</h4>
     <div class="graph" id="graphIntensite"></div>
-    <p class="muted petit">Heures par semaine dans chaque zone${r.sans_detail ? ` · ${r.sans_detail} sortie${r.sans_detail > 1 ? 's' : ''} pas encore analysée${r.sans_detail > 1 ? 's' : ''}` : ''}. Zones de « Mes zones » (Profil).</p>`;
+    <p class="legende">${series.map((x) => `<span><i class="cle carre ${x.classe}"></i>${esc(x.nom)}</span>`).join('')}</p>
+    <p class="muted petit">Heures par semaine${r.sans_detail ? ` · ${r.sans_detail} sortie${r.sans_detail > 1 ? 's' : ''} pas encore analysée${r.sans_detail > 1 ? 's' : ''}` : ''}. Zones de « Mes zones » (Profil).</p>`;
   graphBarres($('#graphIntensite'), points, series, (v) => dureeLisible(Math.round(v * 60)));
 }
 
@@ -3393,6 +3442,68 @@ function graphLignes(conteneur, points, noms, options = {}) {
   svg.addEventListener('pointerdown', survoler);
   svg.addEventListener('contextmenu', (e) => e.preventDefault());
   if (points.length) montrer(points.length - 1);
+}
+// Graphe circulaire (« radar ») : une durée par rayon, espacées également dans le sens des aiguilles d'une montre,
+// la valeur en distance au centre ; a = la période (aire pleine), b = la référence (tirets). Un toucher sur un rayon
+// affiche ses valeurs sous le graphique, comme graphLignes()
+function graphCercle(conteneur, points, noms, options = {}) {
+  const classes = options.classes || ['aire-1', 'aire-ref'], cles = options.cles || ['cle s1', 'cle pointillee'];
+  const format = options.format || ((v) => nombre(v));
+  const L = Math.min(360, Math.max(260, conteneur.clientWidth || 320)), c = L / 2, R = c - 38, r0 = R * 0.12;
+  const n = points.length, max = Math.max(...points.flatMap((p) => [p.a || 0, p.b || 0]), 1);
+  const angle = (i) => -Math.PI / 2 + (2 * Math.PI * i) / n;
+  const rayon = (v) => r0 + ((R - r0) * v) / max;
+  const xy = (i, rr) => [c + rr * Math.cos(angle(i)), c + rr * Math.sin(angle(i))];
+  const forme = (k) => {
+    const pts = points.map((p, i) => (p[k] == null ? null : xy(i, rayon(p[k])))).filter(Boolean);
+    return pts.length >= 3 ? `M${pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join('L')}Z` : '';
+  };
+  const ech = echelle(max);
+  let grille = '';
+  for (let v = ech.pas; v <= max + 1e-9; v += ech.pas) {
+    // valeurs de la grille entre le premier et le dernier rayon, là où rien ne les recouvre
+    const [gx, gy] = [c + rayon(v) * Math.cos(-Math.PI / 2 - Math.PI / n), c + rayon(v) * Math.sin(-Math.PI / 2 - Math.PI / n)];
+    grille += `<circle class="grille-cercle" cx="${c}" cy="${c}" r="${rayon(v).toFixed(1)}"/><text class="etiquette-cercle" x="${gx.toFixed(1)}" y="${(gy + 4).toFixed(1)}" text-anchor="middle">${nombre(v)}</text>`;
+  }
+  const rayons = points.map((p, i) => { const [x, y] = xy(i, R); return `<line class="rayon" data-i="${i}" x1="${c}" y1="${c}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`; }).join('');
+  const libelles = points.map((p, i) => {
+    const [x, y] = xy(i, R + 16), cos = Math.cos(angle(i));
+    return `<text class="etiquette-cercle" x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="${Math.abs(cos) < 0.3 ? 'middle' : cos > 0 ? 'start' : 'end'}">${esc(p.libelle)}</text>`;
+  }).join('');
+  const marques = points.map((p, i) => { if (p.a == null) return ''; const [x, y] = xy(i, rayon(p.a)); return `<circle class="point ${classes[0].replace('aire', 'ligne')}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5"/>`; }).join('');
+  conteneur.innerHTML = `<svg viewBox="0 0 ${L} ${L}" style="max-width:${L}px;display:block;margin:0 auto" role="img" aria-label="${esc(options.titre || 'Graphe circulaire')}">
+    ${grille}${rayons}<path class="${classes[1]}" d="${forme('b')}"/><path class="${classes[0]}" d="${forme('a')}"/>${marques}${libelles}</svg>`;
+  const svg = conteneur.querySelector('svg');
+  const detail = document.createElement('p');
+  detail.className = 'detail-graph';
+  conteneur.appendChild(detail);
+  const montrer = (i) => {
+    for (const l of svg.querySelectorAll('.rayon')) l.classList.toggle('choisi', Number(l.dataset.i) === i);
+    detail.innerHTML = `<span class="muted">${esc(points[i].libelle)}</span>` + ['a', 'b'].map((k, j) => (points[i][k] == null ? ''
+      : `<span><i class="${cles[j]}"></i><b>${esc(format(points[i][k]))}</b> ${esc(noms[j].toLowerCase())}</span>`)).join('');
+  };
+  const survoler = (e) => {
+    const rect = svg.getBoundingClientRect(), k = L / rect.width;
+    const a = Math.atan2((e.clientY - rect.top) * k - c, (e.clientX - rect.left) * k - c);
+    montrer(((Math.round(((a + Math.PI / 2) * n) / (2 * Math.PI)) % n) + n) % n);
+  };
+  svg.addEventListener('pointermove', survoler);
+  svg.addEventListener('pointerdown', survoler);
+  svg.addEventListener('contextmenu', (e) => e.preventDefault());
+  if (n) montrer(0);
+}
+// Anneau de répartition : parts (en %) dans l'ordre, avec un texte au centre
+function anneau(parts, classes, centre, sousCentre) {
+  const r = 50, tour = 2 * Math.PI * r;
+  let cumul = 0;
+  const arcs = parts.map((v, k) => {
+    if (!(v > 0)) return '';
+    const longueur = (tour * v) / 100, arc = `<circle class="part ${classes[k]}" cx="66" cy="66" r="${r}" stroke-dasharray="${Math.max(0, longueur - 1.5).toFixed(2)} ${tour.toFixed(2)}" stroke-dashoffset="${(-cumul).toFixed(2)}" transform="rotate(-90 66 66)"/>`;
+    cumul += longueur;
+    return arc;
+  }).join('');
+  return `<svg viewBox="0 0 132 132" aria-hidden="true"><circle class="fond" cx="66" cy="66" r="${r}"/>${arcs}
+    <text class="centre" x="66" y="68" text-anchor="middle">${esc(centre)}</text><text class="sous-centre" x="66" y="86" text-anchor="middle">${esc(sousCentre)}</text></svg>`;
 }
 // Les graphiques suivent la largeur de l'écran
 let minuteurRedim = null;

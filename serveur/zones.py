@@ -133,24 +133,33 @@ TYPES_INTERIEUR = {"treadmill_running", "indoor_running", "virtual_run"}
 
 
 def droites(analysees: list[dict[str, Any]], fc_bas: float, fc_haut: float) -> dict[str, tuple[float, float]]:
-    """Droites FC → puissance et FC → vitesse (m/s), entre deux FC, d'après les histogrammes. Hors tapis ; la
-    vitesse ne vient que des passages plats (analyses de course de version 7 et plus)."""
+    """Droites FC → puissance et FC → vitesse (m/s), entre deux FC. Hors tapis.
+    Puissance : d'après les histogrammes (un point par battement). Vitesse : un point par sortie (FC et vitesse
+    moyennes sur ses passages plats), et seulement les sorties surtout plates (au moins la moitié du temps,
+    10 min) : les bouts de plat d'un trail suivent une côte, avec une FC encore haute et un terrain lent, et
+    point par point, le retard de la FC sur l'allure (échauffement, relances) tasse la droite et ralentit
+    l'allure prédite au-dessus de la moyenne. Analyses de course de version 7 et plus (sinon pas d'allure)."""
     pts_p, pts_v = [], []
     for a in analysees:
         if a.get("type") in TYPES_INTERIEUR:
             continue
+        t_tot = t_plat_tot = d_plat_tot = fc_plat_tot = 0.0
         for bpm, valeurs in ((_physio(a) or {}).get("h") or {}).items():
             t, t_p, somme_p, dist = valeurs[:4]
-            t_plat, dist_plat = (valeurs[4], valeurs[5]) if len(valeurs) >= 6 else (None, None)
             fc = float(bpm)
+            t_tot += t
+            if len(valeurs) >= 6 and valeurs[4] > 0:
+                t_plat_tot += valeurs[4]
+                d_plat_tot += valeurs[5]
+                fc_plat_tot += fc * valeurs[4]
             if not fc_bas <= fc <= fc_haut:
                 continue
             if t_p >= 30:
                 pts_p.append((fc, somme_p / t_p, t_p))
-            # Vitesse : seulement sur le plat (analyses récentes). Sans cette information, pas d'allure plutôt
-            # qu'une allure faussée par les côtes, où la FC reste haute alors qu'on ralentit ou qu'on marche
-            if t_plat is not None and t_plat >= 30 and dist_plat > 0:
-                pts_v.append((fc, dist_plat / t_plat, t_plat))
+        if t_plat_tot >= 600 and t_plat_tot >= 0.5 * t_tot and d_plat_tot > 0:
+            fc_sortie = fc_plat_tot / t_plat_tot
+            if fc_bas <= fc_sortie <= fc_haut:
+                pts_v.append((fc_sortie, d_plat_tot / t_plat_tot, t_plat_tot))
     resultat = {}
     for nom, pts in (("puissance", pts_p), ("vitesse", pts_v)):
         if sum(p for *_, p in pts) >= 3600:

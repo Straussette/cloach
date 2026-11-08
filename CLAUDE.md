@@ -39,7 +39,7 @@ Le coaching se passe dans le Claude de chaque utilisateur, sur son propre abonne
 - Code découpé en sections `/* ---------- Titre ---------- */` (CSS et JS) ou `# ---------- Titre ----------` (Python).
 - Couleurs uniquement via les variables CSS de `:root`, avec leur valeur en mode sombre (`prefers-color-scheme` et `[data-theme]`). Le thème se choisit dans Profil → Affichage (Automatique / Clair / Sombre : `appliquerTheme()`, localStorage `cloach-theme` en JSON) ; le petit script `themeAvantAffichage` du `<head>` (dans l'app et la page de confidentialité) l'applique avant l'affichage. Il porte un `id` pour ne pas être pris par la commande de vérification de syntaxe, qui lit les blocs `<script>` nus.
 - Échapper avec `esc()` toute valeur insérée dans du HTML généré.
-- Mise en page : le `body` fait la hauteur de l'écran (`100dvh`, sans défilement) ; seul `#defilement` (en-tête + `main`) défile, et la barre d'onglets est en bas dans le flux. Pas de `position:fixed` pour la barre : sur iPhone (app sur l'écran d'accueil), une barre fixe se décalait et défilait avec la page. Pour remonter en haut : `$('#defilement').scrollTo(0, 0)`, pas `window.scrollTo`.
+- Mise en page : le `body` couvre tout l'écran (`position:fixed; inset:0`, sans défilement ; `100dvh` s'arrêtait parfois au-dessus de la zone du bas de l'iPhone) ; seul `#defilement` (en-tête + `main`) défile, et la barre d'onglets est en bas dans le flux. Pas de `position:fixed` pour la barre : sur iPhone (app sur l'écran d'accueil), une barre fixe se décalait et défilait avec la page. Pour remonter en haut : `$('#defilement').scrollTo(0, 0)`, pas `window.scrollTo`.
 
 ## Données
 

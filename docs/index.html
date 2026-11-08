@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-08.2">
+<meta name="app-version" content="2026-11-08.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -48,12 +48,17 @@
   /* Mise en page : seul #defilement défile, la barre d'onglets est en bas dans le flux. Pas de position:fixed :
      sur iPhone (app sur l'écran d'accueil), une barre fixe se décalait parfois et défilait avec la page */
   html, body { height:100%; overscroll-behavior-y:none; }
+  html { background:var(--surface); } /* si une bande reste sous la barre d'onglets, elle a sa couleur */
   body {
     margin:0; background:var(--bg); color:var(--text);
     font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size:16px;
     -webkit-font-smoothing:antialiased; display:flex; flex-direction:column; overflow:hidden;
-    position:fixed; inset:0; /* tout l'écran, zone du bas de l'iPhone comprise (100dvh s'arrête parfois au-dessus) */
+    /* Tout l'écran, zone du bas de l'iPhone comprise : dans l'app installée, iOS donne parfois une fenêtre plus courte
+       que l'écran (inset:0 et 100dvh s'arrêtent au-dessus) ; 100lvh (la plus grande hauteur possible) va jusqu'en bas */
+    position:fixed; inset:0;
   }
+  /* Seulement dans l'app installée : dans Safari, 100lvh passerait sous la barre d'outils du navigateur */
+  @media (display-mode: standalone) { body { bottom:auto; height:100vh; height:100lvh; } }
   #defilement { flex:1; min-height:0; overflow-y:auto; overscroll-behavior-y:none; -webkit-overflow-scrolling:touch; }
   .wrap { max-width:720px; margin:0 auto; }
   h1, h2, h3 { font-weight:700; letter-spacing:-.01em; }

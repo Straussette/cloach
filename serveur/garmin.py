@@ -27,6 +27,7 @@ from starlette.responses import JSONResponse, Response
 
 from donnees import Supabase
 from freins import Frein
+import courbe
 import dfa
 import terrains
 import vap
@@ -294,6 +295,23 @@ class Garmins:
         champs = {**resultat, "terrains": analyse or {"v": terrains.version(sport), "vide": True}}
         self.base.completer_activite(uid, str(id_activite), champs)
         return {"vap_min_km": None, **resultat, "terrains": terrains.version(sport), "garmin": garmin_appele}
+
+    def courbe(self, uid: str, id_activite: str) -> dict[str, Any]:
+        """Courbe d'une sortie (FC, allure ou vitesse, puissance, altitude), temps dans chaque zone de FC de
+        l'athlète et kilomètres un par un, d'après le profil détaillé (copie gardée, sinon un appel à Garmin)."""
+        details, _ = self.details(uid, str(int(id_activite)))
+        cles = {d.get("key") for d in details.get("metricDescriptors") or []}
+        velo = "directBikeCadence" in cles
+        series = terrains.lire_series(details, velo)
+        if not series:
+            return {"indisponible": "Pas de profil détaillé pour cette activité (sortie sans GPS ni capteurs ?)."}
+        z = self.base.lire_etat(uid).get("zones") or {}
+        bornes = (z.get("velo" if velo else "pied") or {}).get("bornes_fc")
+        resultat = courbe.resumer(series, velo, bornes)
+        resultat["sport"] = "velo" if velo else "pied"
+        if not bornes:
+            resultat["zones"] = "Zones pas encore calculées : appelle mes_zones, puis reprends cette courbe."
+        return resultat
 
     # ---------- Zones personnelles (zones.py) et DFA α1 (dfa.py) ----------
 

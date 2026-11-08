@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-08.7">
+<meta name="app-version" content="2026-11-08.8">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1356,7 +1356,7 @@ function questionAvis(a, s) {
   const prevue = s || toutesSeances().find((x) => x.activite && x.activite === a?.id);
   const quoi = a ? `ma séance du ${dateLisible(a.jour)} « ${a.nom || ''} » (activité Garmin ${a.id})` : `ma séance du ${dateLisible(s.jour)} « ${s.titre} » (séance ${s.id})`;
   return `Donne-moi ton avis de coach sur ${quoi}${a && prevue ? `, prévue comme « ${prevue.titre} » (séance ${prevue.id})` : ''}. `
-    + 'Regarde son détail (tours, FC, allure, VAP), compare avec ce qui était prévu, mon ressenti et ma forme, puis enregistre ton avis pour l\'app.';
+    + 'Regarde son déroulé (courbe_activite : courbe de FC et d\'allure, temps par zone, kilomètres) et ses tours, compare avec ce qui était prévu, mon ressenti et ma forme, puis enregistre ton avis pour l\'app.';
 }
 function htmlAvisCoach(idActivite, a, s) {
   const avis = etat.avisSeances?.[idActivite || `seance:${s?.id}`];

@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-08.5">
+<meta name="app-version" content="2026-11-08.6">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -965,6 +965,7 @@ function seDeconnecter() {
   etat = ETAT_VIDE();
   ecrireLocal(CLE_ETAT, null);
   ecrireLocal(CLE_ACTIVITES, null);
+  ecrireLocal(CLE_DERNIER_IMPORT, null);
   ecrireLocal(CLE_TERRAINS, null);
   ecrireLocal(CLE_INTENSITE, null);
   activites = [];
@@ -1001,6 +1002,7 @@ $('#formSupprimer').onsubmit = async (e) => {
   ecrireLocal(CLE_ETAT, null);
   ecrireLocal(CLE_GUIDE, null);
   ecrireLocal(CLE_ACTIVITES, null);
+  ecrireLocal(CLE_DERNIER_IMPORT, null);
   ecrireLocal(CLE_TERRAINS, null);
   ecrireLocal(CLE_INTENSITE, null);
   activites = [];
@@ -1125,7 +1127,7 @@ function htmlSeance(s, { avecDate = false, lien = true, compacte = false } = {})
     s.duree ? dureeLisible(s.duree) : '',
     `<span class="intensite ${esc(s.intensite)}"></span>${esc(INTENSITES[s.intensite] || s.intensite || '')}`,
   ].filter(Boolean).join(' · ');
-  const etatBouton = `<button class="etat-seance ${s.etat === 'fait' ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'fait' ? '✓ Fait' : s.etat === 'saute' ? 'Sauté' : 'À faire'}</button>`;
+  const etatBouton = `<button class="etat-seance ${s.etat === 'fait' ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'fait' ? '✓ Fait' : s.etat === 'saute' ? 'Sauté' : s.jour <= jourISO() ? 'Je l\'ai faite ›' : 'À faire'}</button>`;
   if (!ouverte) {
     return `<div class="seance compacte ${s.etat === 'fait' ? 'fait' : s.etat === 'saute' ? 'saute' : ''}" data-ouvrir="${esc(s.id)}">
       <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
@@ -2055,15 +2057,23 @@ $('#formImport').onsubmit = async (e) => {
 $('#lienAnalyseImport').addEventListener('click', () => { $('#dlgImport').close(); allerA('stats'); });
 
 // À l'ouverture : ajoute les activités faites depuis le dernier import
+// Nouvelles activités : à l'ouverture de l'app et à chaque retour dessus, y compris plusieurs fois dans la journée
+// (la séance du jour arrive souvent après une première ouverture), au plus toutes les 10 minutes
+const CLE_DERNIER_IMPORT = 'cloach-dernier-import';
+let miseAJourEnCours = false;
 async function mettreAJourHistorique() {
   const source = sourceActive();
-  const dernier = source && etat[source].dernierImport;
-  if (!dernier || dernier === jourISO()) return;
+  const dernier = source && etat[source]?.dernierImport;
+  if (!dernier || miseAJourEnCours) return;
+  if (dernier === jourISO() && Date.now() - (Number(lireLocal(CLE_DERNIER_IMPORT)) || 0) < 10 * 60e3) return;
+  miseAJourEnCours = true;
   try {
-    await importerPeriode(decaler(dernier, -3), jourISO());
-    await modifier(() => { etat[source] = { ...etat[source], dernierImport: jourISO() }; });
+    await importerPeriode(dernier === jourISO() ? jourISO() : decaler(dernier, -3), jourISO());
+    ecrireLocal(CLE_DERNIER_IMPORT, Date.now());
+    if (dernier !== jourISO()) await modifier(() => { etat[source] = { ...etat[source], dernierImport: jourISO() }; });
     await chargerActivites();
   } catch (e) { console.warn('Mise à jour de l\'historique', e); }
+  miseAJourEnCours = false;
 }
 
 /* ---------- Onglet Stats ---------- */
@@ -3696,7 +3706,7 @@ async function verifierMiseAJour() {
 document.addEventListener('visibilitychange', async () => {
   if (document.hidden) return;
   if (location.protocol.startsWith('http')) verifierMiseAJour();
-  if (session()) { await synchroniser(); toutAfficher(); }
+  if (session()) { await synchroniser(); toutAfficher(); mettreAJourHistorique(); }
 });
 if (location.protocol.startsWith('http')) verifierMiseAJour();
 

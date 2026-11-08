@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-08.4">
+<meta name="app-version" content="2026-11-08.5">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -747,6 +747,9 @@ const SERVEUR = 'https://api.cloach.pstrauss.org'; // serveur MCP de Cloach (dos
 const CLE_SESSION = 'cloach-session';
 const CLE_ETAT = 'cloach-etat';
 const CLE_ACTIVITES = 'cloach-activites'; // copie locale des activités, pour afficher les stats sans attendre
+// Copies locales des analyses par terrain et de la répartition de l'intensité : affichées tout de suite à l'ouverture,
+// puis rafraîchies en arrière-plan (une fois par ouverture de l'app)
+const CLE_TERRAINS = 'cloach-terrains', CLE_INTENSITE = 'cloach-intensite';
 
 const SPORTS = {
   course: { nom: 'Course à pied', icone: '🏃' },
@@ -962,6 +965,8 @@ function seDeconnecter() {
   etat = ETAT_VIDE();
   ecrireLocal(CLE_ETAT, null);
   ecrireLocal(CLE_ACTIVITES, null);
+  ecrireLocal(CLE_TERRAINS, null);
+  ecrireLocal(CLE_INTENSITE, null);
   activites = [];
   afficherCompte();
   toutAfficher();
@@ -996,6 +1001,8 @@ $('#formSupprimer').onsubmit = async (e) => {
   ecrireLocal(CLE_ETAT, null);
   ecrireLocal(CLE_GUIDE, null);
   ecrireLocal(CLE_ACTIVITES, null);
+  ecrireLocal(CLE_TERRAINS, null);
+  ecrireLocal(CLE_INTENSITE, null);
   activites = [];
   modeCompte = 'connexion';
   afficherCompte('✓ Ton compte et toutes tes données ont été supprimés.', false);
@@ -2553,7 +2560,12 @@ let lignesTerrain = []; // sorties analysées des 26 dernières semaines : { id,
 let analyseTerrainEnCours = false;
 
 // 26 semaines d'habitude ; tout l'historique quand la période « Tout l'historique » est choisie
-let terrainsTout = false, terrainsCharges = false, terrainsEnCours = false;
+let terrainsTout = false, terrainsCharges = false, terrainsEnCours = false, terrainsAJour = false;
+// Copie locale : les analyses s'affichent sans attendre, puis sont rechargées en arrière-plan
+{
+  const copie = lireLocal(CLE_SESSION) && lireLocal(CLE_TERRAINS);
+  if (copie?.lignes?.length) { lignesTerrain = copie.lignes; terrainsTout = !!copie.tout; terrainsCharges = true; }
+}
 // Après un échec (base occupée, réseau…), on attend une minute avant de recharger : sans ce délai, chaque
 // réaffichage relançait aussitôt le chargement, en boucle, et l'app se figeait sur iPhone
 let echecTerrains = 0;
@@ -2577,7 +2589,9 @@ async function chargerTerrains() {
     lignesTerrain = lignes;
     terrainsTout = tout;
     terrainsCharges = true;
+    terrainsAJour = true;
     echecTerrains = 0;
+    try { localStorage.setItem(CLE_TERRAINS, JSON.stringify({ tout, lignes })); } catch { ecrireLocal(CLE_TERRAINS, null); } // trop gros : tant pis
   } catch (e) { console.warn('Terrains', e); echecTerrains = Date.now(); }
   terrainsEnCours = false;
 }
@@ -2799,6 +2813,8 @@ function afficherTerrain() {
   const aDuVelo = activites.some((a) => a.sport === 'velo'), aDeLaCourse = activites.some((a) => a.sport === 'course' || a.sport === 'trail');
   carte.hidden = !aDuVelo && !aDeLaCourse;
   if (carte.hidden || !carte.open) return;
+  // Copie locale affichée : on la rafraîchit une fois en arrière-plan, sans indicateur de chargement
+  if (terrainsCharges && !terrainsAJour && peutChargerTerrains()) chargerTerrains().then(() => { if (terrainsAJour) afficherTerrain(); });
   if (!terrainsCharges) {
     if (peutChargerTerrains()) {
       $('#terrain').innerHTML = '<p class="chargement" role="status">Chargement des analyses…</p>';
@@ -3262,7 +3278,7 @@ $('#formZones').onsubmit = async (e) => {
 };
 
 // Répartition de l'intensité : temps par zone de FC, semaine par semaine (route garmin/repartition)
-const cacheIntensite = new Map();
+const cacheIntensite = new Map(), intensiteEnCours = new Set();
 const cleIntensite = () => `${Number(choixStats.semainesIntensite) || 12}|${choixStats.familleIntensite || ''}|${jourISO()}|${etat.zones?.date || ''}`;
 async function afficherIntensite() {
   const carte = $('#carteIntensite');
@@ -3274,12 +3290,27 @@ async function afficherIntensite() {
   const cle = cleIntensite();
   let r = cacheIntensite.get(cle);
   if (!r) {
-    $('#intensite').innerHTML = '<p class="chargement">Calcul du temps passé dans chaque zone…</p>';
-    try {
-      r = await appelerGarmin('repartition', { semaines, famille: famille || null });
-      cacheIntensite.set(cle, r);
-    } catch (e) { $('#intensite').innerHTML = `<p class="muted petit">Indisponible pour le moment : ${esc(e.message)}</p>`; return; }
-    if (cle !== cleIntensite()) return; // choix changé pendant le calcul
+    // Copie locale du même choix (d'un autre jour, peut-être) : affichée tout de suite, puis recalculée en arrière-plan
+    const copies = lireLocal(CLE_INTENSITE) || {}, choix = `${semaines}|${famille}`;
+    const copie = copies[choix];
+    if (copie && !intensiteEnCours.has(cle)) {
+      intensiteEnCours.add(cle);
+      appelerGarmin('repartition', { semaines, famille: famille || null }).then((frais) => {
+        cacheIntensite.set(cle, frais);
+        ecrireLocal(CLE_INTENSITE, { ...(lireLocal(CLE_INTENSITE) || {}), [choix]: frais });
+        if (cle === cleIntensite()) afficherIntensite();
+      }).catch(() => { cacheIntensite.set(cle, copie); }).finally(() => intensiteEnCours.delete(cle));
+    }
+    if (copie) r = copie;
+    else {
+      $('#intensite').innerHTML = '<p class="chargement">Calcul du temps passé dans chaque zone…</p>';
+      try {
+        r = await appelerGarmin('repartition', { semaines, famille: famille || null });
+        cacheIntensite.set(cle, r);
+        ecrireLocal(CLE_INTENSITE, { ...(lireLocal(CLE_INTENSITE) || {}), [choix]: r });
+      } catch (e) { $('#intensite').innerHTML = `<p class="muted petit">Indisponible pour le moment : ${esc(e.message)}</p>`; return; }
+      if (cle !== cleIntensite()) return; // choix changé pendant le calcul
+    }
   }
   const total = r.total.reduce((a, b) => a + b, 0);
   if (!total) {

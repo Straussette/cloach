@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-08.6">
+<meta name="app-version" content="2026-11-08.7">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1127,7 +1127,7 @@ function htmlSeance(s, { avecDate = false, lien = true, compacte = false } = {})
     s.duree ? dureeLisible(s.duree) : '',
     `<span class="intensite ${esc(s.intensite)}"></span>${esc(INTENSITES[s.intensite] || s.intensite || '')}`,
   ].filter(Boolean).join(' · ');
-  const etatBouton = `<button class="etat-seance ${s.etat === 'fait' ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'fait' ? '✓ Fait' : s.etat === 'saute' ? 'Sauté' : s.jour <= jourISO() ? 'Je l\'ai faite ›' : 'À faire'}</button>`;
+  const etatBouton = `<button class="etat-seance ${s.etat === 'fait' ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'fait' ? (s.auto ? '✓ Fait · ressenti ?' : '✓ Fait') : s.etat === 'saute' ? 'Sauté' : s.jour <= jourISO() ? 'Je l\'ai faite ›' : 'À faire'}</button>`;
   if (!ouverte) {
     return `<div class="seance compacte ${s.etat === 'fait' ? 'fait' : s.etat === 'saute' ? 'saute' : ''}" data-ouvrir="${esc(s.id)}">
       <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
@@ -1644,8 +1644,37 @@ $('#btnSeanceSautee').onclick = () => {
 $('#btnSeanceRemettre').onclick = () => {
   const id = seanceOuverte?.id;
   $('#dlgSeance').close();
-  modifier(() => { const s = toutesSeances().find((x) => x.id === id); if (s) { s.etat = ''; delete s.activite; } });
+  // « Remettre à faire » : on ne la rattache plus automatiquement à une activité
+  modifier(() => { const s = toutesSeances().find((x) => x.id === id); if (s) { s.etat = ''; delete s.activite; delete s.auto; s.sansAuto = true; } });
 };
+
+/* ---------- Rattachement automatique des séances ---------- */
+// Une séance du jour ou des 14 derniers jours, pas encore cochée, est cochée « faite » toute seule quand une seule
+// activité de ce jour-là, de la même famille de sport (ou du sport d'une de ses alternatives), n'est rattachée à
+// aucune autre séance. seance.auto = true : l'app l'affiche comme rattachée automatiquement ; un toucher sur « ✓ Fait »
+// permet de changer d'activité, d'ajouter son ressenti, ou de la remettre à faire (seance.sansAuto : plus de rattachement)
+async function rattacherSeances() {
+  if (!activites.length || !etat.plan) return;
+  const depuis = decaler(jourISO(), -14), aujourdhui = jourISO();
+  const prises = new Set(toutesSeances().map((x) => x.activite).filter(Boolean));
+  const liens = [];
+  for (const sc of toutesSeances()) {
+    if (sc.etat || sc.sansAuto || !sc.jour || sc.jour < depuis || sc.jour > aujourdhui) continue;
+    const sports = [sc.sport, ...(sc.alternatives || []).map((a) => a.sport)].filter(Boolean);
+    const possibles = activites.filter((a) => a.jour === sc.jour && !prises.has(a.id) && sports.some((sp) => memeFamille(a.sport, sp)));
+    if (possibles.length !== 1) continue;
+    prises.add(possibles[0].id);
+    liens.push([sc.id, possibles[0].id]);
+  }
+  if (!liens.length) return;
+  await modifier(() => {
+    for (const [id, act] of liens) {
+      const sc = toutesSeances().find((x) => x.id === id);
+      if (sc && !sc.etat) Object.assign(sc, { etat: 'fait', activite: act, auto: true });
+    }
+  });
+  toutAfficher();
+}
 $('#formSeance').onsubmit = (e) => {
   e.preventDefault();
   const idSeance = seanceOuverte?.id;
@@ -1662,6 +1691,7 @@ $('#formSeance').onsubmit = (e) => {
     const s = idSeance && toutesSeances().find((x) => x.id === idSeance);
     if (s) {
       s.etat = 'fait';
+      delete s.auto;
       if (idActivite) { s.activite = idActivite; delete s.ressenti; delete s.commentaire; }
       else { delete s.activite; s.ressenti = ressenti; s.commentaire = notes; }
     }
@@ -1986,6 +2016,7 @@ async function chargerActivites() {
   chargementActivites = false;
   afficherStats();
   afficherJour();
+  rattacherSeances();
   afficherGuide();
   // Les analyses par terrain sont plus lourdes : seulement si leur carte est ouverte
   if (carteOuverte('terrain') && peutChargerTerrains()) { await chargerTerrains(); afficherTerrain(); afficherPuissance(); }

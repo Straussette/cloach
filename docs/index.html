@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-08.3">
+<meta name="app-version" content="2026-11-08.4">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -45,21 +45,17 @@
 
   * { box-sizing:border-box; }
   [hidden] { display:none !important; }
-  /* Mise en page : seul #defilement défile, la barre d'onglets est en bas dans le flux. Pas de position:fixed :
-     sur iPhone (app sur l'écran d'accueil), une barre fixe se décalait parfois et défilait avec la page */
-  html, body { height:100%; overscroll-behavior-y:none; }
-  html { background:var(--surface); } /* si une bande reste sous la barre d'onglets, elle a sa couleur */
+  /* Mise en page : la page défile normalement ; la barre d'onglets est collante (position:sticky) en bas du flux.
+     Pas de position:fixed : sur iPhone (app sur l'écran d'accueil), une barre fixe se décalait et défilait avec la
+     page. Pas de conteneur pleine hauteur non plus : iOS donne parfois à l'app une fenêtre plus courte que l'écran,
+     qui coupait le bas de la page */
+  html, body { overscroll-behavior-y:none; }
   body {
     margin:0; background:var(--bg); color:var(--text);
     font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size:16px;
-    -webkit-font-smoothing:antialiased; display:flex; flex-direction:column; overflow:hidden;
-    /* Tout l'écran, zone du bas de l'iPhone comprise : dans l'app installée, iOS donne parfois une fenêtre plus courte
-       que l'écran (inset:0 et 100dvh s'arrêtent au-dessus) ; 100lvh (la plus grande hauteur possible) va jusqu'en bas */
-    position:fixed; inset:0;
+    -webkit-font-smoothing:antialiased; display:flex; flex-direction:column; min-height:100vh; min-height:100svh;
   }
-  /* Seulement dans l'app installée : dans Safari, 100lvh passerait sous la barre d'outils du navigateur */
-  @media (display-mode: standalone) { body { bottom:auto; height:100vh; height:100lvh; } }
-  #defilement { flex:1; min-height:0; overflow-y:auto; overscroll-behavior-y:none; -webkit-overflow-scrolling:touch; }
+  #defilement { flex:1 0 auto; }
   .wrap { max-width:720px; margin:0 auto; }
   h1, h2, h3 { font-weight:700; letter-spacing:-.01em; }
   h2 { font-size:1.3rem; margin:0 0 10px; }
@@ -200,7 +196,7 @@
 
   /* ---------- Onglets ---------- */
   .onglets {
-    flex:none; position:relative; z-index:5; background:var(--surface); border-top:1px solid var(--border);
+    flex:none; position:sticky; bottom:0; z-index:5; background:var(--surface); border-top:1px solid var(--border);
     display:grid; grid-template-columns:repeat(4, 1fr); padding:6px 4px calc(6px + env(safe-area-inset-bottom));
   }
   .onglets button { background:none; border:0; font:inherit; font-size:.72rem; color:var(--muted); display:grid; justify-items:center; gap:2px; padding:4px 0; cursor:pointer; }
@@ -3630,7 +3626,7 @@ function allerA(vue) {
   if (vue === 'profil') chargerZones();
   for (const b of document.querySelectorAll('[data-onglet]')) b.classList.toggle('actif', b.dataset.onglet === vue);
   try { sessionStorage.setItem('cloach-vue', vue); } catch {}
-  $('#defilement').scrollTo(0, 0);
+  window.scrollTo(0, 0);
 }
 $('#onglets').addEventListener('click', (e) => {
   const b = e.target.closest('[data-onglet]');

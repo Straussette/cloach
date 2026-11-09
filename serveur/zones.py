@@ -212,6 +212,8 @@ def calculer(activites: list[dict[str, Any]], aujourdhui: date, manuel: dict[str
         # Puissance et vitesse aux seuils
         recentes = [a for a in analysees if (a.get("jour") or "") >= depuis_droite] or analysees
         lignes_droite = droites(recentes, s2["fc"] * 0.7, s2["fc"] * 1.03)
+        if famille == "velo":  # à vélo, la vitesse dépend du vent, du relief et du groupe : pas une cible
+            lignes_droite.pop("vitesse", None)
         sorties = {}
         for nom, (a0, b) in lignes_droite.items():
             sorties[nom] = [a0 + b * s1["fc"], a0 + b * s2["fc"]]

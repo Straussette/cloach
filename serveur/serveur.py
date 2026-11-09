@@ -764,16 +764,29 @@ async def profil_terrain(semaines: int = 8, sport: Literal["course", "velo"] = "
 
 
 @mcp.tool()
-async def analyser_historique(ordre: Literal["etat", "lancer", "arreter"] = "etat") -> dict[str, Any]:
+async def analyser_historique(ordre: Literal["etat", "lancer", "arreter"] = "etat", pour: str | None = None,
+                              tout_importer: bool = False) -> dict[str, Any]:
     """Analyse de tout l'historique (VAP et analyse par terrain de chaque sortie de course, de trail et de
     vélo), en tâche de fond sur le serveur : une sortie à la fois, les plus récentes d'abord, avec une pause
     entre deux appels à Garmin, et une pause plus longue si Garmin freine. « lancer » la démarre (ou la
     reprend là où elle s'était arrêtée), « etat » donne l'avancement (faites, total, erreurs), « arreter »
     l'interrompt. Compte environ 5 secondes par sortie. Garmin requis. Réservé aux administrateurs de Cloach :
-    pour les autres, l'app analyse les sorties par lots, les plus parlantes d'abord."""
+    pour les autres, l'app analyse les sorties par lots, les plus parlantes d'abord. pour : e-mail d'un autre
+    compte Cloach, à n'utiliser qu'avec l'accord de cet utilisateur ; tout_importer : importe d'abord tout son
+    historique Garmin (année par année). Les zones sont recalculées à la fin."""
     uid = _uid()
     if not await anyio.to_thread.run_sync(base.est_admin, uid):
         raise ToolError("Réservé aux administrateurs de Cloach : l'utilisateur peut analyser ses sorties par lots dans l'app (Stats → Selon le relief).")
+    if pour:
+        cible = await anyio.to_thread.run_sync(base.uid_par_email, pour)
+        if not cible:
+            raise ToolError(f"Aucun compte Cloach pour {pour}.")
+        print(f"Administrateur {uid} : analyse_historique {ordre} pour {cible}", flush=True)
+        uid = cible
+    if ordre == "lancer" and tout_importer:
+        if not await anyio.to_thread.run_sync(garmins.branche, uid):
+            raise ToolError("Garmin n'est pas branché sur ce compte.")
+        return await anyio.to_thread.run_sync(garmins.lancer_lot, uid, True)
     if ordre == "lancer":
         if not await anyio.to_thread.run_sync(garmins.branche, uid):
             raise ToolError("Garmin n'est pas branché : l'utilisateur peut le faire dans l'app (Profil → Garmin).")

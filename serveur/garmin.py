@@ -396,7 +396,7 @@ class Garmins:
         with self._verrou:
             return {"autorise": True, **(self._lots.get(uid) or {"en_cours": False})}
 
-    def lancer_lot(self, uid: str) -> dict[str, Any]:
+    def lancer_lot(self, uid: str, historique: bool = False) -> dict[str, Any]:
         """Lance l'analyse (VAP et terrains) de toutes les sorties de course, de trail et de vélo pas encore
         analysées avec la version actuelle, les plus récentes d'abord. Reprend là où une analyse précédente
         s'est arrêtée : chaque sortie est enregistrée dès qu'elle est faite."""
@@ -406,7 +406,7 @@ class Garmins:
                 return self._lots[uid] if autre == uid else {"en_cours": False, "erreur": "Une autre analyse tourne sur le serveur : réessaie plus tard."}
             self._lots[uid] = {"en_cours": True, "faites": 0, "total": None, "erreurs": 0, "debut": time.time(), "message": "Préparation…"}
             self._arrets.discard(uid)
-        threading.Thread(target=self._travailler_lot, args=(uid,), daemon=True).start()
+        threading.Thread(target=self._travailler_lot, args=(uid, historique), daemon=True).start()
         return self.lot(uid)
 
     def arreter_lot(self, uid: str) -> dict[str, Any]:
@@ -418,11 +418,31 @@ class Garmins:
         with self._verrou:
             self._lots.setdefault(uid, {}).update(champs)
 
-    def _travailler_lot(self, uid: str) -> None:
+    def _importer_tout(self, uid: str) -> int:
+        """Importe tout l'historique Garmin, année par année en remontant, jusqu'à deux années vides de suite."""
+        annee, vides, total = date.today().year, 0, 0
+        while vides < 2 and annee >= 2000 and uid not in self._arrets:
+            self._maj_lot(uid, message=f"Import de l'année {annee}…")
+            fin = min(date(annee, 12, 31), date.today())
+            r, statut = self._importer(uid, {"debut": f"{annee}-01-01", "fin": fin.isoformat()})
+            if statut != 200:
+                raise RuntimeError(r.get("erreur") or "Import impossible")
+            vides = vides + 1 if not r["nombre"] else 0
+            total += r["nombre"]
+            annee -= 1
+            time.sleep(1)
+        etat = self.base.lire_etat(uid)
+        etat["garmin"] = {**(etat.get("garmin") or {}), "connecte": True, "dernierImport": date.today().isoformat()}
+        self.base.ecrire_etat(uid, etat)
+        return total
+
+    def _travailler_lot(self, uid: str, historique: bool = False) -> None:
         # Render endort le service sans requête entrante pendant 15 min : on se réveille soi-même
         adresse = (os.environ.get("URL_PUBLIQUE") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
         dernier_reveil = time.time()
         try:
+            if historique:
+                self._maj_lot(uid, importees=self._importer_tout(uid))
             a_faire = [a for a in self.base.lire_activites(uid, complet=True)
                        if a.get("sport") in ("course", "trail", "velo") and str(a.get("id", "")).isdigit()
                        and float(a.get("distance_km") or 0) >= 1
@@ -467,6 +487,13 @@ class Garmins:
                     break
                 if garmin_appele:  # recalcul depuis la copie gardée : pas besoin de ménager Garmin
                     time.sleep(self.PAUSE_LOT)
+            if uid not in self._arrets:  # zones à jour avec les nouvelles analyses
+                try:
+                    self._maj_lot(uid, message="Calcul des zones…")
+                    self.calculer_zones(uid)
+                    self._maj_lot(uid, message=None)
+                except Exception as e:
+                    print(f"Zones après l'analyse : {type(e).__name__} : {e}", flush=True)
         except Exception as e:
             print(f"Analyse de l'historique : {type(e).__name__} : {e}", flush=True)
             self._maj_lot(uid, message="L'analyse s'est arrêtée sur une erreur : relance-la.")

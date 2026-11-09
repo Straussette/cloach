@@ -98,6 +98,21 @@ class Supabase:
         r = requests.delete(f"{self.url}/auth/v1/admin/users/{uid}", headers=self.entetes, timeout=15)
         r.raise_for_status()
 
+    def uid_par_email(self, email: str) -> str | None:
+        """Identifiant d'un compte d'après son e-mail (outils réservés aux administrateurs)."""
+        email = email.strip().lower()
+        for page in range(1, 20):
+            r = requests.get(f"{self.url}/auth/v1/admin/users", headers=self.entetes, timeout=15,
+                             params={"page": page, "per_page": 200})
+            r.raise_for_status()
+            comptes = r.json().get("users") or []
+            for c in comptes:
+                if (c.get("email") or "").lower() == email:
+                    return c.get("id")
+            if len(comptes) < 200:
+                return None
+        return None
+
     def est_admin(self, uid: str) -> bool:
         """Vrai si le compte est dans la table admins (options réservées, comme l'analyse de tout l'historique)."""
         try:

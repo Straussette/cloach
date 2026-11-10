@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-08.8">
+<meta name="app-version" content="2026-11-10.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1434,15 +1434,18 @@ function htmlNote(n) {
   </div>`;
 }
 
-// Forme du jour (Garmin, via le serveur) : lue une fois par jour et par ouverture
+// Forme du jour (Garmin, via le serveur) : lue une fois par jour, et relue (au plus toutes les 10 min) tant que le
+// sommeil ou la Body Battery manquent : la montre les envoie à Garmin Connect parfois bien après la VFC
 let formeDuJour = null;
 let formeEnCours = false;
+const formeIncomplete = (f) => !f?.sommeil || !f?.body_battery;
 async function chargerForme() {
   const ajd = jourISO();
-  if (!session() || !etat.garmin.connecte || formeEnCours || formeDuJour?.jour === ajd) return;
+  if (!session() || !etat.garmin.connecte || formeEnCours) return;
+  if (formeDuJour?.jour === ajd && (!formeIncomplete(formeDuJour) || Date.now() - formeDuJour.lu < 10 * 60e3)) return;
   formeEnCours = true;
   try {
-    formeDuJour = await appelerGarmin('forme', { jour: ajd });
+    formeDuJour = { ...(await appelerGarmin('forme', { jour: ajd })), lu: Date.now() };
     afficherJour();
   } catch (e) { console.warn('Forme du jour', e); } finally { formeEnCours = false; }
 }
@@ -1475,9 +1478,11 @@ function htmlForme() {
   if (!signaux.length) return '<div class="forme-jour"><span class="muted petit">Pas encore de données de récupération aujourd\'hui (synchronise ta montre).</span></div>';
   const alertes = signaux.filter((x) => x.etat === 'alerte').length, attentions = signaux.filter((x) => x.etat === 'attention').length;
   const [classe, texte] = alertes ? ['alerte', '✕ Fatigue probable : vérifie ta séance'] : attentions >= 2 ? ['attention', '! À surveiller'] : ['ok', '✓ Signaux au vert'];
+  const manque = [!formeDuJour.sommeil && 'le sommeil', !formeDuJour.body_battery && 'la Body Battery'].filter(Boolean);
   return `<div class="forme-jour">
     <div class="synthese etat-${classe}">${texte}</div>
     ${signaux.map((x) => `<div class="signal"><span class="etat-${x.etat}" aria-label="${ETATS[x.etat][1]}">${ETATS[x.etat][0]}</span><span>${esc(x.nom)}</span><b>${esc(x.valeur)}</b></div>`).join('')}
+    ${manque.length ? `<p class="muted petit" style="margin:6px 0 0">${esc(manque.join(' et ').replace(/^./, (c) => c.toUpperCase()))} pas encore arrivé${manque.length > 1 ? 's' : ''} chez Garmin : ouvre l'app Garmin Connect pour synchroniser ta montre, Cloach les reprendra au prochain retour.</p>` : ''}
   </div>`;
 }
 

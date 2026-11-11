@@ -183,25 +183,42 @@ class Garmins:
             except Exception:
                 return None
 
+        # Les quatre lectures en parallèle sur la même session (une à une, elles prenaient jusqu'à une quinzaine de
+        # secondes) ; si elles échouent toutes (session expirée), on les refait une à une, avec reconnexion
+        from concurrent.futures import ThreadPoolExecutor
+        noms = ("get_sleep_data", "get_hrv_data", "get_user_summary", "get_training_readiness")
+        g = self.client(uid)
+
+        def lire_vite(nom: str) -> Any:
+            try:
+                return getattr(g, nom)(jour)
+            except Exception:
+                return None
+        with ThreadPoolExecutor(max_workers=len(noms)) as pool:
+            lus = dict(zip(noms, pool.map(lire_vite, noms)))
+        if all(v is None for v in lus.values()):
+            lus = {nom: lire(nom, jour) for nom in noms}
+        else:
+            self._sauver(uid, g)
         forme: dict[str, Any] = {"jour": jour}
-        sommeil = (lire("get_sleep_data", jour) or {}).get("dailySleepDTO") or {}
+        sommeil = (lus["get_sleep_data"] or {}).get("dailySleepDTO") or {}
         score = (sommeil.get("sleepScores") or {}).get("overall") or {}
         if score.get("value") or sommeil.get("sleepTimeSeconds"):
             forme["sommeil"] = {"score": score.get("value"), "qualite": score.get("qualifierKey"),
                                 "duree_h": round((sommeil.get("sleepTimeSeconds") or 0) / 3600, 1) or None}
-        vfc = (lire("get_hrv_data", jour) or {}).get("hrvSummary") or {}
+        vfc = (lus["get_hrv_data"] or {}).get("hrvSummary") or {}
         if vfc.get("status"):
             base = vfc.get("baseline") or {}
             forme["vfc"] = {"statut": vfc.get("status"), "nuit": vfc.get("lastNightAvg"), "semaine": vfc.get("weeklyAvg"),
                             "normale_basse": base.get("balancedLow"), "normale_haute": base.get("balancedUpper")}
-        resume = lire("get_user_summary", jour) or {}
+        resume = lus["get_user_summary"] or {}
         if resume.get("bodyBatteryMostRecentValue") is not None:
             forme["body_battery"] = {"actuel": resume.get("bodyBatteryMostRecentValue"), "reveil": resume.get("bodyBatteryAtWakeTime")}
         if resume.get("restingHeartRate"):
             forme["fc_repos"] = {"jour": resume.get("restingHeartRate"), "moyenne_7j": resume.get("lastSevenDaysAvgRestingHeartRate")}
         if resume.get("averageStressLevel") is not None and resume.get("averageStressLevel") >= 0:
             forme["stress_moyen"] = resume.get("averageStressLevel")
-        dispo = lire("get_training_readiness", jour) or []
+        dispo = lus["get_training_readiness"] or []
         if isinstance(dispo, list) and dispo and dispo[0].get("score") is not None:
             forme["disponibilite"] = {"score": dispo[0].get("score"), "niveau": dispo[0].get("level")}
         return forme

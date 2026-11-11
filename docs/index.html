@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-10.1">
+<meta name="app-version" content="2026-11-11.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1438,16 +1438,22 @@ function htmlNote(n) {
 // sommeil ou la Body Battery manquent : la montre les envoie à Garmin Connect parfois bien après la VFC
 let formeDuJour = null;
 let formeEnCours = false;
+// En cas d'échec ou de lenteur (serveur endormi, Garmin lent) : 45 s au plus, message clair, nouvel essai 2 min après
 const formeIncomplete = (f) => !f?.sommeil || !f?.body_battery;
 async function chargerForme() {
   const ajd = jourISO();
   if (!session() || !etat.garmin.connecte || formeEnCours) return;
-  if (formeDuJour?.jour === ajd && (!formeIncomplete(formeDuJour) || Date.now() - formeDuJour.lu < 10 * 60e3)) return;
+  const attente = formeDuJour?.erreur ? 2 * 60e3 : 10 * 60e3;
+  if (formeDuJour?.jour === ajd && (!formeIncomplete(formeDuJour) || Date.now() - formeDuJour.lu < attente)) return;
   formeEnCours = true;
   try {
-    formeDuJour = { ...(await appelerGarmin('forme', { jour: ajd })), lu: Date.now() };
-    afficherJour();
-  } catch (e) { console.warn('Forme du jour', e); } finally { formeEnCours = false; }
+    formeDuJour = { ...(await appelerServeur('garmin/forme', { jour: ajd }, 45000)), lu: Date.now() };
+  } catch (e) {
+    console.warn('Forme du jour', e);
+    formeDuJour = formeDuJour?.jour === ajd && !formeDuJour.erreur ? formeDuJour : { jour: ajd, erreur: true, lu: Date.now() };
+    setTimeout(() => { if (!document.hidden) afficherJour(); }, 2 * 60e3 + 1000);
+  } finally { formeEnCours = false; }
+  afficherJour();
 }
 
 // Chaque signal est classé ok / attention / alerte, avec une icône et un mot : jamais la couleur seule
@@ -1474,6 +1480,7 @@ function signauxForme(f) {
 function htmlForme() {
   if (!etat.garmin.connecte) return '';
   if (!formeDuJour || formeDuJour.jour !== jourISO()) return '<div class="forme-jour"><span class="muted petit">Forme du jour : lecture de ta montre…</span></div>';
+  if (formeDuJour.erreur) return '<div class="forme-jour"><span class="muted petit">Forme du jour : Garmin ne répond pas pour le moment. Nouvel essai dans 2 minutes, ou en revenant dans l\'app.</span></div>';
   const signaux = signauxForme(formeDuJour);
   if (!signaux.length) return '<div class="forme-jour"><span class="muted petit">Pas encore de données de récupération aujourd\'hui (synchronise ta montre).</span></div>';
   const alertes = signaux.filter((x) => x.etat === 'alerte').length, attentions = signaux.filter((x) => x.etat === 'attention').length;
@@ -1842,7 +1849,7 @@ let attenteGarmin = '';
 
 const appelerGarmin = (action, corps = {}) => appelerServeur(`garmin/${action}`, corps);
 const appelerStrava = (action, corps = {}) => appelerServeur(`strava/${action}`, corps);
-async function appelerServeur(chemin, corps = {}) {
+async function appelerServeur(chemin, corps = {}, delaiMax = 0) {
   const tok = await jeton();
   if (!tok) throw new Error('connecte-toi d\'abord à Cloach.');
   let r;
@@ -1851,6 +1858,7 @@ async function appelerServeur(chemin, corps = {}) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok },
       body: JSON.stringify(corps),
+      ...(delaiMax ? { signal: AbortSignal.timeout(delaiMax) } : {}), // au-delà, on abandonne (et on réessaiera)
     });
   } catch {
     throw new Error('le serveur ne répond pas (il se réveille peut-être : réessaie dans 30 secondes).');

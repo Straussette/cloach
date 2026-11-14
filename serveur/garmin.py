@@ -32,7 +32,7 @@ import dfa
 import terrains
 import vap
 import zones
-from entrainements import vers_garmin
+from entrainements import vers_garmin_tous
 
 DUREE_ATTENTE_CODE = 5 * 60
 
@@ -258,34 +258,40 @@ class Garmins:
         # L'entraînement est noté sur l'objet exporté (séance ou alternative) ; le jour est celui de la séance
         seance = principale if alternative is None else alternatives[alternative]
         ftp = float((etat.get("profil") or {}).get("ftp") or 0) or None
-        entrainement = vers_garmin({**seance, "jour": principale["jour"]}, ftp)
-        deja = (seance.get("garmin") or {}).get("workoutId")
-        if deja:
+        entrainements, ignorees = vers_garmin_tous({**seance, "jour": principale["jour"]}, ftp)
+        avant = seance.get("garmin") or {}
+        ids_avant = [str(x) for x in (avant.get("workoutIds") or ([avant["workoutId"]] if avant.get("workoutId") else []))]
+        ids: list[Any] = []
+        if len(entrainements) == 1 and len(ids_avant) == 1:
+            # Une séance déjà envoyée : on met à jour son entraînement plutôt que d'en créer un autre
             try:
-                self.appeler(uid, "update_workout", deja, entrainement)
-                id_garmin = deja
+                self.appeler(uid, "update_workout", ids_avant[0], entrainements[0])
+                ids = [ids_avant[0]]
+                if avant.get("programme") != principale.get("jour"):
+                    self.appeler(uid, "schedule_workout", ids[0], principale["jour"])
             except Exception:
-                deja = None  # supprimé dans Garmin Connect entre-temps : on le recrée
-        if not deja:
-            cree = self.appeler(uid, "upload_workout", entrainement)
-            id_garmin = cree.get("workoutId")
-        if not deja or (seance.get("garmin") or {}).get("programme") != principale.get("jour"):
-            self.appeler(uid, "schedule_workout", id_garmin, principale["jour"])
-        seance["garmin"] = {"workoutId": id_garmin, "programme": principale["jour"]}
+                ids = []  # supprimé dans Garmin Connect entre-temps : on le recrée
+        if not ids:
+            for e in entrainements:
+                cree = self.appeler(uid, "upload_workout", e)
+                ids.append(cree.get("workoutId"))
+                self.appeler(uid, "schedule_workout", ids[-1], principale["jour"])
+        id_garmin = ids[0]
+        seance["garmin"] = {"workoutId": id_garmin, "programme": principale["jour"], **({"workoutIds": ids} if len(ids) > 1 else {})}
         # Un seul entraînement Cloach par jour dans Garmin : ceux envoyés avant pour ce jour (séance remplacée par
         # un nouveau plan ou par l'avis du jour, autre alternative) sont supprimés, sinon ils s'accumulent
         envoyes = etat.setdefault("garminEnvoyes", {})
-        for ancien in envoyes.get(principale["jour"], []):
-            if str(ancien) != str(id_garmin):
+        for ancien in set(map(str, envoyes.get(principale["jour"], []))) | set(ids_avant):
+            if ancien not in map(str, ids):
                 try:
                     self.appeler(uid, "delete_workout", ancien)
                 except Exception as e:
                     print(f"Suppression de l'entraînement Garmin {ancien} : {type(e).__name__} : {e}", flush=True)
-        envoyes[principale["jour"]] = [id_garmin]
+        envoyes[principale["jour"]] = ids
         limite = (date.today() - timedelta(days=30)).isoformat()
         etat["garminEnvoyes"] = {j: ids for j, ids in envoyes.items() if j >= limite}
         self.base.ecrire_etat(uid, etat)
-        return seance["garmin"]
+        return {**seance["garmin"], "nombre": len(ids), **({"ignorees": ignorees} if ignorees else {})}
 
     # Mesures gardées dans la copie des détails : celles que lisent vap.py et terrains.py
     CLES_SERIE = ("sumDistance", "directElevation", "sumElapsedDuration", "sumDuration", "sumMovingDuration",

@@ -91,6 +91,42 @@ def etapes_musculation(exercices: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return etapes
 
 
+NOMS_PARTIES = {"course": "course", "trail": "course", "velo": "vélo", "natation": "natation"}
+
+
+def parties(seance: dict[str, Any]) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Séance d'enchaînement (triathlon) : ses étapes regroupées par sport, dans l'ordre (etape.sport marque le début
+    d'une partie ; sans indication, la course)."""
+    groupes: list[tuple[str, list[dict[str, Any]]]] = []
+    for e in seance.get("etapes") or []:
+        sport = e.get("sport") or (groupes[-1][0] if groupes else "course")
+        if not groupes or groupes[-1][0] != sport:
+            groupes.append((sport, []))
+        groupes[-1][1].append(e)
+    return groupes
+
+
+def vers_garmin_tous(seance: dict[str, Any], ftp: float | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+    """Une séance → ses entraînements Garmin : un seul en général ; pour une séance d'enchaînement (triathlon), un par
+    partie de course ou de vélo (Garmin ne sait pas enchaîner deux sports dans un entraînement envoyé depuis l'extérieur).
+    Renvoie aussi les parties laissées de côté (natation)."""
+    if seance.get("sport") != "triathlon":
+        return [vers_garmin(seance, ftp)], []
+    morceaux = parties(seance)
+    if not morceaux:
+        raise ValueError("Cette séance d'enchaînement n'est pas encore structurée : demande à Claude de la détailler partie par partie.")
+    entrainements, ignorees = [], []
+    for i, (sport, etapes) in enumerate(morceaux, 1):
+        if sport not in SPORTS_GARMIN or sport == "renfo":
+            ignorees.append(NOMS_PARTIES.get(sport, sport))
+            continue
+        titre = f"{seance.get('titre', 'Enchaînement')} {i}/{len(morceaux)} {NOMS_PARTIES.get(sport, sport)}"
+        entrainements.append(vers_garmin({**seance, "sport": sport, "etapes": etapes, "titre": titre, "duree": 0}, ftp))
+    if not entrainements:
+        raise ValueError("Aucune partie de course ou de vélo à envoyer sur la montre.")
+    return entrainements, ignorees
+
+
 def vers_garmin(seance: dict[str, Any], ftp: float | None = None) -> dict[str, Any]:
     """Séance structurée → entraînement Garmin Connect (format de l'API workout-service)."""
     sport = SPORTS_GARMIN.get(seance.get("sport", ""))

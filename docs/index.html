@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-14.1">
+<meta name="app-version" content="2026-11-14.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -168,6 +168,7 @@
   .choix-activite label { display:flex; gap:8px; align-items:flex-start; color:var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; cursor:pointer; }
   .choix-activite label:has(input:checked) { border-color:var(--accent); background:var(--accent-doux); }
   .choix-activite input { width:auto; margin-top:3px; }
+  .structure li.partie { list-style:none; margin:6px 0 2px -18px; font-weight:600; }
   .structure { margin:8px 0 0; padding-left:18px; font-size:.86rem; line-height:1.5; }
   .actions-seance { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .exercices { list-style:none; margin:8px 0 0; padding:0; font-size:.88rem; }
@@ -1211,8 +1212,10 @@ function htmlStructure(s, index = null, idSeance = s.id) {
   if (!s.etapes?.length && !exercices) return '';
   const lignes = (s.etapes || []).map((e) => (e.type === 'repetition'
     ? `<li>${esc(e.repetitions || 1)} × (${(e.etapes || []).map((x) => esc(texteEtape(x))).join(' + ')})</li>`
-    : `<li>${esc(NOMS_ETAPES[e.type] || e.type)} : ${esc(texteEtape(e))}</li>`)).join('');
-  const surMontre = ['course', 'trail', 'velo', 'renfo'].includes(s.sport) && etat.garmin?.connecte;
+    : `<li>${esc(NOMS_ETAPES[e.type] || e.type)} : ${esc(texteEtape(e))}</li>`))
+    // Séance d'enchaînement : un intertitre à chaque changement de sport (etape.sport)
+    .map((li, i) => { const sp = s.sport === 'triathlon' && s.etapes[i].sport; return sp && SPORTS[sp] ? `<li class="partie">${SPORTS[sp].icone} ${esc(SPORTS[sp].nom)}</li>${li}` : li; }).join('');
+  const surMontre = ['course', 'trail', 'velo', 'renfo', 'triathlon'].includes(s.sport) && etat.garmin?.connecte;
   const garmin = s.garmin?.workoutId
     ? `<span class="ok">✓ Sur ta montre (programmé le ${esc(dateLisible(s.garmin.programme, false))})</span><button class="btn secondaire" type="button" data-garmin-seance="${esc(idSeance)}" data-alt="${index ?? ''}">Renvoyer</button>`
     : `<button class="btn secondaire" type="button" data-garmin-seance="${esc(idSeance)}" data-alt="${index ?? ''}">⌚ Envoyer sur ma montre</button>`;
@@ -1229,7 +1232,7 @@ document.addEventListener('click', async (e) => {
       const r = await appelerGarmin('entrainement', { id: g.dataset.garminSeance, alternative: g.dataset.alt === '' ? null : Number(g.dataset.alt) });
       await synchroniser(); // le serveur a noté l'entraînement dans la séance
       toutAfficher();
-      if (r.programme) alert(`✓ Entraînement créé dans Garmin Connect et programmé le ${dateLisible(r.programme, false)}. Il arrivera sur ta montre à la prochaine synchronisation.`);
+      if (r.programme) alert(`✓ ${r.nombre > 1 ? `${r.nombre} entraînements créés (un par sport, à lancer l'un après l'autre)` : 'Entraînement créé'} dans Garmin Connect et programmé${r.nombre > 1 ? 's' : ''} le ${dateLisible(r.programme, false)}. ${r.ignorees?.length ? `La partie ${r.ignorees.join(', ')} reste à faire sans entraînement sur la montre. ` : ''}Il${r.nombre > 1 ? 's arriveront' : ' arrivera'} sur ta montre à la prochaine synchronisation.`);
     } catch (err) {
       alert('Échec : ' + err.message);
       g.disabled = false;

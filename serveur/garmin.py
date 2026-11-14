@@ -272,6 +272,18 @@ class Garmins:
         if not deja or (seance.get("garmin") or {}).get("programme") != principale.get("jour"):
             self.appeler(uid, "schedule_workout", id_garmin, principale["jour"])
         seance["garmin"] = {"workoutId": id_garmin, "programme": principale["jour"]}
+        # Un seul entraînement Cloach par jour dans Garmin : ceux envoyés avant pour ce jour (séance remplacée par
+        # un nouveau plan ou par l'avis du jour, autre alternative) sont supprimés, sinon ils s'accumulent
+        envoyes = etat.setdefault("garminEnvoyes", {})
+        for ancien in envoyes.get(principale["jour"], []):
+            if str(ancien) != str(id_garmin):
+                try:
+                    self.appeler(uid, "delete_workout", ancien)
+                except Exception as e:
+                    print(f"Suppression de l'entraînement Garmin {ancien} : {type(e).__name__} : {e}", flush=True)
+        envoyes[principale["jour"]] = [id_garmin]
+        limite = (date.today() - timedelta(days=30)).isoformat()
+        etat["garminEnvoyes"] = {j: ids for j, ids in envoyes.items() if j >= limite}
         self.base.ecrire_etat(uid, etat)
         return seance["garmin"]
 

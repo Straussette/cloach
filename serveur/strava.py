@@ -40,6 +40,7 @@ SPORTS_STRAVA = {
     "renfo": {"WeightTraining", "Workout", "Crossfit", "HighIntensityIntervalTraining", "Yoga", "Pilates",
               "Elliptical", "StairStepper", "Rowing"},
     "natation": {"Swim"},
+    "triathlon": set(),  # Strava n'a pas de type triathlon : chaque partie arrive comme une activité à part
     "ski_rando": {"BackcountrySki"},
     "tennis": {"Tennis"},
     "padel": {"Padel", "Pickleball"},

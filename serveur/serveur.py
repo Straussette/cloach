@@ -45,6 +45,7 @@ from acces import Acces
 from donnees import Supabase
 from garmin import CompteAbsent, Garmins
 from strava import Stravas
+import cycle as periodisation
 import garde_fous
 import puissance
 import terrains
@@ -83,7 +84,7 @@ Avant de conseiller, appuie-toi sur ses vraies données :
 
 Principes : progressivité (au plus +10 % de charge par semaine, une semaine allégée toutes les 3 ou 4), polarisation (beaucoup d'endurance facile, peu d'intensité), récupération. La forme du jour (sommeil, VFC, Body Battery, ressenti) prime sur le plan : le jour J, vérifie avec forme_du_jour si la séance prévue reste pertinente, puis enregistre ton verdict avec avis_du_jour (garder, alléger, remplacer ou repos), avec la séance de remplacement s'il y en a une. Respecte disponibilités, contraintes et blessures ; douleur inhabituelle → prudence et conseil de consulter. Sois concret : durées, allures, zones de fréquence cardiaque ou de puissance quand tu les connais.
 
-Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Pour chaque séance, écris son objectif (son intérêt en une courte phrase) : c'est ce que l'utilisateur voit d'abord dans le plan. Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Pour une séance de course sur tapis, ajoute toujours une alternative structurée « Sur route » (et pour une séance sur route ou sur piste, une alternative « Sur tapis »), qui garde le même effet : allures adaptées, côtes remplacées par l'inclinaison du tapis ou l'inverse. Structure aussi les alternatives. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; une séance « autrement » veut dire que l'athlète a fait autre chose que prévu (l'activité rattachée le dit) : tiens-en compte pour la suite du plan ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Tu as une mémoire : contexte_du_jour te donne tes notes sur l'athlète (memoire_coach) ; respecte-les, et note avec noter_memoire ce que tu apprends de durable (blessure, préférence, façon dont il réagit à l'entraînement, contrainte de vie) sans attendre qu'il te le demande ; supprime avec oublier_memoire ce qui n'est plus vrai. Quand tu enregistres un plan, le serveur le vérifie (progression de la charge, séances dures collées, semaine allégée, affûtage) : corrige ce qu'il signale, ou explique ton choix. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, regarde d'abord son déroulé avec courbe_activite (courbe de FC et d'allure, temps par zone, kilomètres) plutôt que les seules moyennes, puis enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app. Pour la course et le trail, profil_terrain montre comment l'athlète court à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP, montées), et à vélo (sport velo, dehors et home trainer à part) comment il roule sur chaque terrain : quand tu construis un plan, cible le terrain le plus faible au regard de l'objectif ; quand tu fais ce diagnostic, enregistre-le avec enregistrer_analyse_terrain (même sport). Pour comparer la course et le vélo, ou traduire une séance de l'un dans l'autre, passe par seuils_puissance : la puissance de course Garmin sort bien plus haut qu'à vélo, raisonne donc en % du seuil de chaque sport. Les zones de l'athlète sont personnelles (mes_zones : seuils 1 et 2 estimés dans ses données, par famille de sports, avec leur confiance) : écris les cibles des séances en bornes de FC, de puissance ou d'allure tirées de ces zones (pas en numéros de zones Garmin, dont les bornes peuvent différer) ; repartition_intensite montre le temps passé par zone, pour vérifier la polarisation et repérer les séances faciles faites trop vite.
+Le plan, le journal et le profil sont partagés avec l'app Cloach : quand tu crées ou changes le plan, enregistre-le avec enregistrer_plan (3 semaines à partir d'aujourd'hui, la première commence aujourd'hui, les suivantes le lundi). Pour chaque séance, écris son objectif (son intérêt en une courte phrase) : c'est ce que l'utilisateur voit d'abord dans le plan. Le plan n'est pas rigide : donne à chaque séance 1 à 3 alternatives utiles (par exemple « Si fatigue », « Si peu de temps », « En intérieur », ou un autre sport au même effet), que l'utilisateur peut choisir dans l'app. Pour une séance de course sur tapis, ajoute toujours une alternative structurée « Sur route » (et pour une séance sur route ou sur piste, une alternative « Sur tapis »), qui garde le même effet : allures adaptées, côtes remplacées par l'inclinaison du tapis ou l'inverse. Structure aussi les alternatives. Structure les séances de course, de trail et de vélo étape par étape (champ etapes, ou structurer_seance) avec des cibles adaptées à l'athlète (zones de FC, allures, puissance ou % de FTP) : l'app peut alors les envoyer sur sa montre Garmin ou en faire un fichier Zwift ; note avec noter_seance les séances que la montre n'a pas enregistrées, ou le ressenti et les remarques de l'utilisateur sur une séance (ne recopie jamais dans le journal une activité Garmin sans rien y ajouter : l'app l'affiche déjà) ; une séance « autrement » veut dire que l'athlète a fait autre chose que prévu (l'activité rattachée le dit) : tiens-en compte pour la suite du plan ; coche-les avec marquer_seance (dans l'app, l'utilisateur coche lui-même ses séances : l'activité Garmin y est rattachée, avec son ressenti et son commentaire, visibles dans contexte_du_jour et historique) ; mets le profil à jour avec modifier_profil quand il t'apprend un objectif, une contrainte ou une blessure. Tu as une mémoire : contexte_du_jour te donne tes notes sur l'athlète (memoire_coach) ; respecte-les, et note avec noter_memoire ce que tu apprends de durable (blessure, préférence, façon dont il réagit à l'entraînement, contrainte de vie) sans attendre qu'il te le demande ; supprime avec oublier_memoire ce qui n'est plus vrai. Périodise : quand l'athlète a un objectif daté, enregistre le cycle qui y mène avec enregistrer_cycle (phases foncier, développement, spécifique, affûtage, récupération, adaptées à son niveau et au temps restant), et mets-le à jour si l'objectif change ; chaque plan de 3 semaines suit la phase en cours (contexte_du_jour la donne) : volume et nombre de séances dures selon la phase. Quand tu enregistres un plan, le serveur le vérifie (progression de la charge, séances dures collées, semaine allégée, affûtage) : corrige ce qu'il signale, ou explique ton choix. Quand tu analyses son historique, enregistre ton commentaire avec enregistrer_analyse : il s'affiche dans l'onglet Stats de l'app. Quand tu commentes une séance réalisée, regarde d'abord son déroulé avec courbe_activite (courbe de FC et d'allure, temps par zone, kilomètres) plutôt que les seules moyennes, puis enregistre ton avis avec avis_seance : il s'affiche sous la séance dans l'app. Pour la course et le trail, profil_terrain montre comment l'athlète court à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP, montées), et à vélo (sport velo, dehors et home trainer à part) comment il roule sur chaque terrain : quand tu construis un plan, cible le terrain le plus faible au regard de l'objectif ; quand tu fais ce diagnostic, enregistre-le avec enregistrer_analyse_terrain (même sport). Pour comparer la course et le vélo, ou traduire une séance de l'un dans l'autre, passe par seuils_puissance : la puissance de course Garmin sort bien plus haut qu'à vélo, raisonne donc en % du seuil de chaque sport. Les zones de l'athlète sont personnelles (mes_zones : seuils 1 et 2 estimés dans ses données, par famille de sports, avec leur confiance) : écris les cibles des séances en bornes de FC, de puissance ou d'allure tirées de ces zones (pas en numéros de zones Garmin, dont les bornes peuvent différer) ; repartition_intensite montre le temps passé par zone, pour vérifier la polarisation et repérer les séances faciles faites trop vite.
 
 Triathlon : une séance d'enchaînement (vélo puis course, ou natation puis vélo) a le sport « triathlon » ; structure-la avec des étapes dont la première de chaque partie porte son sport (etape.sport : velo, course, natation) : l'app en fait un entraînement Garmin par partie de vélo ou de course, programmés le même jour (la natation reste en texte) ; les séances d'un seul sport gardent leur sport (natation, velo, course). Prévois régulièrement des enchaînements vélo-course à l'approche d'un triathlon, et une séance de nage technique par semaine au moins si la natation est le point faible.
 
@@ -219,6 +220,10 @@ async def contexte_du_jour() -> dict[str, Any]:
         "jour": JOURS[ajd.weekday()],
         "profil": etat.get("profil") or {},
         "memoire_coach": etat.get("memoire") or [],
+        "cycle": ({"objectif": (etat.get("cycle") or {}).get("objectif"),
+                   "phase_en_cours": periodisation.phase_du(etat.get("cycle"), ajd),
+                   "phases": [{k: p.get(k) for k in ("nom", "debut", "fin")} for p in (etat.get("cycle") or {}).get("phases", [])]}
+                  if etat.get("cycle") else None),
         "plan_resume": (etat.get("plan") or {}).get("resume", ""),
         "seances_prevues": [s for s in _seances(etat) if debut <= s.get("jour", "") <= fin],
         "journal": [s for s in etat.get("journal", []) if s.get("date", "") >= (ajd - timedelta(days=14)).isoformat()],
@@ -226,6 +231,47 @@ async def contexte_du_jour() -> dict[str, Any]:
         "garmin_branche": garmin,
         "strava_branche": await anyio.to_thread.run_sync(lambda: bool(base.lire_jetons_strava(uid))),
     }
+
+
+NomPhase = Literal["foncier", "developpement", "specifique", "affutage", "recuperation"]
+
+
+class Phase(BaseModel):
+    nom: NomPhase
+    debut: str = Field(description="AAAA-MM-JJ")
+    fin: str = Field(description="AAAA-MM-JJ (inclus)")
+    but: str | None = Field(default=None, description="Ce que vise la phase pour cet athlète, en une phrase")
+
+
+@mcp.tool()
+async def enregistrer_cycle(objectif: str, date_objectif: str, phases: list[Phase] | None = None) -> dict[str, Any]:
+    """Périodisation : enregistre le macrocycle qui mène à l'objectif principal (remplace le précédent).
+    objectif : la course ou le défi (ex. « Trail 42 km / 2000 m D+ »), date_objectif : AAAA-MM-JJ.
+    phases : foncier, developpement, specifique, affutage, recuperation, avec leurs dates ; sans phases, un découpage
+    par défaut est proposé (affûtage de 1 à 2 semaines, spécifique de 3 à 6, puis développement et foncier), à ajuster
+    selon le niveau, l'historique et le temps disponible. Chaque plan de 3 semaines doit ensuite suivre la phase en cours
+    (contexte_du_jour la donne) ; l'app affiche le cycle dans l'onglet Plan."""
+    uid = _uid()
+    try:
+        jour_objectif = date.fromisoformat(date_objectif)
+    except ValueError as exc:
+        raise ToolError("date_objectif attendue au format AAAA-MM-JJ.") from exc
+    ajd = _aujourdhui()
+    liste = [p.model_dump(exclude_none=True) for p in phases] if phases else periodisation.proposer(jour_objectif, ajd)
+    for p in liste:
+        p.setdefault("but", periodisation.PHASES.get(p["nom"], ""))
+        try:
+            if date.fromisoformat(p["debut"]) > date.fromisoformat(p["fin"]):
+                raise ToolError(f"Phase {p['nom']} : début après la fin.")
+        except ValueError as exc:
+            raise ToolError("Dates des phases attendues au format AAAA-MM-JJ.") from exc
+    liste.sort(key=lambda p: p["debut"])
+
+    def changer(etat: dict[str, Any]) -> dict[str, Any]:
+        etat["cycle"] = {"cree": ajd.isoformat(), "objectif": {"nom": objectif[:120], "date": date_objectif}, "phases": liste}
+        return {"cycle": etat["cycle"], "phase_en_cours": periodisation.phase_du(etat["cycle"], ajd)}
+
+    return await _modifier(uid, changer)
 
 
 CategorieMemoire = Literal["sante", "preference", "reponse", "contrainte", "objectif", "autre"]
@@ -385,6 +431,10 @@ async def enregistrer_plan(resume: str, semaines: list[Semaine], conseils: list[
                         "(paramètre exercices ; ids : " + ", ".join(s["id"] for s in sans_exercices) + ").")
         # Garde-fous : progression de la charge, séances dures, semaine allégée, affûtage
         alertes = garde_fous.verifier(nouvelles, recentes, etat.get("profil") or {}, ajd)
+        alertes += periodisation.verifier_phases(nouvelles, etat.get("cycle"))
+        if not etat.get("cycle") and (etat.get("profil") or {}).get("dateObjectif"):
+            alertes.append("Pas encore de cycle vers l'objectif : enregistre-le avec enregistrer_cycle pour que chaque plan "
+                           "s'inscrive dans sa phase.")
         if alertes:
             message += ("\n\nVérifications du plan, à corriger (puis réenregistre le plan) ou, si c'est un choix délibéré, "
                         "à expliquer à l'athlète :\n- " + "\n- ".join(alertes))

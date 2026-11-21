@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-21.3">
+<meta name="app-version" content="2026-11-21.4">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -281,6 +281,16 @@
   .table-zones .cle { margin-right:4px; }
   .corriger summary { cursor:pointer; color:var(--accent); font-size:.9rem; margin:8px 0; }
   .corriger .trois { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
+  .cycle { margin:4px 0 12px; }
+  .bande-cycle { position:relative; display:flex; gap:2px; height:12px; border-radius:4px; overflow:visible; margin:8px 0 6px; }
+  .bande-cycle .phase { display:block; min-width:3px; border-radius:2px; opacity:.55; }
+  .bande-cycle .phase.actuelle { opacity:1; }
+  .phase.foncier { background:var(--zone-2); } .phase.developpement { background:var(--zone-3); }
+  .phase.specifique { background:var(--zone-4); } .phase.affutage { background:var(--zone-5); }
+  .phase.recuperation { background:var(--zone-1); }
+  .bande-cycle .ici { position:absolute; top:-4px; bottom:-4px; width:3px; margin-left:-1px; background:var(--text); border-radius:2px; }
+  .legende-cycle { display:flex; flex-wrap:wrap; gap:2px 10px; font-size:.78rem; color:var(--muted); }
+  .legende-cycle .actuelle { color:var(--text); font-weight:600; }
   .liste-memoire { list-style:none; margin:8px 0 0; padding:0; display:grid; gap:8px; font-size:.9rem; }
   .liste-memoire li { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; border-top:1px solid var(--border); padding-top:8px; }
   .dfa-liste { list-style:none; margin:6px 0; padding:0; font-size:.85rem; display:grid; gap:4px; }
@@ -1747,12 +1757,35 @@ function enregistrerSeance(etatSeance) {
 }
 
 /* ---------- Onglet Plan ---------- */
+/* ---------- Cycle (périodisation) ---------- */
+// etat.cycle : { cree, objectif: { nom, date }, phases: [{ nom, debut, fin, but }] }, écrit par Claude (enregistrer_cycle)
+const NOMS_PHASES = { foncier: 'Foncier', developpement: 'Développement', specifique: 'Spécifique', affutage: 'Affûtage', recuperation: 'Récupération' };
+function htmlCycle() {
+  const c = etat.cycle;
+  if (!c?.phases?.length) return '';
+  const ajd = jourISO(), debut = c.phases[0].debut, fin = c.phases[c.phases.length - 1].fin;
+  const jours = (a, b) => Math.max(1, Math.round((versDate(b) - versDate(a)) / 864e5) + 1);
+  const total = jours(debut, fin);
+  const actuelle = c.phases.find((x) => x.debut <= ajd && ajd <= x.fin);
+  const position = Math.min(100, Math.max(0, ((jours(debut, ajd) - 0.5) / total) * 100));
+  const restant = c.objectif?.date ? Math.max(0, Math.round((versDate(c.objectif.date) - versDate(ajd)) / (7 * 864e5))) : null;
+  return `<div class="cycle">
+    <div class="semaine-h"><b>🎯 ${esc(c.objectif?.nom || 'Objectif')}</b><span>${c.objectif?.date ? `${esc(dateLisible(c.objectif.date, false))}${restant != null ? ` · ${restant} sem.` : ''}` : ''}</span></div>
+    <div class="bande-cycle" role="img" aria-label="${esc(c.phases.map((x) => NOMS_PHASES[x.nom] || x.nom).join(', '))}">
+      ${c.phases.map((x) => `<span class="phase ${esc(x.nom)} ${x === actuelle ? 'actuelle' : ''}" style="flex:${jours(x.debut, x.fin)}" title="${esc(`${NOMS_PHASES[x.nom] || x.nom} : ${dateLisible(x.debut, false)} → ${dateLisible(x.fin, false)}`)}"></span>`).join('')}
+      ${ajd >= debut && ajd <= fin ? `<i class="ici" style="left:${position.toFixed(1)}%"></i>` : ''}
+    </div>
+    <div class="legende-cycle">${c.phases.map((x) => `<span class="${x === actuelle ? 'actuelle' : ''}"><i class="cle carre phase ${esc(x.nom)}"></i>${esc(NOMS_PHASES[x.nom] || x.nom)}</span>`).join('')}</div>
+    ${actuelle ? `<p class="petit" style="margin:6px 0 0"><b>Phase ${esc((NOMS_PHASES[actuelle.nom] || actuelle.nom).toLowerCase())}</b> jusqu'au ${esc(dateLisible(actuelle.fin, false))}${actuelle.but ? ` : ${esc(actuelle.but)}` : ''}</p>` : ''}
+  </div>`;
+}
+
 function afficherPlan() {
   const p = etat.plan;
   $('#titreDemandePlan').textContent = p ? 'Réajuster mon plan avec Claude' : 'Créer mon plan avec Claude';
   $('#btnPlan').textContent = p ? '🗓️ Demander à Claude de réajuster' : '🗓️ Demander mon plan à Claude';
   if (!p) {
-    $('#enTetePlan').innerHTML = '<h2>Mon plan</h2><p class="muted">Pas encore de plan. Remplis ton profil, branche Claude (onglet Profil), puis demande-lui ton plan ci-dessous. Il apparaîtra ici dès ton retour dans l\'app.</p>';
+    $('#enTetePlan').innerHTML = '<h2>Mon plan</h2>' + htmlCycle() + '<p class="muted">Pas encore de plan. Remplis ton profil, branche Claude (onglet Profil), puis demande-lui ton plan ci-dessous. Il apparaîtra ici dès ton retour dans l\'app.</p>';
     $('#semaines').innerHTML = '';
     return;
   }
@@ -1767,6 +1800,7 @@ function afficherPlan() {
   const faitesSemaine = w.seances.filter(faite).length;
   const total = w.seances.reduce((n, s) => n + (Number(s.duree) || 0), 0);
   $('#enTetePlan').innerHTML = `<div class="semaine-h"><h2>Mon plan</h2><span>créé le ${esc(dateLisible(p.cree, false))}</span></div>
+    ${htmlCycle()}
     <div class="semaines-plan">${p.semaines.map((x, i) => `<button type="button" class="puce ${i === semainePlan ? 'actif' : ''}" data-semaine-plan="${i}">Semaine ${i + 1}</button>`).join('')}</div>
     ${p.resume || (p.conseils || []).length ? `<details class="logique"><summary>Logique du plan et conseils</summary>
       ${p.resume ? `<p class="petit">${esc(p.resume)}</p>` : ''}

@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-21.2">
+<meta name="app-version" content="2026-11-21.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -281,6 +281,8 @@
   .table-zones .cle { margin-right:4px; }
   .corriger summary { cursor:pointer; color:var(--accent); font-size:.9rem; margin:8px 0; }
   .corriger .trois { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
+  .liste-memoire { list-style:none; margin:8px 0 0; padding:0; display:grid; gap:8px; font-size:.9rem; }
+  .liste-memoire li { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; border-top:1px solid var(--border); padding-top:8px; }
   .dfa-liste { list-style:none; margin:6px 0; padding:0; font-size:.85rem; display:grid; gap:4px; }
   .puces.defile { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
   .puces.defile::-webkit-scrollbar { display:none; }
@@ -572,6 +574,12 @@
     <div class="carte">
       <h2>Garmin</h2>
       <div id="blocGarmin"></div>
+    </div>
+
+    <div class="carte" id="carteMemoire" hidden>
+      <h2>Ce que ton coach retient</h2>
+      <p class="muted petit">Ton coach note ici ce qu'il apprend de toi au fil des conversations (blessures, préférences, façon dont tu réagis à l'entraînement) et le relit à chaque fois. Supprime ce qui n'est plus vrai.</p>
+      <ul class="liste-memoire" id="memoire"></ul>
     </div>
 
     <div class="carte" id="carteZones" hidden>
@@ -3300,6 +3308,23 @@ async function chargerZones(recalculer = false) {
   zonesEnCours = false;
   afficherZones();
 }
+/* ---------- Mémoire du coach (Profil) ---------- */
+// etat.memoire : [{ id, date, categorie, texte }], écrite par Claude (outils noter_memoire / oublier_memoire)
+const CATEGORIES_MEMOIRE = { sante: '🩹 Santé', preference: '💚 Préférence', reponse: '📈 Réponse à l\'entraînement', contrainte: '🗓️ Contrainte', objectif: '🎯 Objectif', autre: '📝 Autre' };
+function afficherMemoire() {
+  const notes = etat.memoire || [];
+  $('#carteMemoire').hidden = !notes.length;
+  if (!notes.length) return;
+  $('#memoire').innerHTML = notes.slice().reverse().map((n) => `<li><div><span class="muted petit">${esc(CATEGORIES_MEMOIRE[n.categorie] || CATEGORIES_MEMOIRE.autre)} · ${esc(dateLisible(n.date, false))}</span><br>${esc(n.texte)}</div>
+    <button type="button" class="btn discret" data-oublier="${esc(n.id)}" aria-label="Supprimer cette note">✕</button></li>`).join('');
+}
+$('#memoire').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-oublier]');
+  if (!b || !confirm('Supprimer cette note ? Ton coach ne s\'en souviendra plus.')) return;
+  await modifier(() => { etat.memoire = (etat.memoire || []).filter((n) => n.id !== b.dataset.oublier); });
+  afficherMemoire();
+});
+
 function afficherZones() {
   const carte = $('#carteZones');
   carte.hidden = !session() || !etat.garmin?.connecte;
@@ -3773,6 +3798,7 @@ function toutAfficher() {
   afficherGarmin();
   afficherStrava();
   afficherZones();
+  afficherMemoire();
   afficherStats();
   afficherGuide();
   majLiensClaude();

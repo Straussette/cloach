@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-21.1">
+<meta name="app-version" content="2026-11-21.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -124,6 +124,7 @@
   .seance .meta { font-size:.85rem; color:var(--muted); margin-top:2px; }
   .seance .details { font-size:.9rem; margin-top:6px; line-height:1.45; white-space:pre-line; }
   .seance.fait .titre { text-decoration:line-through; text-decoration-color:var(--ok); }
+  .seance.autrement .titre { text-decoration:none; color:var(--muted); }
   .seance.saute { opacity:.55; }
   .intensite { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:middle; background:var(--i-modere); }
   .intensite.repos { background:var(--i-repos); }
@@ -679,6 +680,7 @@
     <label>Commentaire<textarea id="s-commentaire" placeholder="Sensations, douleurs, météo, ce qui a marché ou pas…"></textarea></label>
     <p class="statut" id="statutSeance"></p>
     <button class="btn large" type="submit" id="btnSeanceValider">✓ C'est fait</button>
+    <button class="btn secondaire large" type="button" id="btnSeanceAutrement" hidden>↺ J'ai fait autre chose</button>
     <div class="rangee" style="justify-content:space-between">
       <button class="btn discret" type="button" id="btnSeanceSautee">Séance sautée</button>
       <button class="btn discret" type="button" id="btnSeanceRemettre">Remettre « à faire »</button>
@@ -832,6 +834,9 @@ const NOMS_SOURCES = { garmin: 'Garmin', strava: 'Strava' };
 // Strava est prêt côté code mais pas encore activé (application Strava à créer) : carte masquée
 const STRAVA_ACTIF = false;
 
+// « fait » : la séance prévue ; « autrement » : une autre activité à la place (rattachée, pour le coach)
+const faite = (s) => s.etat === 'fait' || s.etat === 'autrement';
+const classeEtat = (s) => (s.etat === 'autrement' ? 'fait autrement' : s.etat === 'fait' ? 'fait' : s.etat === 'saute' ? 'saute' : '');
 const toutesSeances = () => (etat.plan?.semaines || []).flatMap((w) => w.seances);
 
 /* ---------- Compte (projet Supabase « cloach ») ---------- */
@@ -1130,9 +1135,9 @@ function htmlSeance(s, { avecDate = false, lien = true, compacte = false } = {})
     s.duree ? dureeLisible(s.duree) : '',
     `<span class="intensite ${esc(s.intensite)}"></span>${esc(INTENSITES[s.intensite] || s.intensite || '')}`,
   ].filter(Boolean).join(' · ');
-  const etatBouton = `<button class="etat-seance ${s.etat === 'fait' ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'fait' ? (s.auto ? '✓ Fait · ressenti ?' : '✓ Fait') : s.etat === 'saute' ? 'Sauté' : s.jour <= jourISO() ? 'Je l\'ai faite ›' : 'À faire'}</button>`;
+  const etatBouton = `<button class="etat-seance ${faite(s) ? 'fait' : ''}" type="button" data-seance="${esc(s.id)}">${s.etat === 'autrement' ? '↺ Fait autrement' : s.etat === 'fait' ? (s.auto ? '✓ Fait · ressenti ?' : '✓ Fait') : s.etat === 'saute' ? 'Sauté' : s.jour <= jourISO() ? 'Je l\'ai faite ›' : 'À faire'}</button>`;
   if (!ouverte) {
-    return `<div class="seance compacte ${s.etat === 'fait' ? 'fait' : s.etat === 'saute' ? 'saute' : ''}" data-ouvrir="${esc(s.id)}">
+    return `<div class="seance compacte ${classeEtat(s)}" data-ouvrir="${esc(s.id)}">
       <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
       <div>
         <div class="jour-court">${esc(dateLisible(s.jour))}</div>
@@ -1144,18 +1149,18 @@ function htmlSeance(s, { avecDate = false, lien = true, compacte = false } = {})
       <div>${etatBouton}</div>
     </div>`;
   }
-  return `<div class="seance ${s.etat === 'fait' ? 'fait' : s.etat === 'saute' ? 'saute' : ''} ${compacte ? 'compacte' : ''}" ${compacte ? `data-ouvrir="${esc(s.id)}"` : ''}>
+  return `<div class="seance ${classeEtat(s)} ${compacte ? 'compacte' : ''}" ${compacte ? `data-ouvrir="${esc(s.id)}"` : ''}>
     <div class="icone" title="${esc(sport.nom)}">${sport.icone}</div>
     <div>
       ${compacte ? `<div class="jour-court">${esc(dateLisible(s.jour))}</div>` : ''}
       <div class="titre">${esc(s.titre || sport.nom)}</div>
       ${compacte && s.objectif ? `<div class="objectif">${esc(s.objectif)}</div>` : ''}
       <div class="meta">${meta}</div>
-      ${s.details && s.etat !== 'fait' ? `<div class="details">${esc(s.details)}</div>` : ''}
-      ${s.etat === 'fait' && lien ? htmlLienGarmin(s) : ''}
-      ${s.etat === 'fait' && !lien && !s.activite ? htmlAvisCoach(null, null, s) : ''}
-      ${s.etat !== 'fait' ? htmlStructure(s) : ''}
-      ${s.etat !== 'fait' && s.alternatives?.length ? `<details class="alternatives"><summary>${s.alternatives.length} alternative${s.alternatives.length > 1 ? 's' : ''}</summary>
+      ${s.details && !faite(s) ? `<div class="details">${esc(s.details)}</div>` : ''}
+      ${faite(s) && lien ? htmlLienGarmin(s) : ''}
+      ${faite(s) && !lien && !s.activite ? htmlAvisCoach(null, null, s) : ''}
+      ${!faite(s) ? htmlStructure(s) : ''}
+      ${!faite(s) && s.alternatives?.length ? `<details class="alternatives"><summary>${s.alternatives.length} alternative${s.alternatives.length > 1 ? 's' : ''}</summary>
         ${s.alternatives.map((a, i) => `<div class="alternative"><div>
           <div class="pour">${esc(a.pour)}</div>
           <div class="titre">${(SPORTS[a.sport] || SPORTS.autre).icone} ${esc(a.titre)}</div>
@@ -1452,7 +1457,8 @@ async function chargerForme() {
   if (formeDuJour?.jour === ajd && (!formeIncomplete(formeDuJour) || Date.now() - formeDuJour.lu < attente)) return;
   formeEnCours = true;
   try {
-    formeDuJour = { ...(await appelerServeur('garmin/forme', { jour: ajd }, 45000)), lu: Date.now() };
+    // jour imposé : une réponse sans date (ou d'un autre jour) relançait la lecture à chaque affichage, en boucle
+    formeDuJour = { ...(await appelerServeur('garmin/forme', { jour: ajd }, 45000)), jour: ajd, lu: Date.now() };
   } catch (e) {
     console.warn('Forme du jour', e);
     formeDuJour = formeDuJour?.jour === ajd && !formeDuJour.erreur ? formeDuJour : { jour: ajd, erreur: true, lu: Date.now() };
@@ -1524,7 +1530,8 @@ function afficherJour() {
     const jour = decaler(lundi, i);
     const { acts, seules } = realiseDuJour(jour);
     const faites = [...acts, ...seules].map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
-    const prevues = parJour(seances, 'jour', jour).filter((x) => x.etat !== 'fait' && (jour >= ajd || x.etat !== 'saute')).map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
+    const prevues = parJour(seances, 'jour', jour)
+      .filter((x) => !faite(x) && (jour >= ajd || x.etat !== 'saute')).map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
     const icones = faites.join('') + (prevues.length ? `<span class="prevu">${prevues.join('')}</span>` : '');
     return `<button type="button" data-jour="${jour}" class="${jour === ajd ? 'ajd' : ''} ${jour === jourChoisi ? 'choisi' : ''}">
       ${j.slice(0, 3)}<span class="num">${versDate(jour).getDate()}</span><span class="icones">${icones || '·'}</span></button>`;
@@ -1635,6 +1642,7 @@ async function ouvrirSeance(idSeance, idActivite = null) {
   }
   remplirCommentaire(activiteOuverte?.id || seanceOuverte?.activite || $('#formSeance input[name="activite"]:checked')?.value);
   $('#dlgSeance').showModal();
+  majBoutonsSeance();
 
   // Séance du jour ou passée : on va chercher sur Garmin ce qui n'est pas encore importé
   if (seanceOuverte && sourceActive() && jour <= jourISO() && session()) {
@@ -1644,6 +1652,7 @@ async function ouvrirSeance(idSeance, idActivite = null) {
       await chargerActivites();
       if (!$('#dlgSeance').open) return;
       afficherChoixActivite(jour, seanceOuverte.sport, seanceOuverte.activite);
+      majBoutonsSeance();
       remplirCommentaire(seanceOuverte.activite || $('#formSeance input[name="activite"]:checked')?.value);
       statut($('#statutSeance'), '');
     } catch (err) {
@@ -1693,8 +1702,21 @@ async function rattacherSeances() {
   });
   toutAfficher();
 }
+// Le bouton principal suit l'activité choisie : d'un autre sport que la séance, c'est « fait autrement »
+function majBoutonsSeance() {
+  const choisie = activites.find((a) => a.id === $('#formSeance input[name="activite"]:checked')?.value);
+  const autre = !!(seanceOuverte && choisie && !memeFamille(choisie.sport, seanceOuverte.sport));
+  $('#btnSeanceAutrement').hidden = !seanceOuverte || autre;
+  if (seanceOuverte) $('#btnSeanceValider').textContent = autre ? `↺ Fait autrement (${(SPORTS[choisie.sport] || SPORTS.autre).nom.toLowerCase()})` : '✓ C\'est fait';
+  return autre;
+}
+$('#activiteDlgSeance').addEventListener('change', majBoutonsSeance);
+$('#btnSeanceAutrement').onclick = () => enregistrerSeance('autrement');
 $('#formSeance').onsubmit = (e) => {
   e.preventDefault();
+  enregistrerSeance(majBoutonsSeance() ? 'autrement' : 'fait');
+};
+function enregistrerSeance(etatSeance) {
   const idSeance = seanceOuverte?.id;
   const idActivite = activiteOuverte?.id ?? ($('#formSeance input[name="activite"]:checked')?.value || '');
   const ressenti = Number($('#s-ressenti').value) || null;
@@ -1708,13 +1730,13 @@ $('#formSeance').onsubmit = (e) => {
     }
     const s = idSeance && toutesSeances().find((x) => x.id === idSeance);
     if (s) {
-      s.etat = 'fait';
+      s.etat = etatSeance;
       delete s.auto;
       if (idActivite) { s.activite = idActivite; delete s.ressenti; delete s.commentaire; }
       else { delete s.activite; s.ressenti = ressenti; s.commentaire = notes; }
     }
   });
-};
+}
 
 /* ---------- Onglet Plan ---------- */
 function afficherPlan() {
@@ -1734,7 +1756,7 @@ function afficherPlan() {
     semainePlan = i >= 0 ? i : p.semaines.length - 1;
   }
   const w = p.semaines[semainePlan];
-  const faitesSemaine = w.seances.filter((s) => s.etat === 'fait').length;
+  const faitesSemaine = w.seances.filter(faite).length;
   const total = w.seances.reduce((n, s) => n + (Number(s.duree) || 0), 0);
   $('#enTetePlan').innerHTML = `<div class="semaine-h"><h2>Mon plan</h2><span>créé le ${esc(dateLisible(p.cree, false))}</span></div>
     <div class="semaines-plan">${p.semaines.map((x, i) => `<button type="button" class="puce ${i === semainePlan ? 'actif' : ''}" data-semaine-plan="${i}">Semaine ${i + 1}</button>`).join('')}</div>

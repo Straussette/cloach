@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-14.2">
+<meta name="app-version" content="2026-11-21.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -192,7 +192,7 @@
   .alternative:first-of-type { border-top:0; }
   .alternative .pour { font-size:.78rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
   .resume-semaine { margin:10px 0 0; font-size:.85rem; color:var(--muted); text-align:center; font-variant-numeric:tabular-nums; }
-  .outils-cal { display:flex; justify-content:center; gap:8px; margin-top:8px; }
+  .outils-cal { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-top:8px; }
   .outils-cal input { width:auto; padding:6px 10px; font-size:.85rem; min-height:0; }
 
   /* ---------- Onglets ---------- */
@@ -406,6 +406,7 @@
       <p class="resume-semaine" id="resumeSemaine"></p>
       <div class="outils-cal">
         <button class="btn discret" type="button" id="btnAujourdhui">Aujourd'hui</button>
+        <button class="btn discret" type="button" id="btnRecuperer" hidden title="Va chercher sur ta montre les sorties pas encore arrivées dans Cloach">⌚ Mes dernières sorties</button>
         <input type="date" id="allerDate" aria-label="Aller à une date">
       </div>
     </div>
@@ -1506,6 +1507,7 @@ function htmlAvis() {
 }
 
 function afficherJour() {
+  $('#btnRecuperer').hidden = !(session() && sourceActive());
   const ajd = jourISO();
   const lundi = lundiDe(jourChoisi);
   const dimanche = decaler(lundi, 6);
@@ -2109,20 +2111,40 @@ $('#lienAnalyseImport').addEventListener('click', () => { $('#dlgImport').close(
 // (la séance du jour arrive souvent après une première ouverture), au plus toutes les 10 minutes
 const CLE_DERNIER_IMPORT = 'cloach-dernier-import';
 let miseAJourEnCours = false;
-async function mettreAJourHistorique() {
+// force (bouton « Récupérer mes dernières sorties » du Calendrier) : sans le délai de 10 min, sur les 3 derniers jours au moins
+async function mettreAJourHistorique(force = false) {
   const source = sourceActive();
-  const dernier = source && etat[source]?.dernierImport;
-  if (!dernier || miseAJourEnCours) return;
-  if (dernier === jourISO() && Date.now() - (Number(lireLocal(CLE_DERNIER_IMPORT)) || 0) < 10 * 60e3) return;
+  const dernier = (source && etat[source]?.dernierImport) || (force ? decaler(jourISO(), -7) : null);
+  if (!dernier || miseAJourEnCours) return false;
+  if (!force && dernier === jourISO() && Date.now() - (Number(lireLocal(CLE_DERNIER_IMPORT)) || 0) < 10 * 60e3) return false;
   miseAJourEnCours = true;
   try {
-    await importerPeriode(dernier === jourISO() ? jourISO() : decaler(dernier, -3), jourISO());
+    const debut = force ? [dernier, decaler(jourISO(), -3)].sort()[0] : dernier === jourISO() ? jourISO() : decaler(dernier, -3);
+    await importerPeriode(debut, jourISO());
     ecrireLocal(CLE_DERNIER_IMPORT, Date.now());
     if (dernier !== jourISO()) await modifier(() => { etat[source] = { ...etat[source], dernierImport: jourISO() }; });
     await chargerActivites();
-  } catch (e) { console.warn('Mise à jour de l\'historique', e); }
-  miseAJourEnCours = false;
+    return true;
+  } catch (e) {
+    console.warn('Mise à jour de l\'historique', e);
+    if (force) throw e;
+    return false;
+  } finally { miseAJourEnCours = false; }
 }
+$('#btnRecuperer').onclick = async () => {
+  const b = $('#btnRecuperer');
+  if (b.disabled) return;
+  b.disabled = true;
+  b.textContent = '⌚ Récupération…';
+  try {
+    await mettreAJourHistorique(true);
+    b.textContent = '✓ Sorties à jour';
+  } catch (e) {
+    b.textContent = '⌚ Réessayer';
+    alert(`${NOMS_SOURCES[sourceActive()] || 'Garmin'} ne répond pas : ${e.message}`);
+  }
+  setTimeout(() => { b.disabled = false; b.textContent = '⌚ Mes dernières sorties'; }, 4000);
+};
 
 /* ---------- Onglet Stats ---------- */
 const PERIODES = [

@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-21.4">
+<meta name="app-version" content="2026-11-22.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -282,6 +282,7 @@
   .corriger summary { cursor:pointer; color:var(--accent); font-size:.9rem; margin:8px 0; }
   .corriger .trois { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
   .cycle { margin:4px 0 12px; }
+  .cycle.invitation { border:1px dashed var(--border); border-radius:12px; padding:10px 12px; }
   .bande-cycle { position:relative; display:flex; gap:2px; height:12px; border-radius:4px; overflow:visible; margin:8px 0 6px; }
   .bande-cycle .phase { display:block; min-width:3px; border-radius:2px; opacity:.55; }
   .bande-cycle .phase.actuelle { opacity:1; }
@@ -1118,6 +1119,7 @@ function lienClaude(question) {
 const QUESTIONS = {
   verifier: () => 'Vérifie si ma séance prévue aujourd\'hui reste pertinente : regarde ma forme du jour (sommeil, VFC, Body Battery, FC de repos) et ma charge récente. Dis-moi s\'il faut la garder, l\'alléger, la remplacer ou me reposer, puis enregistre ton avis.',
   jour: () => 'Que dois-je faire aujourd\'hui ? Regarde mon contexte du jour et ma forme, dis-moi si je garde, allège ou décale la séance prévue, puis détaille la séance.',
+  cycle: () => `Construis le cycle d'entraînement qui me mène à mon objectif${etat.profil?.objectif ? ` (${etat.profil.objectif}${etat.profil.dateObjectif ? `, le ${etat.profil.dateObjectif}` : ''})` : ''} : consulte ta méthode, découpe-le en phases (foncier, développement, spécifique, affûtage) adaptées à mon niveau et au temps restant, enregistre-le avec enregistrer_cycle, puis vérifie que mon plan actuel suit la phase en cours.`,
   analyse: () => 'Analyse mon historique d\'activités : volume, régularité, progression, répartition par sport, équilibre endurance / intensité et points d\'attention, en lien avec mon objectif. Puis enregistre ton commentaire pour l\'app.',
   intensite: () => 'Regarde la répartition de mon intensité par zone (repartition_intensite et mes_zones) sur les dernières semaines : est-elle bien polarisée pour mon objectif ? Repère les séances faciles faites trop vite et dis-moi ce que je dois changer.',
   puissance: () => 'Compare ma puissance en course et à vélo (seuils_puissance) : mes seuils, le ratio entre les deux, ce qu\'il dit de mon niveau dans chaque sport, et comment traduire une séance de l\'un dans l\'autre. Si mon seuil course ou ma FTP te semblent faux, propose-moi une valeur à mettre au profil.',
@@ -1762,7 +1764,13 @@ function enregistrerSeance(etatSeance) {
 const NOMS_PHASES = { foncier: 'Foncier', developpement: 'Développement', specifique: 'Spécifique', affutage: 'Affûtage', recuperation: 'Récupération' };
 function htmlCycle() {
   const c = etat.cycle;
-  if (!c?.phases?.length) return '';
+  if (!c?.phases?.length) {
+    // Objectif daté sans cycle : on propose de le faire construire par Claude
+    if (!etat.profil?.dateObjectif || etat.profil.dateObjectif < jourISO()) return '';
+    return `<div class="cycle invitation"><b>🎯 Ton cycle vers l'objectif</b>
+      <p class="muted petit" style="margin:4px 0 8px">Ton coach peut découper le chemin jusqu'au ${esc(dateLisible(etat.profil.dateObjectif, false))} en phases (foncier, développement, spécifique, affûtage) : chaque plan suivra alors la bonne phase, et tu verras ici où tu en es.</p>
+      <a class="btn secondaire" target="_blank" rel="noopener" href="${esc(lienClaude(QUESTIONS.cycle()))}">🗣️ Demander mon cycle à Claude</a></div>`;
+  }
   const ajd = jourISO(), debut = c.phases[0].debut, fin = c.phases[c.phases.length - 1].fin;
   const jours = (a, b) => Math.max(1, Math.round((versDate(b) - versDate(a)) / 864e5) + 1);
   const total = jours(debut, fin);

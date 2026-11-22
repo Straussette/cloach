@@ -221,6 +221,14 @@ async def contexte_du_jour() -> dict[str, Any]:
         "jour": JOURS[ajd.weekday()],
         "profil": etat.get("profil") or {},
         "memoire_coach": etat.get("memoire") or [],
+        # Ce que le coach devrait faire et n'a pas encore fait (visible même dans une conversation déjà ouverte)
+        "a_faire_coach": [t for t in [
+            "Objectif daté sans cycle : construis-le avec enregistrer_cycle (si l'outil n'apparaît pas, propose à "
+            "l'athlète d'ouvrir une nouvelle conversation pour charger les outils récents de Cloach)."
+            if (etat.get("profil") or {}).get("dateObjectif") and not etat.get("cycle") else "",
+            "Mémoire du coach vide : note avec noter_memoire ce que tu sais de durable sur l'athlète (blessures, "
+            "préférences, contraintes, réaction à l'entraînement)." if not etat.get("memoire") else "",
+        ] if t],
         "cycle": ({"objectif": (etat.get("cycle") or {}).get("objectif"),
                    "phase_en_cours": periodisation.phase_du(etat.get("cycle"), ajd),
                    "phases": [{k: p.get(k) for k in ("nom", "debut", "fin")} for p in (etat.get("cycle") or {}).get("phases", [])]}

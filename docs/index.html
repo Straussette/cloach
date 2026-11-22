@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-22.1">
+<meta name="app-version" content="2026-11-22.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -292,6 +292,8 @@
   .bande-cycle .ici { position:absolute; top:-4px; bottom:-4px; width:3px; margin-left:-1px; background:var(--text); border-radius:2px; }
   .legende-cycle { display:flex; flex-wrap:wrap; gap:2px 10px; font-size:.78rem; color:var(--muted); }
   .legende-cycle .actuelle { color:var(--text); font-weight:600; }
+  .bande-cycle .evt { position:absolute; top:-9px; transform:translateX(-50%); font-size:.7rem; line-height:1; }
+  .evenement-jour { margin:6px 0; padding:6px 10px; border-left:3px solid var(--accent); background:var(--surface); border-radius:6px; }
   .liste-memoire { list-style:none; margin:8px 0 0; padding:0; display:grid; gap:8px; font-size:.9rem; }
   .liste-memoire li { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; border-top:1px solid var(--border); padding-top:8px; }
   .dfa-liste { list-style:none; margin:6px 0; padding:0; font-size:.85rem; display:grid; gap:4px; }
@@ -585,6 +587,26 @@
     <div class="carte">
       <h2>Garmin</h2>
       <div id="blocGarmin"></div>
+    </div>
+
+    <div class="carte" id="carteCalendrier">
+      <h2>Mon calendrier</h2>
+      <p class="muted petit">Tes courses et tes indisponibilités : ton coach construit ton cycle et tes plans autour (affûtage avant une course A, mini-affûtage avant une B, une C remplace la séance dure de la semaine ; rien de prévu quand tu n'es pas dispo).</p>
+      <ul class="liste-memoire" id="evenements"></ul>
+      <details class="corriger" id="ajoutEvenement">
+        <summary>+ Ajouter une course ou une indisponibilité</summary>
+        <form class="champs" id="formEvenement">
+          <label>Nom<input type="text" id="e-nom" maxlength="120" required placeholder="Semi de Paris, vacances…"></label>
+          <label>Type<select id="e-type"></select></label>
+          <div class="deux">
+            <label>Date<input type="date" id="e-date" required></label>
+            <label id="e-finLabel" hidden>Jusqu'au<input type="date" id="e-fin"></label>
+            <label id="e-sportLabel">Sport<select id="e-sport"></select></label>
+          </div>
+          <label>Notes<input type="text" id="e-notes" maxlength="300" placeholder="Distance, D+, objectif de temps…"></label>
+          <button class="btn" type="submit">Ajouter</button>
+        </form>
+      </details>
     </div>
 
     <div class="carte" id="carteMemoire" hidden>
@@ -1119,7 +1141,7 @@ function lienClaude(question) {
 const QUESTIONS = {
   verifier: () => 'Vérifie si ma séance prévue aujourd\'hui reste pertinente : regarde ma forme du jour (sommeil, VFC, Body Battery, FC de repos) et ma charge récente. Dis-moi s\'il faut la garder, l\'alléger, la remplacer ou me reposer, puis enregistre ton avis.',
   jour: () => 'Que dois-je faire aujourd\'hui ? Regarde mon contexte du jour et ma forme, dis-moi si je garde, allège ou décale la séance prévue, puis détaille la séance.',
-  cycle: () => `Construis le cycle d'entraînement qui me mène à mon objectif${etat.profil?.objectif ? ` (${etat.profil.objectif}${etat.profil.dateObjectif ? `, le ${etat.profil.dateObjectif}` : ''})` : ''} : consulte ta méthode, découpe-le en phases (foncier, développement, spécifique, affûtage) adaptées à mon niveau et au temps restant, enregistre-le avec enregistrer_cycle, puis vérifie que mon plan actuel suit la phase en cours.`,
+  cycle: () => `Construis le cycle d'entraînement qui me mène à mon objectif${etat.profil?.objectif ? ` (${etat.profil.objectif}${etat.profil.dateObjectif ? `, le ${etat.profil.dateObjectif}` : ''})` : ''} : consulte ta méthode, découpe-le en phases (foncier, développement, spécifique, affûtage) adaptées à mon niveau, au temps restant et à mon calendrier (courses B et C, indisponibilités), enregistre-le avec enregistrer_cycle, puis vérifie que mon plan actuel suit la phase en cours.`,
   analyse: () => 'Analyse mon historique d\'activités : volume, régularité, progression, répartition par sport, équilibre endurance / intensité et points d\'attention, en lien avec mon objectif. Puis enregistre ton commentaire pour l\'app.',
   intensite: () => 'Regarde la répartition de mon intensité par zone (repartition_intensite et mes_zones) sur les dernières semaines : est-elle bien polarisée pour mon objectif ? Repère les séances faciles faites trop vite et dis-moi ce que je dois changer.',
   puissance: () => 'Compare ma puissance en course et à vélo (seuils_puissance) : mes seuils, le ratio entre les deux, ce qu\'il dit de mon niveau dans chaque sport, et comment traduire une séance de l\'un dans l\'autre. Si mon seuil course ou ma FTP te semblent faux, propose-moi une valeur à mettre au profil.',
@@ -1552,7 +1574,7 @@ function afficherJour() {
     const faites = [...acts, ...seules].map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
     const prevues = parJour(seances, 'jour', jour)
       .filter((x) => !faite(x) && (jour >= ajd || x.etat !== 'saute')).map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
-    const icones = faites.join('') + (prevues.length ? `<span class="prevu">${prevues.join('')}</span>` : '');
+    const icones = evenementsDu(jour).map(iconeEvenement).join('') + faites.join('') + (prevues.length ? `<span class="prevu">${prevues.join('')}</span>` : '');
     return `<button type="button" data-jour="${jour}" class="${jour === ajd ? 'ajd' : ''} ${jour === jourChoisi ? 'choisi' : ''}">
       ${j.slice(0, 3)}<span class="num">${versDate(jour).getDate()}</span><span class="icones">${icones || '·'}</span></button>`;
   }).join('');
@@ -1572,6 +1594,7 @@ function afficherJour() {
   const { acts: faites, seules: notes } = realiseDuJour(jourChoisi);
   const titre = dateLisible(jourChoisi).replace(/^./, (c) => c.toUpperCase()) + (jourChoisi === ajd ? ' · aujourd\'hui' : '');
   let html = `<h2>${esc(titre)}</h2>`;
+  html += evenementsDu(jourChoisi).map((e) => `<p class="evenement-jour">${iconeEvenement(e)} <b>${esc(e.nom)}</b><br><span class="muted petit">${esc(texteEvenement(e).type)}${e.fin ? ` · ${esc(texteEvenement(e).dates)}` : ''}</span>${e.notes ? `<br><span class="petit">${esc(e.notes)}</span>` : ''}</p>`).join('');
   if (jourChoisi === ajd) html += htmlForme() + htmlAvis();
   if (prevues.length) html += `<h3 style="margin:12px 0 4px">${jourChoisi < ajd ? 'Prévu' : 'Au programme'}</h3>` + prevues.map((x) => htmlSeance(x, { lien: false })).join('');
   if (faites.length || notes.length) html += '<h3 style="margin:12px 0 4px">Réalisé</h3>' + faites.map(htmlActivite).join('') + notes.map(htmlNote).join('');
@@ -1766,9 +1789,10 @@ function htmlCycle() {
   const c = etat.cycle;
   if (!c?.phases?.length) {
     // Objectif daté sans cycle : on propose de le faire construire par Claude
-    if (!etat.profil?.dateObjectif || etat.profil.dateObjectif < jourISO()) return '';
-    return `<div class="cycle invitation"><b>🎯 Ton cycle vers l'objectif</b>
-      <p class="muted petit" style="margin:4px 0 8px">Ton coach peut découper le chemin jusqu'au ${esc(dateLisible(etat.profil.dateObjectif, false))} en phases (foncier, développement, spécifique, affûtage) : chaque plan suivra alors la bonne phase, et tu verras ici où tu en es.</p>
+    const a = evenements().find((e) => e.type === 'A' && e.date >= jourISO());
+    if (!a) return '';
+    return `<div class="cycle invitation"><b>🎯 Ton cycle vers ${esc(a.nom)}</b>
+      <p class="muted petit" style="margin:4px 0 8px">Ton coach peut découper le chemin jusqu'au ${esc(dateLisible(a.date, false))} en phases (foncier, développement, spécifique, affûtage) : chaque plan suivra alors la bonne phase, et tu verras ici où tu en es.</p>
       <a class="btn secondaire" target="_blank" rel="noopener" href="${esc(lienClaude(QUESTIONS.cycle()))}">🗣️ Demander mon cycle à Claude</a></div>`;
   }
   const ajd = jourISO(), debut = c.phases[0].debut, fin = c.phases[c.phases.length - 1].fin;
@@ -1782,6 +1806,7 @@ function htmlCycle() {
     <div class="bande-cycle" role="img" aria-label="${esc(c.phases.map((x) => NOMS_PHASES[x.nom] || x.nom).join(', '))}">
       ${c.phases.map((x) => `<span class="phase ${esc(x.nom)} ${x === actuelle ? 'actuelle' : ''}" style="flex:${jours(x.debut, x.fin)}" title="${esc(`${NOMS_PHASES[x.nom] || x.nom} : ${dateLisible(x.debut, false)} → ${dateLisible(x.fin, false)}`)}"></span>`).join('')}
       ${ajd >= debut && ajd <= fin ? `<i class="ici" style="left:${position.toFixed(1)}%"></i>` : ''}
+      ${evenements().filter((e) => e.date >= debut && e.date <= fin && e.date !== c.objectif?.date).map((e) => `<i class="evt" style="left:${Math.min(100, Math.max(0, ((jours(debut, e.date) - 0.5) / total) * 100)).toFixed(1)}%" title="${esc(`${e.nom} · ${dateLisible(e.date, false)}`)}">${iconeEvenement(e)}</i>`).join('')}
     </div>
     <div class="legende-cycle">${c.phases.map((x) => `<span class="${x === actuelle ? 'actuelle' : ''}"><i class="cle carre phase ${esc(x.nom)}"></i>${esc(NOMS_PHASES[x.nom] || x.nom)}</span>`).join('')}</div>
     ${actuelle ? `<p class="petit" style="margin:6px 0 0"><b>Phase ${esc((NOMS_PHASES[actuelle.nom] || actuelle.nom).toLowerCase())}</b> jusqu'au ${esc(dateLisible(actuelle.fin, false))}${actuelle.but ? ` : ${esc(actuelle.but)}` : ''}</p>` : ''}
@@ -3350,6 +3375,71 @@ async function chargerZones(recalculer = false) {
   zonesEnCours = false;
   afficherZones();
 }
+/* ---------- Calendrier des courses (Profil) ---------- */
+// etat.evenements : [{ id, nom, date, fin?, type: A | B | C | indispo, sport?, notes? }], écrit par l'app et par Claude
+// (ajouter_evenement) ; l'objectif daté du profil compte comme une course A s'il n'y figure pas (comme _evenements() côté serveur)
+const TYPES_EVENEMENT = {
+  A: { nom: 'Course A · objectif majeur', icone: '🎯' },
+  B: { nom: 'Course B · importante', icone: '🏁' },
+  C: { nom: 'Course C · préparation', icone: '🚩' },
+  indispo: { nom: 'Indisponible', icone: '⛔' },
+};
+function evenements() {
+  const evts = (etat.evenements || []).slice();
+  const p = etat.profil || {};
+  if (p.dateObjectif && !evts.some((e) => e.date === p.dateObjectif)) evts.push({ id: 'profil', nom: p.objectif || 'Objectif', date: p.dateObjectif, type: 'A' });
+  return evts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+const evenementsDu = (jour) => evenements().filter((e) => e.date <= jour && jour <= (e.fin || e.date));
+const iconeEvenement = (e) => (TYPES_EVENEMENT[e.type] || TYPES_EVENEMENT.C).icone;
+function texteEvenement(e) {
+  const dates = e.fin ? `du ${dateLisible(e.date, false)} au ${dateLisible(e.fin, false)}` : dateLisible(e.date, false);
+  const sport = e.sport && SPORTS[e.sport] ? ` · ${SPORTS[e.sport].icone} ${SPORTS[e.sport].nom}` : '';
+  return { dates, type: (TYPES_EVENEMENT[e.type] || TYPES_EVENEMENT.C).nom + sport };
+}
+function afficherCalendrier() {
+  const ajd = jourISO();
+  const avenir = evenements().filter((e) => (e.fin || e.date) >= ajd);
+  $('#evenements').innerHTML = avenir.length ? avenir.map((e) => {
+    const t = texteEvenement(e);
+    return `<li><div>${iconeEvenement(e)} <b>${esc(e.nom)}</b> <span class="muted petit">· ${esc(t.dates)}</span><br>
+      <span class="muted petit">${esc(t.type)}</span>${e.notes ? `<br><span class="petit">${esc(e.notes)}</span>` : ''}</div>
+      ${e.id === 'profil' ? '<span class="muted petit">objectif du profil</span>' : `<button type="button" class="btn discret" data-retirer-evt="${esc(e.id)}" aria-label="Retirer ${esc(e.nom)}">✕</button>`}</li>`;
+  }).join('') : '<li class="muted petit">Rien de prévu pour l\'instant.</li>';
+}
+$('#e-type').innerHTML = Object.entries(TYPES_EVENEMENT).map(([k, t]) => `<option value="${k}">${t.icone} ${esc(t.nom)}</option>`).join('');
+$('#e-sport').innerHTML = '<option value="">—</option>' + Object.entries(SPORTS).filter(([k]) => k !== 'autre')
+  .map(([k, x]) => `<option value="${k}">${x.icone} ${esc(x.nom)}</option>`).join('');
+$('#e-type').addEventListener('change', () => {
+  const indispo = $('#e-type').value === 'indispo';
+  $('#e-finLabel').hidden = !indispo;
+  $('#e-sportLabel').hidden = indispo;
+});
+$('#formEvenement').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const type = $('#e-type').value, date = $('#e-date').value, fin = $('#e-fin').value;
+  const evt = { id: idNeuf(), nom: $('#e-nom').value.trim(), date, type };
+  if (!evt.nom || !date) return;
+  if (type === 'indispo' && fin > date) evt.fin = fin;
+  if (type !== 'indispo' && $('#e-sport').value) evt.sport = $('#e-sport').value;
+  if ($('#e-notes').value.trim()) evt.notes = $('#e-notes').value.trim();
+  await modifier(() => { etat.evenements = [...(etat.evenements || []), evt]; });
+  $('#formEvenement').reset();
+  $('#e-type').dispatchEvent(new Event('change'));
+  $('#ajoutEvenement').open = false;
+  afficherCalendrier();
+  afficherJour();
+  afficherPlan();
+});
+$('#evenements').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-retirer-evt]');
+  if (!b || !confirm('Retirer cet événement du calendrier ?')) return;
+  await modifier(() => { etat.evenements = (etat.evenements || []).filter((x) => x.id !== b.dataset.retirerEvt); });
+  afficherCalendrier();
+  afficherJour();
+  afficherPlan();
+});
+
 /* ---------- Mémoire du coach (Profil) ---------- */
 // etat.memoire : [{ id, date, categorie, texte }], écrite par Claude (outils noter_memoire / oublier_memoire)
 const CATEGORIES_MEMOIRE = { sante: '🩹 Santé', preference: '💚 Préférence', reponse: '📈 Réponse à l\'entraînement', contrainte: '🗓️ Contrainte', objectif: '🎯 Objectif', autre: '📝 Autre' };
@@ -3841,6 +3931,7 @@ function toutAfficher() {
   afficherStrava();
   afficherZones();
   afficherMemoire();
+  afficherCalendrier();
   afficherStats();
   afficherGuide();
   majLiensClaude();

@@ -55,7 +55,7 @@ def volumes_reels(activites: list[dict[str, Any]], aujourdhui: date, semaines: i
 
 
 def verifier(semaines: list[dict[str, Any]], activites: list[dict[str, Any]], profil: dict[str, Any],
-             aujourdhui: date) -> list[str]:
+             aujourdhui: date, evenements: list[dict[str, Any]] | None = None) -> list[str]:
     avertissements: list[str] = []
     completes = volumes_plan(semaines)
     vols = [v for _, v in completes]
@@ -99,17 +99,47 @@ def verifier(semaines: list[dict[str, Any]], activites: list[dict[str, Any]], pr
             avertissements.append(f"Aucune semaine allégée depuis {depuis} semaines (réelles et prévues) : prévois-en une "
                                   "(environ -30 % de volume, intensité réduite) dans ce plan.")
 
-    # 4. Objectif dans la fenêtre du plan : affûtage
-    objectif = _jour(profil.get("dateObjectif"))
+    # 4. Calendrier : affûtage avant un objectif A, mini-affûtage avant un B, pas de séance dure collée à un C,
+    # récupération après une course, rien de prévu pendant une indisponibilité
     fin_plan = max((j for s in seances if (j := _jour(s.get("jour")))), default=None)
-    if objectif and fin_plan and aujourdhui <= objectif <= fin_plan + timedelta(days=1):
-        avant = [s for s in seances if (j := _jour(s.get("jour"))) and objectif - timedelta(days=2) <= j < objectif]
-        if any(s.get("intensite") == "tres-soutenu" for s in avant):
-            avertissements.append(f"Séance très soutenue dans les 2 jours avant l'objectif ({_fr(objectif)}) : garde seulement "
-                                  "quelques accélérations courtes.")
-        semaine_avant = sum(_minutes(s) for s in seances if (j := _jour(s.get("jour"))) and objectif - timedelta(days=7) <= j < objectif)
-        pic = max(vols + reels) if vols else 0
-        if pic and semaine_avant > pic * 0.7:
-            avertissements.append(f"Semaine avant l'objectif : {semaine_avant / 60:.1f} h, trop près du pic ({pic / 60:.1f} h). "
-                                  "Affûtage : environ -40 à -60 % de volume, en gardant un peu d'intensité.")
+    pic = max(vols + reels) if (vols or reels) else 0
+    evts = evenements if evenements is not None else (
+        [{"nom": "l'objectif", "date": profil.get("dateObjectif"), "type": "A"}] if profil.get("dateObjectif") else [])
+    for e in evts:
+        d = _jour(e.get("date"))
+        if not d or not fin_plan or not (aujourdhui - timedelta(days=7) <= d <= fin_plan + timedelta(days=1)):
+            continue
+        nom, type_ = e.get("nom") or "la course", e.get("type")
+
+        def entre(debut: date, fin: date) -> list[dict[str, Any]]:
+            return [s for s in seances if (j := _jour(s.get("jour"))) and debut <= j <= fin]
+        if type_ == "indispo":
+            fin_indispo = _jour(e.get("fin")) or d
+            prevues = [s for s in entre(d, fin_indispo) if _minutes(s) > 0]
+            if prevues:
+                avertissements.append(f"Indisponible du {_fr(d)} au {_fr(fin_indispo)} ({nom}) : {len(prevues)} séance(s) prévue(s) "
+                                      "pendant cette période ; retire-les ou adapte-les.")
+            continue
+        if type_ == "A":
+            if any(s.get("intensite") == "tres-soutenu" for s in entre(d - timedelta(days=2), d - timedelta(days=1))):
+                avertissements.append(f"Séance très soutenue dans les 2 jours avant {nom} ({_fr(d)}) : garde seulement "
+                                      "quelques accélérations courtes.")
+            semaine_avant = sum(_minutes(s) for s in entre(d - timedelta(days=7), d - timedelta(days=1)))
+            if pic and semaine_avant > pic * 0.7:
+                avertissements.append(f"Semaine avant {nom} : {semaine_avant / 60:.1f} h, trop près du pic ({pic / 60:.1f} h). "
+                                      "Affûtage : environ -40 à -60 % de volume, en gardant un peu d'intensité.")
+            apres = [s for s in entre(d + timedelta(days=1), d + timedelta(days=7)) if s.get("intensite") in DURES]
+            if apres:
+                avertissements.append(f"Séance dure dans la semaine après {nom} ({_fr(d)}) : récupération d'abord.")
+        elif type_ == "B":
+            if any(s.get("intensite") in DURES for s in entre(d - timedelta(days=3), d - timedelta(days=1))):
+                avertissements.append(f"Séance dure dans les 3 jours avant {nom} (course B, {_fr(d)}) : mini-affûtage, "
+                                      "seulement des rappels courts.")
+            if any(s.get("intensite") in DURES for s in entre(d + timedelta(days=1), d + timedelta(days=3))):
+                avertissements.append(f"Séance dure dans les 3 jours après {nom} ({_fr(d)}) : laisse récupérer.")
+        elif type_ == "C":
+            if any(s.get("intensite") in DURES for s in entre(d - timedelta(days=1), d - timedelta(days=1))
+                   ) or any(s.get("intensite") in DURES for s in entre(d + timedelta(days=1), d + timedelta(days=1))):
+                avertissements.append(f"Séance dure collée à {nom} (course de préparation, {_fr(d)}) : la course compte "
+                                      "comme la séance dure, garde la veille et le lendemain faciles.")
     return avertissements

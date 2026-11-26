@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-22.2">
+<meta name="app-version" content="2026-11-26.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1571,7 +1571,9 @@ function afficherJour() {
   $('#bandeau').innerHTML = JOURS.map((j, i) => {
     const jour = decaler(lundi, i);
     const { acts, seules } = realiseDuJour(jour);
-    const faites = [...acts, ...seules].map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
+    // Séances cochées sans activité Garmin rattachée (renfo, oubli de montre) : comptées comme faites aussi
+    const sansActivite = parJour(seances, 'jour', jour).filter((x) => faite(x) && !(x.activite && acts.some((a) => a.id === x.activite)));
+    const faites = [...acts, ...seules, ...sansActivite].map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
     const prevues = parJour(seances, 'jour', jour)
       .filter((x) => !faite(x) && (jour >= ajd || x.etat !== 'saute')).map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
     const icones = evenementsDu(jour).map(iconeEvenement).join('') + faites.join('') + (prevues.length ? `<span class="prevu">${prevues.join('')}</span>` : '');

@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-26.1">
+<meta name="app-version" content="2026-11-26.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -163,6 +163,11 @@
   .avis-coach { margin-top:8px; padding:8px 10px; border-radius:10px; background:var(--accent-doux); font-size:.88rem; line-height:1.45; white-space:pre-line; }
   .avis-coach b { display:block; font-size:.78rem; color:var(--muted); font-weight:600; margin-bottom:2px; }
   .lien-avis { display:inline-block; margin-top:6px; font-size:.85rem; color:var(--accent); font-weight:600; text-decoration:none; }
+  .demande-avis summary { list-style:none; cursor:pointer; }
+  .demande-avis summary::-webkit-details-marker { display:none; }
+  .demande-avis[open] summary { margin-bottom:6px; }
+  .demande-avis textarea { width:100%; min-height:64px; font:inherit; font-size:.88rem; padding:8px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); resize:vertical; }
+  .demande-avis .btn { margin-top:6px; }
   .lien-garmin { margin-top:6px; font-size:.85rem; color:var(--muted); }
   .commentaire { margin-top:4px; font-size:.9rem; font-style:italic; }
   .choix-activite { display:grid; gap:6px; }
@@ -1410,11 +1415,28 @@ function questionAvis(a, s) {
   return `Donne-moi ton avis de coach sur ${quoi}${a && prevue ? `, prévue comme « ${prevue.titre} » (séance ${prevue.id})` : ''}. `
     + 'Regarde son déroulé (courbe_activite : courbe de FC et d\'allure, temps par zone, kilomètres) et ses tours, compare avec ce qui était prévu, mon ressenti et ma forme, puis enregistre ton avis pour l\'app.';
 }
+const brouillonsAvis = {};
 function htmlAvisCoach(idActivite, a, s) {
   const avis = etat.avisSeances?.[idActivite || `seance:${s?.id}`];
-  if (avis) return `<div class="avis-coach"><b>Avis du coach · ${esc(dateLisible(avis.date, false))}</b>${esc(avis.texte)}</div>`;
-  return `<a class="lien-avis" href="${esc(lienClaude(questionAvis(a, s)))}" target="_blank" rel="noopener">🗣️ Demander l'avis du coach</a>`;
+  const question = questionAvis(a, s);
+  // Champ facultatif : l'athlète ajoute sa propre question ou son ressenti, ajouté à la question avant d'ouvrir Claude
+  // Le texte tapé survit aux réaffichages du Calendrier (brouillonsAvis, par question)
+  const brouillon = brouillonsAvis[question] || '';
+  const complete = question + (brouillon.trim() ? `\n\nEn plus, ma question ou mon ressenti : ${brouillon.trim()}` : '');
+  const demande = (titre) => `<details class="demande-avis" ${brouillon ? 'open' : ''}><summary class="lien-avis">${titre}</summary>
+    <textarea maxlength="1000" aria-label="Ta question en plus" placeholder="Ta question en plus (facultatif) : jambes lourdes, allure trop dure, douleur au genou…">${esc(brouillon)}</textarea>
+    <a class="btn secondaire" href="${esc(lienClaude(complete))}" data-question="${esc(question)}" target="_blank" rel="noopener">Ouvrir Claude ›</a></details>`;
+  if (avis) return `<div class="avis-coach"><b>Avis du coach · ${esc(dateLisible(avis.date, false))}</b>${esc(avis.texte)}</div>${demande('🗣️ Reparler de cette séance avec le coach')}`;
+  return demande('🗣️ Demander l\'avis du coach');
 }
+document.addEventListener('input', (e) => {
+  const zone = e.target.closest('.demande-avis textarea');
+  if (!zone) return;
+  const lien = zone.parentElement.querySelector('[data-question]');
+  const ajout = zone.value.trim();
+  brouillonsAvis[lien.dataset.question] = zone.value;
+  lien.href = lienClaude(lien.dataset.question + (ajout ? `\n\nEn plus, ma question ou mon ressenti : ${ajout}` : ''));
+});
 
 function htmlLienGarmin(s) {
   const a = s.activite && activites.find((x) => x.id === s.activite);

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Crochet git : refuse le push si tests/verifier.sh échoue.
+# Activation (une fois par copie du dépôt) : git config core.hooksPath .githooks
+exec "$(git rev-parse --show-toplevel)/tests/verifier.sh"

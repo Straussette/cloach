@@ -33,6 +33,7 @@ Le coaching se passe dans le Claude de chaque utilisateur, sur son propre abonne
 
 ## Commandes
 
+- **Vérifications avant chaque push : `tests/verifier.sh`** (obligatoire, ~25 s). Syntaxe de l'app, version augmentée si `docs/index.html` a changé, serveur (compilation, outils MCP, fonctions pures : `tests/serveur_test.py`, dans `serveur/.venv` créé au besoin) et app dans un vrai navigateur (`tests/app.test.js` : Playwright, Supabase et serveur simulés, état riche ; quatre onglets, cartes repliables ouvertes, aucun lien Claude sans adresse, aucune erreur JS, pas de défilement horizontal, en clair et en sombre). Le crochet `.githooks/pre-push` le lance et bloque le push en cas d'échec (activation une fois par copie : `git config core.hooksPath .githooks`). Pour toute nouvelle fonction, ajouter sa vérification dans ces tests (données de test dans `ETAT`, réponses du serveur dans leur vraie forme), et tester tout le parcours de l'app, pas seulement la fonction modifiée.
 - Syntaxe de l'app : `awk '/<script>/{f=1;next}/<\/script>/{f=0}f' docs/index.html > /tmp/app.js && node --check /tmp/app.js`
 - Serveur en local : voir README.md (`python serveur.py` dans `serveur/`, avec les variables d'environnement).
 - Déployer l'app : pousser sur `main`. Le serveur se redéploie aussi depuis `main` sur Render. Le `Dockerfile` copie tous les `*.py` de `serveur/` : un nouveau module y est pris automatiquement.

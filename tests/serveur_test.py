@@ -203,6 +203,32 @@ verifier("situation : calendrier proche (course B)", any(e.get("nom") == "Semi" 
 verifier("situation : mémoire du coach", sit.get("memoire_coach") == ["Gêne au mollet"])
 verifier("situation : sortie inconnue → vide", serveur.situation_seance(etat_s, acts, "999") == {})
 
+# ---------- Courbe : les efforts courts gardent leur vraie FC (pas écrasés par la moyenne par minute) ----------
+import courbe  # noqa: E402
+
+T = [i * 1.3 for i in range(int(1800 / 1.3))]
+
+
+def fc_cotes(t: float) -> float:
+    for k in range(6):  # 6 côtes de 45 s, de 140 à 160 bpm, toutes les 3 min
+        d = 600 + k * 180
+        if d <= t < d + 45:
+            return 140 + 20 * (t - d) / 45
+        if d + 45 <= t < d + 90:
+            return 160 - 20 * (t - d - 45) / 45
+    return 140
+
+
+serie = {"temps": T, "fc": [fc_cotes(t) + (1 if int(t) % 2 else -1) for t in T], "dist": [t * 3 for t in T],
+         "alt": [200.0] * len(T), "puissance": [None] * len(T)}
+res = courbe.resumer(serie, False)
+verifier("courbe : FC max par tranche (≥ 159)", max(p["fc_max"] for p in res["courbe"]) >= 159)
+verifier("courbe : 6 efforts repérés", len(res["efforts"]) == 6)
+verifier("courbe : pics à leur vraie valeur (≥ 159)", all(e["fc_pic"] >= 159 for e in res["efforts"]))
+verifier("courbe : durée de montée de FC proche de 45 s", all(30 <= e["montee_fc_s"] <= 60 for e in res["efforts"]))
+plat = courbe.resumer({**serie, "fc": [140 + (1 if int(t) % 2 else -1) for t in T]}, False)
+verifier("courbe : aucun effort sur une FC stable", plat["efforts"] == [])
+
 # ---------- Zones ----------
 verifier("zone d'une FC", zones.zone_de(150, [130, 145, 160, 170]) == 2)
 

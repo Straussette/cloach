@@ -1,5 +1,7 @@
 """Courbe d'une sortie pour Claude : FC, allure (ou vitesse), puissance et altitude, résumées par tranches de
-temps, le temps passé dans chaque zone de FC de l'athlète, et les kilomètres un par un.
+temps (avec la FC max de chaque tranche : la moyenne d'une minute écrase un effort court), les efforts repérés
+sur la FC point par point (pics, avec la FC réelle, la durée, l'allure ou la puissance et le D+ de la montée), le temps
+passé dans chaque zone de FC de l'athlète, et les kilomètres un par un.
 
 À partir des mêmes détails Garmin que terrains.py (lire_series). Fonctions pures, testables sans réseau.
 """
@@ -9,6 +11,65 @@ from typing import Any
 POINTS_MAX = 120      # tranches au plus dans la courbe (une par minute pour une sortie de 2 h)
 PAUSE_S = 10.0        # au-delà, un écart entre deux points est une pause
 NOMS_ZONES = ("Z1 récupération", "Z2 endurance", "Z3 tempo", "Z4 seuil", "Z5 VO2max")
+LISSAGE_S = 8.0       # lissage de la FC avant de chercher les pics (bruit du capteur)
+VOISINAGE_S = 45.0    # un pic est le plus haut point à ± 45 s
+REMONTEE_S = 150.0    # on cherche le creux qui précède dans les 2 min 30 d'avant
+HAUSSE_MIN = 8.0      # un effort fait monter la FC d'au moins 8 bpm depuis ce creux
+EFFORTS_MAX = 40
+
+
+def efforts(series: dict[str, list[Any]], velo: bool) -> list[dict[str, Any]]:
+    """Pics de FC point par point : chaque effort (côte, fraction, relance) avec sa FC de départ et son pic réel,
+    la durée de la montée de FC, l'allure (ou la vitesse), la puissance et le D+ sur cette durée."""
+    t0 = series["temps"][0]
+    pts = [(series["temps"][i] - t0, f, i) for i, f in enumerate(series["fc"]) if f]
+    if len(pts) < 20:
+        return []
+    # FC lissée sur LISSAGE_S (fenêtre glissante)
+    lisse, debut, somme = [], 0, 0.0
+    for j, (t, f, _) in enumerate(pts):
+        somme += f
+        while pts[debut][0] < t - LISSAGE_S:
+            somme -= pts[debut][1]
+            debut += 1
+        lisse.append(somme / (j - debut + 1))
+    trouves: list[dict[str, Any]] = []
+    a = b = c = 0  # bornes des fenêtres glissantes (voisinage avant, voisinage après, remontée)
+    for j, (t, _, _) in enumerate(pts):
+        while pts[a][0] < t - VOISINAGE_S:
+            a += 1
+        while b + 1 < len(pts) and pts[b + 1][0] <= t + VOISINAGE_S:
+            b += 1
+        while pts[c][0] < t - REMONTEE_S:
+            c += 1
+        if lisse[j] < max(lisse[a:b + 1]) or (trouves and t - trouves[-1]["t"] < VOISINAGE_S):
+            continue
+        # Creux : le dernier point proche du plus bas avant le pic (début réel de la montée de FC)
+        bas = min(lisse[c:j + 1])
+        creux = max(k for k in range(c, j + 1) if lisse[k] <= bas + 2)
+        if lisse[j] - bas < HAUSSE_MIN:
+            continue
+        trouves.append({"t": t, "j": j, "creux": creux})
+    resultat = []
+    for e in trouves[:EFFORTS_MAX]:
+        j, k = e["j"], e["creux"]
+        autour = [f for (t, f, _) in pts[k:] if t <= e["t"] + 15]
+        i0, i1 = pts[k][2], pts[j][2]
+        duree = series["temps"][i1] - series["temps"][i0]
+        metres = series["dist"][i1] - series["dist"][i0]
+        d_plus = sum(max(0.0, series["alt"][i] - series["alt"][i - 1]) for i in range(i0 + 1, i1 + 1))
+        p = [series["puissance"][i] for i in range(i0, i1 + 1) if series["puissance"][i] is not None]
+        ligne: dict[str, Any] = {"min": round(e["t"] / 60, 1), "fc_depart": round(lisse[k]), "fc_pic": round(max(autour)),
+                                 "montee_fc_s": round(duree), "d_plus": round(d_plus)}
+        if duree > 0 and metres > 0:
+            if velo:
+                ligne["kmh"] = round(metres / duree * 3.6, 1)
+            else:
+                ligne["allure"] = _allure(metres, duree)
+        if p:
+            ligne["w"] = round(sum(p) / len(p))
+        resultat.append(ligne)
+    return resultat
 
 
 def _moyenne(valeurs: list[tuple[float, float]]) -> float | None:
@@ -44,13 +105,14 @@ def resumer(series: dict[str, list[Any]], velo: bool, bornes_fc: list[float] | N
         t = temps[i] - temps[0]
         k = int(t // pas)
         if cours is None or cours["k"] != k:
-            cours = {"k": k, "t": 0.0, "d": 0.0, "fc": [], "p": [], "alt": alt[i]}
+            cours = {"k": k, "t": 0.0, "d": 0.0, "fc": [], "p": [], "alt": alt[i], "fc_max": 0.0}
             tranches.append(cours)
         cours["t"] += dt
         cours["d"] += dd
         f = fc[i]
         if f:
             cours["fc"].append((f, dt))
+            cours["fc_max"] = max(cours["fc_max"], f)
             fc_max = max(fc_max, f)
             if bornes_fc:
                 zones_s[sum(1 for b in bornes_fc if f >= b)] += dt
@@ -76,7 +138,8 @@ def resumer(series: dict[str, list[Any]], velo: bool, bornes_fc: list[float] | N
     courbe = []
     for c in tranches:
         fm, pm = _moyenne(c["fc"]), _moyenne(c["p"])
-        point: dict[str, Any] = {"min": round(c["k"] * pas / 60, 1), "fc": round(fm) if fm else None, "alt": round(c["alt"])}
+        point: dict[str, Any] = {"min": round(c["k"] * pas / 60, 1), "fc": round(fm) if fm else None,
+                                 "fc_max": round(c["fc_max"]) if c["fc_max"] else None, "alt": round(c["alt"])}
         if velo:
             point["kmh"] = round(c["d"] / c["t"] * 3.6, 1) if c["t"] > 0 else None
         else:
@@ -90,6 +153,7 @@ def resumer(series: dict[str, list[Any]], velo: bool, bornes_fc: list[float] | N
         "duree_s": round(duree),
         "pas_s": pas,
         "courbe": courbe,
+        "efforts": efforts(series, velo),
         "kilometres" if not velo else "tranches_5_km": km[:80],
     }
     fm = _moyenne(toutes_fc)

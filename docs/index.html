@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-27.7">
+<meta name="app-version" content="2026-11-27.8">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -721,6 +721,7 @@
 <dialog id="dlgSeance">
   <form class="dlg" id="formSeance">
     <h2 id="titreDlgSeance">Séance faite</h2>
+    <label id="s-jourLabel">Faite le<input type="date" id="s-jour"></label>
     <div id="activiteDlgSeance"></div>
     <label>Ressenti
       <select id="s-ressenti">
@@ -1190,6 +1191,7 @@ function htmlSeance(s, { avecDate = false, lien = true, compacte = false } = {})
   const ouverte = !compacte || seancesOuvertes.has(s.id);
   const meta = [
     avecDate && !compacte ? esc(dateLisible(s.jour)) : '',
+    faite(s) && s.faiteLe && s.faiteLe !== s.jour ? `<b>faite ${esc(dateLisible(s.faiteLe))}</b>` : '',
     s.duree ? dureeLisible(s.duree) : '',
     `<span class="intensite ${esc(s.intensite)}"></span>${esc(INTENSITES[s.intensite] || s.intensite || '')}`,
   ].filter(Boolean).join(' · ');
@@ -1609,8 +1611,8 @@ function afficherJour() {
     const { acts, seules } = realiseDuJour(jour);
     // Séances cochées sans activité Garmin rattachée (renfo, oubli de montre) : comptées comme faites aussi
     // (sauf si une sortie du même sport ce jour-là la représente déjà : pas de double compte)
-    const sansActivite = parJour(seances, 'jour', jour).filter((x) => faite(x) && !(x.activite && acts.some((a) => a.id === x.activite))
-      && !(!x.activite && acts.some((a) => memeFamille(a.sport, x.sport))));
+    const sansActivite = seances.filter((x) => (x.faiteLe || x.jour) === jour && faite(x) && !x.activite
+      && !acts.some((a) => memeFamille(a.sport, x.sport)));
     const faites = [...acts, ...seules, ...sansActivite].map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
     const prevues = parJour(seances, 'jour', jour)
       .filter((x) => !faite(x) && (jour >= ajd || x.etat !== 'saute')).map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
@@ -1632,13 +1634,17 @@ function afficherJour() {
   // Détail du jour choisi
   const prevues = parJour(seances, 'jour', jourChoisi);
   const { acts: faites, seules: notes } = realiseDuJour(jourChoisi);
+  const decalees = seances.filter((x) => x.faiteLe === jourChoisi && x.jour !== jourChoisi && faite(x) && !x.activite);
   const titre = dateLisible(jourChoisi).replace(/^./, (c) => c.toUpperCase()) + (jourChoisi === ajd ? ' · aujourd\'hui' : '');
   let html = `<h2>${esc(titre)}</h2>`;
   html += evenementsDu(jourChoisi).map((e) => `<p class="evenement-jour">${iconeEvenement(e)} <b>${esc(e.nom)}</b><br><span class="muted petit">${esc(texteEvenement(e).type)}${e.fin ? ` · ${esc(texteEvenement(e).dates)}` : ''}</span>${e.notes ? `<br><span class="petit">${esc(e.notes)}</span>` : ''}</p>`).join('');
   if (jourChoisi === ajd) html += htmlForme() + htmlAvis();
   if (prevues.length) html += `<h3 style="margin:12px 0 4px">${jourChoisi < ajd ? 'Prévu' : 'Au programme'}</h3>` + prevues.map((x) => htmlSeance(x, { lien: false })).join('');
-  if (faites.length || notes.length) html += '<h3 style="margin:12px 0 4px">Réalisé</h3>' + faites.map(htmlActivite).join('') + notes.map(htmlNote).join('');
-  if (!prevues.length && !faites.length && !notes.length) {
+  if (faites.length || notes.length || decalees.length) {
+    html += '<h3 style="margin:12px 0 4px">Réalisé</h3>' + faites.map(htmlActivite).join('') + notes.map(htmlNote).join('')
+      + decalees.map((x) => `<p class="muted petit" style="margin:8px 0 0">Prévue ${esc(dateLisible(x.jour))} :</p>` + htmlSeance(x, { lien: false })).join('');
+  }
+  if (!prevues.length && !faites.length && !notes.length && !decalees.length) {
     html += `<p class="muted">${jourChoisi < ajd ? 'Aucune activité enregistrée : jour de repos.'
       : etat.plan ? 'Rien de prévu : repos ou séance libre.'
       : 'Pas encore de plan : remplis ton profil, branche Claude, puis demande ton plan dans l\'onglet Plan.'}</p>`;
@@ -1710,8 +1716,12 @@ function remplirCommentaire(idActivite) {
 async function ouvrirSeance(idSeance, idActivite = null) {
   seanceOuverte = idSeance ? toutesSeances().find((x) => x.id === idSeance) : null;
   activiteOuverte = idActivite ? activites.find((a) => a.id === idActivite) : null;
-  const jour = seanceOuverte?.jour || activiteOuverte?.jour;
+  // Une séance peut être faite un autre jour que prévu (faiteLe) : on part du jour réel s'il est connu
+  const jour = (seanceOuverte && (seanceOuverte.faiteLe || seanceOuverte.jour)) || activiteOuverte?.jour;
   if (!jour) return;
+  $('#s-jourLabel').hidden = !seanceOuverte;
+  $('#s-jour').value = jour;
+  $('#s-jour').max = jourISO();
   $('#titreDlgSeance').textContent = seanceOuverte ? seanceOuverte.titre || 'Séance' : 'Commenter l\'activité';
   $('#btnSeanceValider').textContent = seanceOuverte ? '✓ C\'est fait' : 'Enregistrer';
   $('#btnSeanceSautee').hidden = !seanceOuverte || seanceOuverte.etat === 'saute';
@@ -1727,13 +1737,17 @@ async function ouvrirSeance(idSeance, idActivite = null) {
   $('#dlgSeance').showModal();
   majBoutonsSeance();
 
-  // Séance du jour ou passée : on va chercher sur Garmin ce qui n'est pas encore importé
+  await recupererJourSeance(jour);
+}
+
+// Séance du jour ou passée : on va chercher sur la montre ce qui n'est pas encore importé ce jour-là
+async function recupererJourSeance(jour) {
   if (seanceOuverte && sourceActive() && jour <= jourISO() && session()) {
     statut($('#statutSeance'), `⌚ Je récupère ta séance sur ${NOMS_SOURCES[sourceActive()]}…`);
     try {
       await appelerServeur(`${sourceActive()}/importer`, { debut: jour, fin: jour });
       await chargerActivites();
-      if (!$('#dlgSeance').open) return;
+      if (!$('#dlgSeance').open || $('#s-jour').value !== jour) return;
       afficherChoixActivite(jour, seanceOuverte.sport, seanceOuverte.activite);
       majBoutonsSeance();
       remplirCommentaire(seanceOuverte.activite || $('#formSeance input[name="activite"]:checked')?.value);
@@ -1745,17 +1759,25 @@ async function ouvrirSeance(idSeance, idActivite = null) {
 }
 
 $('#activiteDlgSeance').addEventListener('change', (e) => { if (e.target.name === 'activite') remplirCommentaire(e.target.value); });
+// Autre jour choisi : on montre (et on récupère) les sorties de ce jour-là
+$('#s-jour').addEventListener('change', () => {
+  const jour = $('#s-jour').value;
+  if (!seanceOuverte || !jour || jour > jourISO()) return;
+  afficherChoixActivite(jour, seanceOuverte.sport, null);
+  majBoutonsSeance();
+  recupererJourSeance(jour);
+});
 $('#btnSeanceAnnuler').onclick = () => $('#dlgSeance').close();
 $('#btnSeanceSautee').onclick = () => {
   const id = seanceOuverte?.id;
   $('#dlgSeance').close();
-  modifier(() => { const s = toutesSeances().find((x) => x.id === id); if (s) { s.etat = 'saute'; delete s.activite; } });
+  modifier(() => { const s = toutesSeances().find((x) => x.id === id); if (s) { s.etat = 'saute'; delete s.activite; delete s.faiteLe; } });
 };
 $('#btnSeanceRemettre').onclick = () => {
   const id = seanceOuverte?.id;
   $('#dlgSeance').close();
   // « Remettre à faire » : on ne la rattache plus automatiquement à une activité
-  modifier(() => { const s = toutesSeances().find((x) => x.id === id); if (s) { s.etat = ''; delete s.activite; delete s.auto; s.sansAuto = true; } });
+  modifier(() => { const s = toutesSeances().find((x) => x.id === id); if (s) { s.etat = ''; delete s.activite; delete s.auto; delete s.faiteLe; s.sansAuto = true; } });
 };
 
 /* ---------- Rattachement automatique des séances ---------- */
@@ -1779,6 +1801,19 @@ async function rattacherSeances() {
     prises.add(possibles[0].id);
     liens.push([sc.id, possibles[0].id]);
   }
+  // Séance validée sans trace et rien ce jour-là : jours inversés (course mercredi au lieu de jeudi…). Elle prend la seule
+  // sortie du même sport faite à 2 jours près, rattachée à rien et qu'aucune séance de son propre jour n'attend encore.
+  const rattachees = new Set(liens.map(([id]) => id));
+  for (const sc of toutesSeances()) {
+    if (sc.etat !== 'fait' || sc.activite || sc.sansAuto || rattachees.has(sc.id) || !sc.jour || sc.jour < depuisFaites || sc.jour > aujourdhui) continue;
+    const jourSc = sc.faiteLe || sc.jour;
+    const proches = activites.filter((a) => !prises.has(a.id) && memeFamille(a.sport, sc.sport) && a.jour !== jourSc
+      && Math.abs(versDate(a.jour) - versDate(jourSc)) <= 2 * 864e5
+      && !toutesSeances().some((x) => x.id !== sc.id && x.jour === a.jour && !x.activite && x.etat !== 'saute' && memeFamille(a.sport, x.sport)));
+    if (proches.length !== 1) continue;
+    prises.add(proches[0].id);
+    liens.push([sc.id, proches[0].id]);
+  }
   if (!liens.length) return;
   await modifier(() => {
     for (const [id, act] of liens) {
@@ -1787,6 +1822,8 @@ async function rattacherSeances() {
       if (!sc.etat) { Object.assign(sc, { etat: 'fait', activite: act, auto: true }); continue; }
       // Déjà validée à la main : la sortie s'y rattache, avec le ressenti, le commentaire et l'avis du coach
       sc.activite = act;
+      const jourAct = activites.find((a) => a.id === act)?.jour;
+      if (jourAct && jourAct !== sc.jour) sc.faiteLe = jourAct;
       if ((sc.ressenti || sc.commentaire) && !etat.commentaires?.[act]) {
         etat.commentaires = { ...(etat.commentaires || {}), [act]: { ressenti: sc.ressenti || null, notes: sc.commentaire || '', date: sc.jour } };
       }
@@ -1815,6 +1852,7 @@ function enregistrerSeance(etatSeance) {
   const idActivite = activiteOuverte?.id ?? ($('#formSeance input[name="activite"]:checked')?.value || '');
   const ressenti = Number($('#s-ressenti').value) || null;
   const notes = $('#s-commentaire').value.trim();
+  const jourReel = (idActivite && activites.find((a) => a.id === idActivite)?.jour) || $('#s-jour').value;
   $('#dlgSeance').close();
   modifier(() => {
     if (idActivite) {
@@ -1826,6 +1864,7 @@ function enregistrerSeance(etatSeance) {
     if (s) {
       s.etat = etatSeance;
       delete s.auto;
+      if (jourReel && jourReel !== s.jour) s.faiteLe = jourReel; else delete s.faiteLe;
       if (idActivite) { s.activite = idActivite; delete s.ressenti; delete s.commentaire; }
       else { delete s.activite; s.ressenti = ressenti; s.commentaire = notes; }
     }

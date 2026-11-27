@@ -358,6 +358,36 @@ async function casParticuliers(navigateur, base) {
     }, jour(-16)));
   });
 
+  // Jours inversés (cas de Jérôme, 25-26/11) : course prévue J-4 cochée sans trace, faite J-5 ; renfo prévu J-5 fait J-4
+  const inverses = { ...ETAT, plan: { ...ETAT.plan, semaines: [{ debut: jour(-8), seances: [
+    seance('r1', jour(-5), 'renfo', 'Renfo', { etat: 'fait' }), seance('c1', jour(-4), 'course', 'Footing', { etat: 'fait' })] }] } };
+  await cas('jours inversés', { etat: inverses }, async ({ page, attendu }) => {
+    await page.waitForTimeout(500);
+    await attendu('course rattachée à la sortie de la veille, notée « faite le »', page.evaluate((j) => {
+      const c = toutesSeances().find((x) => x.id === 'c1');
+      return c.activite === '1005' && c.faiteLe === j;
+    }, jour(-5)));
+    await attendu('pas d\'icône de course le jour prévu (la sortie est la veille)', page.evaluate((j) => {
+      jourChoisi = j; afficherJour();
+      const b = document.querySelector(`#bandeau [data-jour="${j}"] .icones`);
+      return !!b && !b.textContent.includes('🏃');
+    }, jour(-4)));
+    // Le renfo fait le lendemain : « Faite le » dans la fenêtre
+    await page.evaluate((j) => { jourChoisi = j; afficherJour(); }, jour(-5));
+    await page.click('#carteJour [data-seance="r1"]'); await page.waitForTimeout(300);
+    await attendu('champ « Faite le » proposé', page.$eval('#s-jourLabel', (l) => !l.hidden));
+    await page.fill('#s-jour', jour(-4));
+    await page.dispatchEvent('#s-jour', 'change'); await page.waitForTimeout(300);
+    const aucune = page.locator('#formSeance input[name="activite"][value=""]');
+    if (await aucune.count()) await aucune.check();
+    await page.click('#btnSeanceValider'); await page.waitForTimeout(500);
+    await attendu('renfo noté fait le lendemain', page.evaluate((j) => toutesSeances().find((x) => x.id === 'r1').faiteLe === j, jour(-4)));
+    await attendu('renfo affiché dans « Réalisé » le jour réel', page.evaluate((j) => {
+      jourChoisi = j; afficherJour();
+      return document.querySelector('#carteJour').textContent.includes('Prévue');
+    }, jour(-4)));
+  });
+
   // Nouveau compte : connecté, rien sur le serveur : carte « Bien démarrer »
   await cas('nouveau compte', { etat: null }, async ({ page, attendu, onglet, liensClaude }) => {
     await attendu('carte « Bien démarrer »', page.$eval('#carteGuide', (e) => !e.hidden));

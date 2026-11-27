@@ -1,0 +1,29 @@
+# Vérifications de tests/verifier.sh sur chaque PR (dont celles de Dependabot pour garminconnect) et sur main :
+# syntaxe et version de l'app, serveur (outils, fonctions pures, méthodes garminconnect), app dans Chromium.
+name: Vérifications
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Playwright et Chromium
+        run: |
+          npm install -g playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Vérifications
+        run: tests/verifier.sh

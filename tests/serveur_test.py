@@ -109,10 +109,27 @@ verifier("enchaînement vélo + course : deux entraînements Garmin", len(garmin
 muscu = entrainements.etapes_musculation([{"nom": "Squat", "series": 3, "repetitions": "8-10", "repos_s": 60}])
 verifier("séance de renfo convertie", bool(muscu))
 
+# ---------- Bibliothèque garminconnect : les méthodes appelées par le serveur existent toujours ----------
+# (vérifie d'office les PR de Dependabot qui changent sa version)
+import glob  # noqa: E402
+import re  # noqa: E402
+
+import garminconnect  # noqa: E402
+
+DOSSIER = os.path.join(os.path.dirname(__file__), "..", "serveur")
+methodes = {"login", "resume_login", "get_full_name"}
+for fichier in glob.glob(os.path.join(DOSSIER, "*.py")):
+    methodes |= set(re.findall(r'"((?:get|upload|update|delete|schedule|download)_[a-z_0-9]+)"', open(fichier).read()))
+for m in sorted(methodes):
+    verifier(f"garminconnect.Garmin.{m} existe", hasattr(garminconnect.Garmin, m))
+client = getattr(garminconnect.Garmin("a@b.c", "x"), "client", None)
+verifier("garminconnect : client.dumps() existe (sauvegarde de la session)", hasattr(client, "dumps"))
+
 # ---------- Zones ----------
 verifier("zone d'une FC", zones.zone_de(150, [130, 145, 160, 170]) == 2)
 
 if ECHECS:
     print(f"✗ Serveur : {len(ECHECS)} problème(s)\n  - " + "\n  - ".join(ECHECS))
     sys.exit(1)
-print(f"✓ Serveur : {len(outils)} outils, garde-fous, calendrier, cycle, {len(types)} séances types, conversion Garmin")
+print(f"✓ Serveur : {len(outils)} outils, garde-fous, calendrier, cycle, {len(types)} séances types, conversion Garmin, "
+      f"{len(methodes)} méthodes garminconnect")

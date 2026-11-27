@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-26.2">
+<meta name="app-version" content="2026-11-27.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1159,7 +1159,7 @@ const QUESTIONS = {
     + ($('#demandePlan').value.trim() ? ' Ma demande : ' + $('#demandePlan').value.trim() : ''),
 };
 function majLiensClaude() {
-  for (const a of document.querySelectorAll('[data-question]')) a.href = lienClaude(QUESTIONS[a.dataset.question]());
+  for (const a of document.querySelectorAll('[data-question]')) if (QUESTIONS[a.dataset.question]) a.href = lienClaude(QUESTIONS[a.dataset.question]());
 }
 $('#demandePlan').addEventListener('input', majLiensClaude);
 
@@ -1425,17 +1425,17 @@ function htmlAvisCoach(idActivite, a, s) {
   const complete = question + (brouillon.trim() ? `\n\nEn plus, ma question ou mon ressenti : ${brouillon.trim()}` : '');
   const demande = (titre) => `<details class="demande-avis" ${brouillon ? 'open' : ''}><summary class="lien-avis">${titre}</summary>
     <textarea maxlength="1000" aria-label="Ta question en plus" placeholder="Ta question en plus (facultatif) : jambes lourdes, allure trop dure, douleur au genou…">${esc(brouillon)}</textarea>
-    <a class="btn secondaire" href="${esc(lienClaude(complete))}" data-question="${esc(question)}" target="_blank" rel="noopener">Ouvrir Claude ›</a></details>`;
+    <a class="btn secondaire" href="${esc(lienClaude(complete))}" data-question-avis="${esc(question)}" target="_blank" rel="noopener">Ouvrir Claude ›</a></details>`;
   if (avis) return `<div class="avis-coach"><b>Avis du coach · ${esc(dateLisible(avis.date, false))}</b>${esc(avis.texte)}</div>${demande('🗣️ Reparler de cette séance avec le coach')}`;
   return demande('🗣️ Demander l\'avis du coach');
 }
 document.addEventListener('input', (e) => {
   const zone = e.target.closest('.demande-avis textarea');
   if (!zone) return;
-  const lien = zone.parentElement.querySelector('[data-question]');
+  const lien = zone.parentElement.querySelector('[data-question-avis]');
   const ajout = zone.value.trim();
-  brouillonsAvis[lien.dataset.question] = zone.value;
-  lien.href = lienClaude(lien.dataset.question + (ajout ? `\n\nEn plus, ma question ou mon ressenti : ${ajout}` : ''));
+  brouillonsAvis[lien.dataset.questionAvis] = zone.value;
+  lien.href = lienClaude(lien.dataset.questionAvis + (ajout ? `\n\nEn plus, ma question ou mon ressenti : ${ajout}` : ''));
 });
 
 function htmlLienGarmin(s) {

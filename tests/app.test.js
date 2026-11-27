@@ -329,6 +329,20 @@ async function casParticuliers(navigateur, base) {
     await attendu('adresse nettoyée après le retour', page.evaluate(() => !location.hash));
   });
 
+  // Séance validée « faite » avant que la montre n'envoie la sortie : la sortie s'y rattache (pas de double compte)
+  const faiteAvant = { ...ETAT, avisSeances: { 'seance:v1': { date: jour(-2), texte: 'Avis avant la trace.' } },
+    plan: { ...ETAT.plan, semaines: [{ debut: jour(-6), seances: [seance('v1', jour(-2), 'velo', 'Sortie vélo', { etat: 'fait', ressenti: 4, commentaire: 'Bonnes jambes' })] }] } };
+  await cas('séance faite avant la trace', { etat: faiteAvant }, async ({ page, attendu }) => {
+    await page.waitForTimeout(500);
+    await attendu('sortie rattachée à la séance déjà validée', page.evaluate(() => toutesSeances()[0].activite === '1002' && toutesSeances()[0].etat === 'fait'));
+    await attendu('ressenti et commentaire reportés sur la sortie', page.evaluate(() => etat.commentaires['1002']?.notes === 'Bonnes jambes' && etat.commentaires['1002']?.ressenti === 4));
+    await attendu('avis du coach reporté sur la sortie', page.evaluate(() => etat.avisSeances['1002']?.texte === 'Avis avant la trace.' && !etat.avisSeances['seance:v1']));
+    await attendu('une seule icône ce jour-là dans la bande de la semaine', page.evaluate((j) => {
+      const b = document.querySelector(`#bandeau [data-jour="${j}"] .icones`);
+      return !b || [...b.textContent.trim()].filter((c) => c === '🚴').length <= 1;
+    }, jour(-2)));
+  });
+
   // Nouveau compte : connecté, rien sur le serveur : carte « Bien démarrer »
   await cas('nouveau compte', { etat: null }, async ({ page, attendu, onglet, liensClaude }) => {
     await attendu('carte « Bien démarrer »', page.$eval('#carteGuide', (e) => !e.hidden));

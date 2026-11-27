@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-27.3">
+<meta name="app-version" content="2026-11-27.4">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1765,7 +1765,9 @@ async function rattacherSeances() {
   const prises = new Set(toutesSeances().map((x) => x.activite).filter(Boolean));
   const liens = [];
   for (const sc of toutesSeances()) {
-    if (sc.etat || sc.sansAuto || !sc.jour || sc.jour < depuis || sc.jour > aujourdhui) continue;
+    // Séance pas encore cochée, ou cochée « faite » avant que la montre n'envoie la sortie (sinon elle compterait deux fois)
+    const enAttente = !sc.etat || (sc.etat === 'fait' && !sc.activite);
+    if (!enAttente || sc.sansAuto || !sc.jour || sc.jour < depuis || sc.jour > aujourdhui) continue;
     const sports = [sc.sport, ...(sc.alternatives || []).map((a) => a.sport)].filter(Boolean);
     const possibles = activites.filter((a) => a.jour === sc.jour && !prises.has(a.id) && sports.some((sp) => memeFamille(a.sport, sp)));
     if (possibles.length !== 1) continue;
@@ -1776,7 +1778,15 @@ async function rattacherSeances() {
   await modifier(() => {
     for (const [id, act] of liens) {
       const sc = toutesSeances().find((x) => x.id === id);
-      if (sc && !sc.etat) Object.assign(sc, { etat: 'fait', activite: act, auto: true });
+      if (!sc || sc.activite) continue;
+      if (!sc.etat) { Object.assign(sc, { etat: 'fait', activite: act, auto: true }); continue; }
+      // Déjà validée à la main : la sortie s'y rattache, avec le ressenti, le commentaire et l'avis du coach
+      sc.activite = act;
+      if ((sc.ressenti || sc.commentaire) && !etat.commentaires?.[act]) {
+        etat.commentaires = { ...(etat.commentaires || {}), [act]: { ressenti: sc.ressenti || null, notes: sc.commentaire || '', date: sc.jour } };
+      }
+      const avis = etat.avisSeances?.[`seance:${sc.id}`];
+      if (avis && !etat.avisSeances[act]) { etat.avisSeances[act] = avis; delete etat.avisSeances[`seance:${sc.id}`]; }
     }
   });
   toutAfficher();

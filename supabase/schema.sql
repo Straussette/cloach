@@ -75,6 +75,15 @@ create table if not exists public.strava_comptes (
 alter table public.strava_comptes enable row level security;
 revoke all on public.strava_comptes from anon, authenticated;
 
+-- polar_comptes : jeton Polar AccessLink chiffré par le serveur, comme strava_comptes (aucune règle RLS).
+create table if not exists public.polar_comptes (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  jetons  text not null,
+  maj     timestamptz not null default now()
+);
+alter table public.polar_comptes enable row level security;
+revoke all on public.polar_comptes from anon, authenticated;
+
 -- retours : messages « Donner mon avis » des testeurs. L'app peut en ajouter mais pas les relire ;
 --           on les lit dans le tableau de bord Supabase (jointure sur auth.users pour l'e-mail).
 create table if not exists public.retours (

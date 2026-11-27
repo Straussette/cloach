@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-27.2">
+<meta name="app-version" content="2026-11-27.3">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -650,6 +650,11 @@
       <p class="muted petit">Pour que ta montre affiche les mêmes zones : Garmin Connect → Paramètres de l'utilisateur → Zones de fréquence cardiaque, puis saisis les bornes ci-dessus.</p>
     </div>
 
+    <div class="carte" id="cartePolar" hidden>
+      <h2>Polar</h2>
+      <div id="blocPolar"></div>
+    </div>
+
     <div class="carte" id="carteStrava" hidden>
       <h2>Strava</h2>
       <div id="blocStrava"></div>
@@ -876,11 +881,11 @@ function statut(el, texte, erreur = false) {
 /* ---------- État de l'app ---------- */
 // { maj, profil, plan: { cree, resume, conseils, semaines: [{ debut, theme, seances: [...] }] }, journal: [...], garmin: { connecte, nom } }
 // Il est partagé avec le serveur MCP : Claude y écrit le plan, le journal et le profil.
-const ETAT_VIDE = () => ({ maj: 0, profil: {}, plan: null, journal: [], commentaires: {}, garmin: { connecte: false }, strava: { connecte: false } });
+const ETAT_VIDE = () => ({ maj: 0, profil: {}, plan: null, journal: [], commentaires: {}, garmin: { connecte: false }, polar: { connecte: false }, strava: { connecte: false } });
 let etat = Object.assign(ETAT_VIDE(), lireLocal(CLE_ETAT) || {});
-// Source des activités : Garmin en priorité, sinon Strava (les deux à la fois créeraient des doublons)
-const sourceActive = () => (etat.garmin?.connecte ? 'garmin' : etat.strava?.connecte ? 'strava' : null);
-const NOMS_SOURCES = { garmin: 'Garmin', strava: 'Strava' };
+// Source des activités : Garmin en priorité, sinon Polar, sinon Strava (deux à la fois créeraient des doublons)
+const sourceActive = () => (etat.garmin?.connecte ? 'garmin' : etat.polar?.connecte ? 'polar' : etat.strava?.connecte ? 'strava' : null);
+const NOMS_SOURCES = { garmin: 'Garmin', polar: 'Polar', strava: 'Strava' };
 // Strava est prêt côté code mais pas encore activé (application Strava à créer) : carte masquée
 const STRAVA_ACTIF = false;
 
@@ -1074,7 +1079,7 @@ async function apresConnexion() {
   await synchroniser();
   toutAfficher();
   // Les activités viennent de Supabase : on ne les fait pas attendre le réveil du serveur (vérification Garmin)
-  await Promise.all([chargerActivites(), verifierGarmin().then(verifierStrava)]);
+  await Promise.all([chargerActivites(), verifierGarmin().then(verifierSources)]);
   mettreAJourHistorique();
 }
 
@@ -1680,7 +1685,7 @@ function afficherChoixActivite(jour, sport, choisie) {
   const liste = candidates(jour, sport);
   const zone = $('#activiteDlgSeance');
   if (!liste.length) {
-    zone.innerHTML = `<p class="muted petit">${sourceActive() ? `Aucune activité ${NOMS_SOURCES[sourceActive()]} ce jour-là. Synchronise ta montre puis rouvre cette fenêtre, ou valide quand même.` : 'Ni Garmin ni Strava ne sont branchés : la séance sera simplement cochée.'}</p>`;
+    zone.innerHTML = `<p class="muted petit">${sourceActive() ? `Aucune activité ${NOMS_SOURCES[sourceActive()]} ce jour-là. Synchronise ta montre puis rouvre cette fenêtre, ou valide quand même.` : 'Aucune montre n\'est branchée : la séance sera simplement cochée.'}</p>`;
     return;
   }
   const actuelle = choisie || liste[0].id;
@@ -1984,7 +1989,6 @@ afficherTheme();
 let attenteGarmin = '';
 
 const appelerGarmin = (action, corps = {}) => appelerServeur(`garmin/${action}`, corps);
-const appelerStrava = (action, corps = {}) => appelerServeur(`strava/${action}`, corps);
 async function appelerServeur(chemin, corps = {}, delaiMax = 0) {
   const tok = await jeton();
   if (!tok) throw new Error('connecte-toi d\'abord à Cloach.');
@@ -2066,65 +2070,123 @@ $('#formGarmin').onsubmit = async (e) => {
   }
 };
 
-/* ---------- Strava (pour ceux qui n'ont pas Garmin) ---------- */
-function afficherStrava() {
-  $('#carteStrava').hidden = !STRAVA_ACTIF && !etat.strava?.connecte;
-  const bloc = $('#blocStrava');
-  if (etat.garmin.connecte && !etat.strava?.connecte) {
-    bloc.innerHTML = '<p class="muted petit">Tu utilises déjà Garmin : inutile de brancher Strava, tes activités apparaîtraient en double.</p>';
-    return;
-  }
-  if (etat.strava?.connecte) {
-    bloc.innerHTML = `<p>🟠 Compte Strava branché${etat.strava.nom ? ` (<b>${esc(etat.strava.nom)}</b>)` : ''}. Cloach importe tes activités ; Claude les lit dans ton historique. Strava ne fournit ni sommeil ni VFC : la forme du jour reste réservée à Garmin.</p>
-      <p class="muted petit">${etat.strava.dernierImport ? `Historique importé (mis à jour le ${esc(dateLisible(etat.strava.dernierImport, false))}).` : 'Historique pas encore importé.'}</p>
+/* ---------- Polar et Strava (branchement par OAuth, pour ceux qui n'ont pas Garmin) ---------- */
+// Même déroulé pour les deux : l'app demande au serveur l'adresse d'autorisation (`<source>/lien`), l'utilisateur
+// accepte chez Polar ou Strava, le serveur le renvoie dans l'app avec #polar=ok (ou annule, droits, erreur).
+// Une carte par source dans le Profil, affichée quand le serveur a un client configuré pour cette source (`etat`).
+const SOURCES_OAUTH = {
+  polar: {
+    nom: 'Polar', pastille: '⌚', actif: true,
+    invitation: 'Une montre Polar ? Branche ton compte Polar Flow : Cloach importera tes sorties, que Claude lira et commentera.',
+    branche: 'Cloach importe tes sorties Polar ; Claude les lit dans ton historique. Polar ne fournit pas la forme du jour (sommeil, VFC) à Cloach : dis à ton coach comment tu te sens.',
+    limite: 'Polar ne donne que les sorties des 30 derniers jours, envoyées après le branchement. Ton historique plus ancien pourra s\'importer depuis l\'export de tes données Polar (bientôt).',
+    import: 'Récupérer mes 30 derniers jours',
+  },
+  strava: {
+    nom: 'Strava', pastille: '🟠', actif: STRAVA_ACTIF,
+    invitation: 'Pas de Garmin ? Branche Strava : Cloach importera tes activités (toutes les marques de montres, ou ton téléphone).',
+    branche: 'Cloach importe tes activités ; Claude les lit dans ton historique. Strava ne fournit ni sommeil ni VFC : la forme du jour reste réservée à Garmin.',
+    droits: 'Strava a besoin de l\'autorisation de lire tes activités : recommence en laissant la case cochée.',
+  },
+};
+// Sources dont le serveur a un client configuré (réponse de `<source>/etat`)
+const sourcesConfigurees = {};
+
+function afficherSources() {
+  for (const cle of Object.keys(SOURCES_OAUTH)) afficherSource(cle);
+}
+function afficherSource(cle) {
+  const def = SOURCES_OAUTH[cle];
+  const compte = etat[cle] || {};
+  const autre = sourceActive() && sourceActive() !== cle;
+  const carte = document.getElementById(`carte${def.nom}`);
+  carte.hidden = !compte.connecte && (autre || !def.actif || !sourcesConfigurees[cle]);
+  if (carte.hidden) return;
+  const bloc = document.getElementById(`bloc${def.nom}`);
+  if (compte.connecte) {
+    bloc.innerHTML = `<p>${def.pastille} Compte ${def.nom} branché${compte.nom ? ` (<b>${esc(compte.nom)}</b>)` : ''}. ${esc(def.branche)}</p>
+      ${def.limite ? `<p class="muted petit">${esc(def.limite)}</p>` : ''}
+      <p class="muted petit">${compte.dernierImport ? `Sorties récupérées (mises à jour le ${esc(dateLisible(compte.dernierImport, false))}).` : 'Sorties pas encore récupérées.'}</p>
       <div class="rangee">
-        <button class="btn secondaire" type="button" id="btnImportStrava">${etat.strava.dernierImport ? 'Réimporter l\'historique' : 'Importer mon historique'}</button>
-        <button class="btn danger" type="button" id="btnStravaDebrancher">Débrancher Strava</button>
-      </div>`;
-    $('#btnImportStrava').onclick = ouvrirImport;
-    $('#btnStravaDebrancher').onclick = async () => {
-      if (!confirm('Débrancher ton compte Strava ? Cloach n\'importera plus tes nouvelles activités.')) return;
-      try { await appelerStrava('deconnexion'); } catch (e) { alert('Échec : ' + e.message); return; }
-      modifier(() => { etat.strava = { connecte: false }; });
-    };
+        <button class="btn secondaire" type="button" data-importer-source="${cle}">${esc(def.import || (compte.dernierImport ? 'Réimporter l\'historique' : 'Importer mon historique'))}</button>
+        <button class="btn danger" type="button" data-debrancher-source="${cle}">Débrancher ${def.nom}</button>
+      </div>
+      <p class="statut" id="statut${def.nom}"></p>`;
     return;
   }
-  bloc.innerHTML = `<p class="muted">Pas de Garmin ? Branche Strava : Cloach importera tes activités (toutes les marques de montres, ou ton téléphone).</p>
-    <button class="btn" type="button" id="btnStravaBrancher">Brancher mon compte Strava</button>
-    <p class="statut" id="statutStrava"></p>`;
-  $('#btnStravaBrancher').onclick = async () => {
+  bloc.innerHTML = `<p class="muted">${esc(def.invitation)}</p>
+    ${def.limite ? `<p class="muted petit">${esc(def.limite)}</p>` : ''}
+    <button class="btn" type="button" data-brancher-source="${cle}">Brancher mon compte ${def.nom}</button>
+    <p class="statut" id="statut${def.nom}"></p>`;
+}
+document.addEventListener('click', async (e) => {
+  const brancher = e.target.closest('[data-brancher-source]');
+  const debrancher = e.target.closest('[data-debrancher-source]');
+  const importer = e.target.closest('[data-importer-source]');
+  const cle = (brancher || debrancher || importer)?.dataset.brancherSource || (debrancher || importer)?.dataset.debrancherSource || importer?.dataset.importerSource;
+  if (!cle) return;
+  const def = SOURCES_OAUTH[cle];
+  const zone = document.getElementById(`statut${def.nom}`);
+  if (brancher) {
     if (!session()) { alert('Connecte-toi d\'abord à Cloach (en haut de cette page).'); return; }
-    statut($('#statutStrava'), 'Ouverture de Strava… (jusqu\'à 30 secondes si le serveur dormait)');
-    try {
-      location.href = (await appelerStrava('lien')).url;
-    } catch (e) { statut($('#statutStrava'), e.message, true); }
-  };
+    statut(zone, `Ouverture de ${def.nom}… (jusqu'à 30 secondes si le serveur dormait)`);
+    try { location.href = (await appelerServeur(`${cle}/lien`)).url; } catch (err) { statut(zone, err.message, true); }
+  } else if (debrancher) {
+    if (!confirm(`Débrancher ton compte ${def.nom} ? Cloach n'importera plus tes nouvelles sorties.`)) return;
+    try { await appelerServeur(`${cle}/deconnexion`); } catch (err) { alert('Échec : ' + err.message); return; }
+    await modifier(() => { etat[cle] = { connecte: false }; });
+    afficherSources(); afficherGarmin();
+  } else if (importer) {
+    if (cle !== 'polar') { ouvrirImport(); return; }
+    await recupererPolar(zone);
+  }
+});
+// Polar : une seule fenêtre de 30 jours, récupérée d'un coup (pas de choix de période)
+async function recupererPolar(zone) {
+  statut(zone, 'Récupération de tes sorties Polar…');
+  try {
+    const r = await appelerServeur('polar/importer', { debut: decaler(jourISO(), -30), fin: jourISO() });
+    await modifier(() => { etat.polar = { ...etat.polar, dernierImport: jourISO() }; });
+    await chargerActivites();
+    // La carte a pu être redessinée entre-temps : on reprend sa zone de statut
+    statut($('#statutPolar') || zone, `✓ ${r.nombre} sortie${r.nombre > 1 ? 's' : ''} récupérée${r.nombre > 1 ? 's' : ''}.`);
+  } catch (err) { statut($('#statutPolar') || zone, 'Polar ne répond pas : ' + err.message, true); }
 }
 
-// Retour de strava.com (#strava=ok, annule, droits ou erreur)
-async function traiterRetourStrava() {
-  const resultat = new URLSearchParams(location.hash.slice(1)).get('strava');
+// Retour de Polar ou de Strava (#polar=ok, #strava=annule…)
+async function traiterRetourSource() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  const cle = Object.keys(SOURCES_OAUTH).find((c) => params.has(c));
+  const resultat = params.get(cle);
   history.replaceState(null, '', location.pathname);
   allerA('profil');
+  if (!cle) return;
+  const nom = SOURCES_OAUTH[cle].nom;
   const messages = {
-    annule: 'Branchement de Strava annulé.',
-    droits: 'Strava a besoin de l\'autorisation de lire tes activités : recommence en laissant la case cochée.',
-    erreur: 'Strava n\'a pas pu être branché, réessaie dans un moment.',
+    annule: `Branchement de ${nom} annulé.`,
+    droits: SOURCES_OAUTH[cle].droits || `${nom} a besoin de l'autorisation de lire tes sorties : recommence.`,
+    erreur: `${nom} n'a pas pu être branché, réessaie dans un moment.`,
   };
   if (resultat !== 'ok') { alert(messages[resultat] || messages.erreur); return; }
-  await verifierStrava();
-  if (etat.strava?.connecte && !etat.strava.dernierImport) ouvrirImport();
+  await verifierSource(cle);
+  if (!etat[cle]?.connecte) return;
+  requestAnimationFrame(() => document.getElementById(`carte${nom}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  if (cle === 'polar') await recupererPolar(document.getElementById('statutPolar'));
+  else if (!etat[cle].dernierImport) ouvrirImport();
 }
 
-async function verifierStrava() {
-  if (!STRAVA_ACTIF || !session() || etat.garmin.connecte) return;
+async function verifierSource(cle) {
+  if (!session() || (!SOURCES_OAUTH[cle].actif && !etat[cle]?.connecte)) return;
   try {
-    const r = await appelerStrava('etat');
-    if (r.connecte !== !!etat.strava?.connecte || (r.nom && r.nom !== etat.strava?.nom)) {
-      await modifier(() => { etat.strava = { ...(etat.strava || {}), connecte: r.connecte, nom: r.nom || '' }; });
+    const r = await appelerServeur(`${cle}/etat`);
+    sourcesConfigurees[cle] = r.configure !== false;
+    if (r.connecte !== !!etat[cle]?.connecte || (r.nom && r.nom !== etat[cle]?.nom)) {
+      await modifier(() => { etat[cle] = { ...(etat[cle] || {}), connecte: r.connecte, nom: r.nom || '' }; });
     }
-  } catch { /* serveur endormi ou Strava pas encore configuré : on garde l'état connu */ }
+  } catch { /* serveur endormi, ou source pas encore configurée : on garde l'état connu */ }
+  afficherSource(cle);
 }
+const verifierSources = () => Promise.all(Object.keys(SOURCES_OAUTH).map(verifierSource));
 
 // Vérifie auprès du serveur que le compte Garmin est toujours branché (et réveille le serveur)
 async function verifierGarmin() {
@@ -3922,7 +3984,7 @@ function etapesGuide() {
     { titre: 'Créer ton compte Cloach', fait: !!session(), actions: [['Créer mon compte', () => voirDansProfil('blocCompte')]] },
     { titre: 'Remplir ton profil sportif', sous: 'Objectif, sports, jours disponibles : ton coach s\'en sert pour tout.',
       fait: !!(p.objectif || (p.sports || []).length), actions: [['Remplir', () => voirDansProfil('formProfil')]] },
-    { titre: 'Brancher ta montre Garmin', fait: !!etat.garmin?.connecte, actions: [['Brancher', () => voirDansProfil('blocGarmin')]] },
+    { titre: 'Brancher ta montre (Garmin ou Polar)', fait: !!sourceActive(), actions: [['Brancher', () => voirDansProfil('blocGarmin')]] },
     { titre: 'Importer ton historique', sous: 'Pour tes statistiques, et pour que Claude connaisse ton passé sportif.',
       fait: activites.length > 0, actions: [['Importer', () => (sourceActive() ? ouvrirImport() : voirDansProfil('blocGarmin'))]] },
     { titre: 'Brancher Cloach dans ton Claude', sous: 'Une seule fois, dans les réglages de Claude (il faut une offre qui permet les connecteurs personnalisés).',
@@ -4003,7 +4065,7 @@ function toutAfficher() {
   afficherPlan();
   afficherProfil();
   afficherGarmin();
-  afficherStrava();
+  afficherSources();
   afficherZones();
   afficherMemoire();
   afficherCalendrier();
@@ -4045,7 +4107,7 @@ if (location.protocol.startsWith('http')) verifierMiseAJour();
   afficherCompte();
   toutAfficher();
   if (/access_token|error_code/.test(location.hash)) await traiterLienEmail();
-  else if (/strava=/.test(location.hash)) { await apresConnexion(); await traiterRetourStrava(); }
+  else if (/(strava|polar)=/.test(location.hash)) { await apresConnexion(); await traiterRetourSource(); }
   else if (session()) await apresConnexion();
   else if (!etat.maj) allerA('profil'); // première visite : on commence par le compte
 })();

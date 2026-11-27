@@ -5,7 +5,7 @@
 - Données de chaque compte (table donnees) : profil, plan, journal, dans un seul
   document JSON partagé avec l'app.
 - Historique des activités (table activites), importé depuis Garmin.
-- Jetons Garmin (table garmin_comptes) et Strava (table strava_comptes), chiffrés avant d'être envoyés.
+- Jetons Garmin (table garmin_comptes), Strava (table strava_comptes) et Polar (table polar_comptes), chiffrés avant d'être envoyés.
 - Suppression d'un compte et de tout ce qui s'y rattache (API d'administration de Supabase Auth).
 
 La clé secrète (SUPABASE_CLE_SECRETE) passe outre les règles RLS : chaque fonction
@@ -195,6 +195,19 @@ class Supabase:
 
     def supprimer_jetons_strava(self, uid: str) -> None:
         r = requests.delete(f"{self.url}/rest/v1/strava_comptes", headers=self.entetes, timeout=10,
+                            params={"user_id": f"eq.{uid}"})
+        r.raise_for_status()
+
+    # ---------- Jeton Polar (même principe) ----------
+
+    def lire_jetons_polar(self, uid: str) -> str | None:
+        return self._lire_jetons("polar_comptes", uid)
+
+    def ecrire_jetons_polar(self, uid: str, jetons: str) -> None:
+        self._ecrire_jetons("polar_comptes", uid, jetons)
+
+    def supprimer_jetons_polar(self, uid: str) -> None:
+        r = requests.delete(f"{self.url}/rest/v1/polar_comptes", headers=self.entetes, timeout=10,
                             params={"user_id": f"eq.{uid}"})
         r.raise_for_status()
 

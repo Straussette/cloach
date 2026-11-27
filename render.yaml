@@ -18,3 +18,7 @@ services:
         sync: false
       - key: STRAVA_CLIENT_SECRET
         sync: false
+      - key: POLAR_CLIENT_ID
+        sync: false
+      - key: POLAR_CLIENT_SECRET
+        sync: false

@@ -92,7 +92,7 @@ function serveur() {
 }
 
 // Ouvre l'app dans un onglet neuf, avec un état de compte donné (null = nouveau compte) et une session ou non
-async function ouvrir(navigateur, base, { theme = 'light', etat = ETAT, session = true, local = {} } = {}) {
+async function ouvrir(navigateur, base, { theme = 'light', etat = ETAT, session = true, local = {}, polar = { configure: true, connecte: false }, adresse = '/index.html' } = {}) {
   const erreurs = [], verifs = [];
   const page = await navigateur.newPage({ viewport: { width: 390, height: 844 }, colorScheme: theme });
   page.on('pageerror', (e) => erreurs.push(`erreur JS : ${e.message}${process.env.PILE ? '\n' + e.stack : ''}`));
@@ -108,8 +108,11 @@ async function ouvrir(navigateur, base, { theme = 'light', etat = ETAT, session 
     // Réponses du serveur dans leur vraie forme (voir zones.repartition(), garmin.py)
     if (u.includes('/garmin/repartition')) return r.fulfill({ json: REPARTITION });
     if (u.includes('/garmin/records')) return r.fulfill({ json: { records: [] } });
-    if (u.includes('/importer')) return r.fulfill({ json: { nombre: 0 } });
-    if (u.includes('/garmin/') || u.includes('/strava/')) return r.fulfill({ json: { connecte: !!etat } });
+    if (u.includes('/importer')) return r.fulfill({ json: { nombre: u.includes('/polar/') ? 3 : 0 } });
+    if (u.includes('/polar/etat')) return r.fulfill({ json: polar });
+    if (u.includes('/polar/lien')) return r.fulfill({ json: { url: base + '/index.html#polar=annule' } });
+    if (u.includes('/polar/')) return r.fulfill({ json: polar });
+    if (u.includes('/garmin/') || u.includes('/strava/')) return r.fulfill({ json: { connecte: !!etat?.garmin?.connecte } });
     if (u.startsWith('https://cloach.pstrauss.org')) return r.fulfill({ body: '' });
     return r.abort();
   });
@@ -119,7 +122,7 @@ async function ouvrir(navigateur, base, { theme = 'light', etat = ETAT, session 
     localStorage.setItem('cloach-dernier-import', String(Date.now()));
     for (const [k, v] of Object.entries(local)) localStorage.setItem(k, v);
   }, { etat, session, local });
-  await page.goto(base + '/index.html');
+  await page.goto(base + adresse);
   await page.waitForTimeout(1500);
 
   const nom = (n) => `${theme} : ${n}`;
@@ -294,6 +297,36 @@ async function casParticuliers(navigateur, base) {
     for (const o of ['plan', 'stats', 'profil']) { await onglet(o); await largeur(o); }
     await attendu('formulaire de connexion', page.$('#blocCompte input[type="password"], #blocCompte input[type="email"]'));
     await liensClaude('body');
+  });
+
+  // Polar : carte visible sans montre branchée, masquée quand Garmin est branché ou quand le serveur n'a pas de client Polar
+  const sansMontre = { ...ETAT, garmin: { connecte: false } };
+  await cas('sans montre, Polar configuré', { etat: sansMontre }, async ({ page, attendu, onglet }) => {
+    await onglet('profil');
+    await attendu('carte Polar avec « Brancher »', page.$eval('#cartePolar', (c) => !c.hidden && !!c.querySelector('[data-brancher-source="polar"]')));
+  });
+  await cas('sans montre, Polar pas configuré', { etat: sansMontre, polar: { configure: false, connecte: false } }, async ({ page, attendu, onglet }) => {
+    await onglet('profil');
+    await attendu('carte Polar masquée', page.$eval('#cartePolar', (c) => c.hidden));
+  });
+  await cas('Garmin branché', { etat: ETAT }, async ({ page, attendu, onglet }) => {
+    await onglet('profil');
+    await attendu('carte Polar masquée quand Garmin est branché', page.$eval('#cartePolar', (c) => c.hidden));
+  });
+  const avecPolar = { ...ETAT, garmin: { connecte: false }, polar: { connecte: true, nom: 'Test Polar', dernierImport: jour(-1) } };
+  await cas('Polar branché', { etat: avecPolar, polar: { configure: true, connecte: true, nom: 'Test Polar' } }, async ({ page, attendu, onglet, liensClaude }) => {
+    await attendu('« Mes dernières sorties » proposé avec Polar', page.$eval('#btnRecuperer', (b) => !b.hidden));
+    await onglet('profil');
+    await attendu('carte Polar « branché »', page.$eval('#blocPolar', (b) => b.textContent.includes('branché') && b.textContent.includes('Test Polar')));
+    await page.click('[data-importer-source="polar"]'); await page.waitForTimeout(500);
+    await attendu('récupération des 30 derniers jours Polar', page.$eval('#statutPolar', (s) => s.textContent.includes('3 sorties')));
+    await liensClaude('body');
+  });
+  await cas('retour de Polar', { etat: sansMontre, polar: { configure: true, connecte: true, nom: 'Test Polar' }, adresse: '/index.html#polar=ok' }, async ({ page, attendu }) => {
+    await page.waitForTimeout(800);
+    await attendu('compte Polar noté branché après le retour', page.evaluate(() => etat.polar?.connecte === true && sourceActive() === 'polar'));
+    await attendu('sorties Polar récupérées après le retour', page.evaluate(() => !!etat.polar?.dernierImport));
+    await attendu('adresse nettoyée après le retour', page.evaluate(() => !location.hash));
   });
 
   // Nouveau compte : connecté, rien sur le serveur : carte « Bien démarrer »

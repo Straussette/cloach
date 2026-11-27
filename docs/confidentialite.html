@@ -66,11 +66,12 @@
     <ul>
       <li><b>Ton compte</b> : ton adresse e-mail et ton mot de passe Cloach. Le mot de passe est géré par Supabase Auth, qui ne le garde que sous une forme illisible (hachée).</li>
       <li><b>Ton coaching</b> : ton profil sportif (objectif, sports, disponibilités, FTP, seuil de puissance course, poids, contraintes et blessures que tu indiques), ton plan d'entraînement, ton journal, tes ressentis et commentaires, les avis écrits par ton coach, et ses notes sur toi (« Ce que ton coach retient », que tu peux lire et supprimer dans l'onglet Profil).</li>
-      <li><b>L'historique de tes activités</b>, importé de Garmin : date, sport, nom, distance, durée, dénivelé, fréquence cardiaque moyenne et maximale, charge d'entraînement, puissance, calories, allures. Pour la course, le trail et le vélo, s'y ajoute une analyse par terrain (plat, montée, descente) : puissance, fréquence cardiaque, cadence, longueur de foulée, temps de contact au sol, meilleurs efforts par durée et montées détectées, calculée une fois à partir du profil détaillé de la sortie ; pour les sorties avec puissance, la meilleure puissance par durée (courbe de puissance donnée par Garmin).</li>
+      <li><b>L'historique de tes activités</b>, importé de Garmin ou de Polar : date, sport, nom, distance, durée, dénivelé, fréquence cardiaque moyenne et maximale, charge d'entraînement, puissance, calories, allures. Pour la course, le trail et le vélo, s'y ajoute une analyse par terrain (plat, montée, descente) : puissance, fréquence cardiaque, cadence, longueur de foulée, temps de contact au sol, meilleurs efforts par durée et montées détectées, calculée une fois à partir du profil détaillé de la sortie ; pour les sorties avec puissance, la meilleure puissance par durée (courbe de puissance donnée par Garmin).</li>
       <li><b>Tes zones d'entraînement</b> : seuils et zones de fréquence cardiaque, de puissance et d'allure, calculés à partir de tes sorties, et les corrections que tu y apportes. Pour l'« analyse fine » (DFA α1), Cloach lit chez Garmin le fichier d'origine de tes dernières sorties, en tire tes seuils, puis ne garde que ce résultat.</li>
       <li><b>Le profil détaillé de tes sorties</b> (distance, altitude, fréquence cardiaque, puissance, cadence point par point), en copie compressée et privée : il permet de recalculer tes analyses sans tout redemander à Garmin. Il est effacé avec ton compte.</li>
       <li><b>Les 30 dernières versions de ton profil, de ton plan et de ton journal</b>, en copie de secours, pour pouvoir réparer une erreur. Elles sont effacées avec ton compte.</li>
       <li><b>Tes jetons d'accès Garmin</b>, chiffrés : ils permettent à Cloach de lire tes données Garmin et d'envoyer tes séances sur ta montre sans redemander ton mot de passe.</li>
+      <li><b>Ton jeton d'accès Polar</b>, chiffré, si tu branches une montre Polar : il permet à Cloach de lire tes sorties Polar.</li>
       <li><b>Tes messages « Donner mon avis »</b>, avec la version de l'app et le type de navigateur, pour pouvoir corriger les bugs.</li>
       <li><b>Sur ton appareil</b> : une copie de ton plan et de ton profil, pour que l'app s'ouvre vite et marche hors ligne. Elle est effacée quand tu te déconnectes.</li>
     </ul>
@@ -89,17 +90,18 @@
     <h2>Où sont tes données</h2>
     <ul>
       <li><b>Supabase</b> (base de données et comptes), hébergé en Irlande, dans l'Union européenne.</li>
-      <li><b>Render</b> : le serveur qui relie Cloach à Garmin et à Claude, aux États-Unis. Il ne garde rien sur disque : il lit et écrit dans la base Supabase.</li>
+      <li><b>Render</b> : le serveur qui relie Cloach à Garmin, à Polar et à Claude, aux États-Unis. Il ne garde rien sur disque : il lit et écrit dans la base Supabase.</li>
       <li><b>Resend</b> envoie les e-mails de Cloach (confirmation de compte, mot de passe oublié), depuis l'Irlande : il ne reçoit que ton adresse e-mail et le contenu de ces messages.</li>
       <li><b>GitHub Pages</b> sert la page de l'app. Elle ne reçoit pas tes données.</li>
     </ul>
   </div>
 
   <div class="carte">
-    <h2>Claude et Garmin</h2>
+    <h2>Claude, Garmin et Polar</h2>
     <ul>
       <li><b>Claude</b> : Cloach n'appelle pas Claude lui-même. Quand tu branches le connecteur Cloach dans ton Claude, c'est toi qui autorises Claude (Anthropic) à lire et à modifier ton profil, ton plan, ton journal, ton historique et tes données Garmin pendant tes conversations. Ces échanges sont soumis à ton compte Claude et aux règles de confidentialité d'Anthropic. Tu peux retirer le connecteur à tout moment dans les réglages de Claude.</li>
       <li><b>Garmin</b> : la connexion passe par un accès non officiel à Garmin Connect, avec tes identifiants. Cloach lit tes activités et tes indicateurs, et ne crée des entraînements dans ton calendrier Garmin que quand tu le demandes. Tu peux débrancher Garmin à tout moment (Profil → Garmin). Les jetons sont alors supprimés.</li>
+      <li><b>Polar</b> : la connexion passe par l'API officielle de Polar (AccessLink) : tu autorises Cloach sur le site de Polar, sans lui donner ton mot de passe. Cloach lit seulement tes sorties (résumé : date, sport, durée, distance, fréquence cardiaque, charge, calories). Tu peux débrancher Polar à tout moment (Profil → Polar) : ton inscription chez Polar est retirée et le jeton supprimé.</li>
     </ul>
   </div>
 
@@ -116,7 +118,7 @@
     <h2>Combien de temps, et tes droits</h2>
     <ul>
       <li>Tes données restent tant que ton compte existe.</li>
-      <li>« Supprimer mon compte » efface tout, immédiatement et définitivement : compte, profil, plan, journal, activités et leurs profils détaillés, avis, jetons Garmin et messages.</li>
+      <li>« Supprimer mon compte » efface tout, immédiatement et définitivement : compte, profil, plan, journal, activités et leurs profils détaillés, avis, jetons Garmin et Polar, et messages.</li>
       <li>Tu peux consulter et corriger tes données dans l'app, ou poser une question par « Donner mon avis » (onglet Profil).</li>
     </ul>
   </div>

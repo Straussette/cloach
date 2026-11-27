@@ -18,6 +18,7 @@ import cycle  # noqa: E402
 import entrainements  # noqa: E402
 import garde_fous  # noqa: E402
 import methode  # noqa: E402
+import polar  # noqa: E402
 import serveur  # noqa: E402
 import zones  # noqa: E402
 
@@ -124,6 +125,29 @@ for m in sorted(methodes):
     verifier(f"garminconnect.Garmin.{m} existe", hasattr(garminconnect.Garmin, m))
 client = getattr(garminconnect.Garmin("a@b.c", "x"), "client", None)
 verifier("garminconnect : client.dumps() existe (sauvegarde de la session)", hasattr(client, "dumps"))
+
+# ---------- Polar : conversion des sorties ----------
+verifier("Polar : durée ISO 8601", polar.secondes("PT1H2M3.5S") == 3723.5 and polar.secondes("PT45M") == 2700)
+verifier("Polar : durée vide", polar.secondes("") is None)
+for sport, detail, attendu in (("RUNNING", "TRAIL_RUNNING", "trail"), ("RUNNING", "RUNNING", "course"),
+                               ("RUNNING", "TREADMILL_RUNNING", "course"), ("CYCLING", "ROAD_BIKING", "velo"),
+                               ("CYCLING", "INDOOR_CYCLING", "velo"), ("OTHER", "POOL_SWIMMING", "natation"),
+                               ("OTHER", "TRIATHLON", "triathlon"), ("OTHER", "STRENGTH_TRAINING", "renfo"),
+                               ("OTHER", "TENNIS", "tennis"), ("OTHER", "SOCCER", "foot"),
+                               ("OTHER", "AMERICAN_FOOTBALL", "autre"), ("OTHER", "BACKCOUNTRY_SKIING", "ski_rando"),
+                               ("OTHER", None, "autre")):
+    verifier(f"Polar : {detail} → {attendu}", polar.sport_cloach(sport, detail) == attendu)
+sortie = polar.vers_activite({"id": "abc", "start-time": "2026-11-20T07:15:00", "duration": "PT1H5M", "distance": 12345.0,
+                              "heart-rate": {"average": 142, "maximum": 171}, "training-load": 96.4, "calories": 812,
+                              "sport": "RUNNING", "detailed-sport-info": "TRAIL_RUNNING"})
+verifier("Polar : sortie convertie", sortie and sortie["id"] == "polar-abc" and sortie["source"] == "polar"
+         and sortie["jour"] == "2026-11-20" and sortie["sport"] == "trail" and sortie["distance_km"] == 12.35
+         and sortie["duree_min"] == 65.0 and sortie["fc_moy"] == 142 and sortie["charge"] == 96.4)
+verifier("Polar : sortie sans date ignorée", polar.vers_activite({"id": "x"}) is None)
+verifier("Polar : colonnes identiques à Strava", sortie and set(sortie) == set(__import__("strava").vers_activite(
+    {"id": 1, "start_date_local": "2026-11-20T07:15:00Z", "sport_type": "Run"})))
+verifier("Polar : routes /polar/* déclarées", any("/polar/" in getattr(r, "path", "") for r in serveur.mcp._custom_starlette_routes)
+         if hasattr(serveur.mcp, "_custom_starlette_routes") else True)
 
 # ---------- Zones ----------
 verifier("zone d'une FC", zones.zone_de(150, [130, 145, 160, 170]) == 2)

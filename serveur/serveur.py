@@ -20,6 +20,8 @@ Variables d'environnement :
   renvoie l'utilisateur.
 - STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET (facultatif) : application Strava, pour les utilisateurs sans
   Garmin (voir strava.py).
+- POLAR_CLIENT_ID, POLAR_CLIENT_SECRET (facultatif) : client Polar AccessLink, pour les montres Polar
+  (voir polar.py).
 - URL_PUBLIQUE : adresse publique du serveur ; inutile sur Render (RENDER_EXTERNAL_URL).
 - FUSEAU : fuseau horaire des dates (par défaut Europe/Paris).
 - PORT : port d'écoute (par défaut 8000).
@@ -44,6 +46,7 @@ from starlette.responses import JSONResponse, PlainTextResponse, Response
 from acces import Acces
 from donnees import Supabase
 from garmin import CompteAbsent, Garmins
+from polar import Polars
 from strava import Stravas
 import cycle as periodisation
 import garde_fous
@@ -74,12 +77,13 @@ base = Supabase(
 garmins = Garmins(base, ORIGINES_APP)
 URL_APP = os.environ.get("URL_APP", "https://cloach.pstrauss.org/").strip()
 stravas = Stravas(base, ORIGINES_APP, CLE_SIGNATURE, URL_PUBLIQUE, URL_APP)
+polars = Polars(base, ORIGINES_APP, CLE_SIGNATURE, URL_PUBLIQUE, URL_APP)
 acces = Acces(CLE_SIGNATURE, URL_PUBLIQUE, base.verifier_compte)
 
 CONSIGNES = """Tu es Cloach, le coach sportif personnel de l'utilisateur : bienveillant, précis, exigeant juste ce qu'il faut. Tu coaches la course à pied, le trail, le vélo (y compris home trainer / Zwift), le ski de randonnée, la natation, le triathlon, le renforcement et la musculation, les sports de raquette (tennis, padel), les sports collectifs (foot, basket) et le multisport. Tu parles en français et tu tutoies, sauf si l'utilisateur écrit dans une autre langue.
 
 Avant de conseiller, appuie-toi sur ses vraies données :
-- contexte_du_jour donne en un appel la date, le profil, les séances prévues autour d'aujourd'hui, le journal récent, les activités des 14 derniers jours et si Garmin ou Strava est branché (avec Strava seul, les outils Garmin ne marchent pas : appuie-toi sur l'historique, et demande à l'utilisateur son sommeil et sa fatigue) ;
+- contexte_du_jour donne en un appel la date, le profil, les séances prévues autour d'aujourd'hui, le journal récent, les activités des 14 derniers jours et si Garmin, Polar ou Strava est branché (avec Polar ou Strava seul, les outils Garmin ne marchent pas : appuie-toi sur l'historique, et demande à l'utilisateur son sommeil et sa fatigue) ;
 - pour le passé plus lointain, utilise statistiques (totaux par semaine, mois ou année, records) puis historique (le détail d'une période) : l'historique importé est plus rapide que les outils Garmin ;
 - si Garmin est branché, consulte ce qui est utile, sans excès : activités récentes, disponibilite_entrainement, statut_entrainement, sommeil, vfc, body_battery. Cite brièvement les chiffres.
 
@@ -241,6 +245,7 @@ async def contexte_du_jour() -> dict[str, Any]:
         "activites_14_jours": [_compacte(a, etat.get("commentaires"), etat.get("avisSeances")) for a in activites],
         "garmin_branche": garmin,
         "strava_branche": await anyio.to_thread.run_sync(lambda: bool(base.lire_jetons_strava(uid))),
+        "polar_branche": await anyio.to_thread.run_sync(lambda: bool(polars.configure and base.lire_jetons_polar(uid))),
     }
 
 
@@ -1354,9 +1359,21 @@ async def route_strava(request: Request):
     return await stravas.route(request)
 
 
+@mcp.custom_route("/polar/retour", methods=["GET"])
+async def route_polar_retour(request: Request):
+    """Retour de flow.polar.com après l'accord de l'utilisateur (voir polar.py)."""
+    return await polars.retour(request)
+
+
+@mcp.custom_route("/polar/{action}", methods=["POST", "OPTIONS"])
+async def route_polar(request: Request):
+    """Branchement et import Polar depuis l'app (voir polar.py)."""
+    return await polars.route(request)
+
+
 @mcp.custom_route("/compte/supprimer", methods=["POST", "OPTIONS"])
 async def supprimer_compte(request: Request):
-    """Suppression du compte depuis l'app : accès Strava retiré, session Garmin fermée,
+    """Suppression du compte depuis l'app : accès Strava et Polar retirés, session Garmin fermée,
     puis compte supprimé avec toutes ses données (profil, plan, journal, activités, jetons)."""
     origine = request.headers.get("origin", "")
     cors = {"Access-Control-Allow-Origin": origine if origine in ORIGINES_APP else "https://cloach.pstrauss.org",
@@ -1374,6 +1391,8 @@ async def supprimer_compte(request: Request):
     def supprimer() -> None:
         if stravas.configure and base.lire_jetons_strava(uid):
             stravas._debrancher(uid)
+        if polars.configure and base.lire_jetons_polar(uid):
+            polars._debrancher(uid)
         garmins.oublier(uid)
         try:
             base.supprimer_series(uid)

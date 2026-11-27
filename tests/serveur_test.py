@@ -73,6 +73,8 @@ verifier("objectif du profil sans calendrier : traité comme course A",
 etat = {"profil": {"objectif": "Trail", "dateObjectif": "2027-05-08"}, "evenements": evts}
 liste = serveur._evenements(etat)
 verifier("objectif du profil ajouté comme course A", liste[-1]["type"] == "A" and liste[-1]["id"] == "profil")
+liste_c = serveur._evenements({**etat, "cycle": {"objectif": {"nom": "40 Bosses", "date": "2026-12-12"}}})
+verifier("objectif du cycle compté comme course A", any(e.get("id") == "cycle" and e.get("type") == "A" and e.get("date") == "2026-12-12" for e in liste_c))
 verifier("calendrier trié par date", [e["date"] for e in liste] == sorted(e["date"] for e in liste))
 
 # ---------- Cycle ----------

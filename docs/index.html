@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-27.6">
+<meta name="app-version" content="2026-11-27.7">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -3496,7 +3496,9 @@ const TYPES_EVENEMENT = {
 };
 function evenements() {
   const evts = (etat.evenements || []).slice();
+  const oc = etat.cycle?.objectif;
   const p = etat.profil || {};
+  if (oc?.date && !evts.some((e) => e.date === oc.date)) evts.push({ id: 'cycle', nom: oc.nom || (p.dateObjectif === oc.date && p.objectif) || 'Objectif du cycle', date: oc.date, type: 'A' });
   if (p.dateObjectif && !evts.some((e) => e.date === p.dateObjectif)) evts.push({ id: 'profil', nom: p.objectif || 'Objectif', date: p.dateObjectif, type: 'A' });
   return evts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
@@ -3514,7 +3516,7 @@ function afficherCalendrier() {
     const t = texteEvenement(e);
     return `<li><div>${iconeEvenement(e)} <b>${esc(e.nom)}</b> <span class="muted petit">· ${esc(t.dates)}</span><br>
       <span class="muted petit">${esc(t.type)}</span>${e.notes ? `<br><span class="petit">${esc(e.notes)}</span>` : ''}</div>
-      ${e.id === 'profil' ? '<span class="muted petit">objectif du profil</span>' : `<button type="button" class="btn discret" data-retirer-evt="${esc(e.id)}" aria-label="Retirer ${esc(e.nom)}">✕</button>`}</li>`;
+      ${e.id === 'profil' || e.id === 'cycle' ? `<span class="muted petit">objectif du ${e.id === 'profil' ? 'profil' : 'cycle'}</span>` : `<button type="button" class="btn discret" data-retirer-evt="${esc(e.id)}" aria-label="Retirer ${esc(e.nom)}">✕</button>`}</li>`;
   }).join('') : '<li class="muted petit">Rien de prévu pour l\'instant.</li>';
 }
 $('#e-type').innerHTML = Object.entries(TYPES_EVENEMENT).map(([k, t]) => `<option value="${k}">${t.icone} ${esc(t.nom)}</option>`).join('');

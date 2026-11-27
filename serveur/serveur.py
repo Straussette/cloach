@@ -354,9 +354,14 @@ TypeEvenement = Literal["A", "B", "C", "indispo"]
 
 
 def _evenements(etat: dict[str, Any]) -> list[dict[str, Any]]:
-    """Calendrier de l'athlète (etat.evenements), avec l'objectif du profil comme course A s'il n'y figure pas."""
+    """Calendrier de l'athlète (etat.evenements), avec l'objectif du cycle et celui du profil comme courses A
+    s'ils n'y figurent pas (même date)."""
     evts = [dict(e) for e in etat.get("evenements") or []]
+    objectif_cycle = (etat.get("cycle") or {}).get("objectif") or {}
     profil = etat.get("profil") or {}
+    if objectif_cycle.get("date") and not any(e.get("date") == objectif_cycle["date"] for e in evts):
+        nom = objectif_cycle.get("nom") or (profil.get("objectif") if profil.get("dateObjectif") == objectif_cycle["date"] else "")
+        evts.append({"id": "cycle", "nom": nom or "Objectif du cycle", "date": objectif_cycle["date"], "type": "A"})
     if profil.get("dateObjectif") and not any(e.get("date") == profil["dateObjectif"] for e in evts):
         evts.append({"id": "profil", "nom": profil.get("objectif") or "Objectif", "date": profil["dateObjectif"], "type": "A"})
     return sorted(evts, key=lambda e: e.get("date", ""))

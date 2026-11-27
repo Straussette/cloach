@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-27.4">
+<meta name="app-version" content="2026-11-27.5">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1606,7 +1606,9 @@ function afficherJour() {
     const jour = decaler(lundi, i);
     const { acts, seules } = realiseDuJour(jour);
     // Séances cochées sans activité Garmin rattachée (renfo, oubli de montre) : comptées comme faites aussi
-    const sansActivite = parJour(seances, 'jour', jour).filter((x) => faite(x) && !(x.activite && acts.some((a) => a.id === x.activite)));
+    // (sauf si une sortie du même sport ce jour-là la représente déjà : pas de double compte)
+    const sansActivite = parJour(seances, 'jour', jour).filter((x) => faite(x) && !(x.activite && acts.some((a) => a.id === x.activite))
+      && !(!x.activite && acts.some((a) => memeFamille(a.sport, x.sport))));
     const faites = [...acts, ...seules, ...sansActivite].map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
     const prevues = parJour(seances, 'jour', jour)
       .filter((x) => !faite(x) && (jour >= ajd || x.etat !== 'saute')).map((x) => (SPORTS[x.sport] || SPORTS.autre).icone);
@@ -1761,13 +1763,14 @@ $('#btnSeanceRemettre').onclick = () => {
 // permet de changer d'activité, d'ajouter son ressenti, ou de la remettre à faire (seance.sansAuto : plus de rattachement)
 async function rattacherSeances() {
   if (!activites.length || !etat.plan) return;
-  const depuis = decaler(jourISO(), -14), aujourdhui = jourISO();
+  // 14 jours pour cocher une séance ; 90 jours pour rattacher une sortie à une séance déjà validée sans trace
+  const depuis = decaler(jourISO(), -14), depuisFaites = decaler(jourISO(), -90), aujourdhui = jourISO();
   const prises = new Set(toutesSeances().map((x) => x.activite).filter(Boolean));
   const liens = [];
   for (const sc of toutesSeances()) {
     // Séance pas encore cochée, ou cochée « faite » avant que la montre n'envoie la sortie (sinon elle compterait deux fois)
     const enAttente = !sc.etat || (sc.etat === 'fait' && !sc.activite);
-    if (!enAttente || sc.sansAuto || !sc.jour || sc.jour < depuis || sc.jour > aujourdhui) continue;
+    if (!enAttente || sc.sansAuto || !sc.jour || sc.jour < (sc.etat ? depuisFaites : depuis) || sc.jour > aujourdhui) continue;
     const sports = [sc.sport, ...(sc.alternatives || []).map((a) => a.sport)].filter(Boolean);
     const possibles = activites.filter((a) => a.jour === sc.jour && !prises.has(a.id) && sports.some((sp) => memeFamille(a.sport, sp)));
     if (possibles.length !== 1) continue;

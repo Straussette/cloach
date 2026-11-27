@@ -343,6 +343,21 @@ async function casParticuliers(navigateur, base) {
     }, jour(-2)));
   });
 
+  // Même cas, séance plus ancienne que 14 jours (cas du 10/11 de Jérôme, vu le 27/11)
+  const faiteAncienne = { ...ETAT, plan: { ...ETAT.plan, semaines: [{ debut: jour(-20), seances: [seance('v2', jour(-16), 'velo', 'Sortie vélo', { etat: 'fait' })] }] } };
+  await cas('séance faite il y a 16 jours', { etat: faiteAncienne }, async ({ page, attendu }) => {
+    await page.waitForTimeout(500);
+    await attendu('sortie rattachée à une séance validée il y a 16 jours', page.evaluate(() => toutesSeances()[0].activite === '1016'));
+  });
+  // Bande de la semaine : une séance faite sans trace ne s'ajoute pas à une sortie du même sport (même avant le rattachement)
+  await cas('bande sans double compte', { etat: faiteAncienne }, async ({ page, attendu }) => {
+    await page.evaluate(() => { toutesSeances()[0].activite = undefined; jourChoisi = decaler(jourISO(), -16); afficherJour(); });
+    await attendu('une seule icône vélo le jour de la séance', page.evaluate((j) => {
+      const b = document.querySelector(`#bandeau [data-jour="${j}"] .icones`);
+      return !!b && [...b.textContent].filter((c) => c === '🚴').length === 1;
+    }, jour(-16)));
+  });
+
   // Nouveau compte : connecté, rien sur le serveur : carte « Bien démarrer »
   await cas('nouveau compte', { etat: null }, async ({ page, attendu, onglet, liensClaude }) => {
     await attendu('carte « Bien démarrer »', page.$eval('#carteGuide', (e) => !e.hidden));

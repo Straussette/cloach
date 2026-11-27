@@ -180,6 +180,29 @@ for nom in ("serveur.py", "garmin.py", "courbe.py", "zones.py", "puissance.py", 
     for ligne, texte in chaines_renvoyees(os.path.join(DOSSIER, nom)):
         ECHECS.append(f"ordre adressé à Claude dans un résultat d'outil ({nom}:{ligne}) : « {texte[:80]} »")
 
+# ---------- Situation d'une sortie (avis du coach en contexte, pas isolément) ----------
+acts = [{"id": str(100 + d), "jour": (AJD - timedelta(days=d)).isoformat(), "sport": "course", "duree_min": 60,
+         "distance_km": 10, "denivele_m": 100} for d in range(0, 40, 2)]
+etat_s = {"profil": {"objectif": "Trail 72", "dateObjectif": (AJD + timedelta(weeks=20)).isoformat()},
+          "cycle": {"objectif": {"date": (AJD + timedelta(weeks=20)).isoformat()}, "phases": cycle.proposer(AJD + timedelta(weeks=20), AJD - timedelta(days=7))},
+          "evenements": [{"id": "b", "nom": "Semi", "date": (AJD + timedelta(days=10)).isoformat(), "type": "B"}],
+          "memoire": [{"texte": "Gêne au mollet"}], "commentaires": {"100": {"ressenti": 3, "notes": "Jambes lourdes"}},
+          "plan": {"semaines": [{"debut": AJD.isoformat(), "seances": [
+              {"id": "s1", "jour": AJD.isoformat(), "sport": "course", "titre": "Footing", "intensite": "facile", "activite": "100"},
+              {"id": "s2", "jour": (AJD + timedelta(days=2)).isoformat(), "sport": "course", "titre": "Seuil", "intensite": "soutenu"}]}]}}
+sit = serveur.situation_seance(etat_s, acts, "100")
+verifier("situation : objectif et semaines restantes", (sit.get("objectif") or {}).get("nom") == "Trail 72" and sit["objectif"]["semaines_restantes"] == 20)
+verifier("situation : phase du cycle", bool(sit.get("phase_du_cycle")))
+verifier("situation : séance prévue retrouvée", (sit.get("seance_prevue") or {}).get("titre") == "Footing")
+verifier("situation : ressenti de l'athlète", (sit.get("ressenti_athlete") or {}).get("notes") == "Jambes lourdes")
+verifier("situation : 5 semaines de volume, la dernière celle de la sortie",
+         len(sit.get("volume_par_semaine", [])) == 5 and sit["volume_par_semaine"][-1]["celle_de_la_sortie"]
+         and sit["volume_par_semaine"][0]["heures"] > 0)
+verifier("situation : séances suivantes", [s["titre"] for s in sit.get("seances_suivantes", [])] == ["Seuil"])
+verifier("situation : calendrier proche (course B)", any(e.get("nom") == "Semi" for e in sit.get("calendrier_proche", [])))
+verifier("situation : mémoire du coach", sit.get("memoire_coach") == ["Gêne au mollet"])
+verifier("situation : sortie inconnue → vide", serveur.situation_seance(etat_s, acts, "999") == {})
+
 # ---------- Zones ----------
 verifier("zone d'une FC", zones.zone_de(150, [130, 145, 160, 170]) == 2)
 

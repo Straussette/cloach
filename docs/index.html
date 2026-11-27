@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-27.5">
+<meta name="app-version" content="2026-11-27.6">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1424,7 +1424,9 @@ function questionAvis(a, s) {
   const prevue = s || toutesSeances().find((x) => x.activite && x.activite === a?.id);
   const quoi = a ? `ma séance du ${dateLisible(a.jour)} « ${a.nom || ''} » (activité Garmin ${a.id})` : `ma séance du ${dateLisible(s.jour)} « ${s.titre} » (séance ${s.id})`;
   return `Donne-moi ton avis de coach sur ${quoi}${a && prevue ? `, prévue comme « ${prevue.titre} » (séance ${prevue.id})` : ''}. `
-    + 'Regarde son déroulé (courbe_activite : courbe de FC et d\'allure, temps par zone, kilomètres) et ses tours, compare avec ce qui était prévu, mon ressenti et ma forme, puis enregistre ton avis pour l\'app.';
+    + 'Commence par mon contexte (contexte_du_jour) : juge-la dans ma préparation, pas isolément (mon objectif et sa date, la phase du cycle, mon calendrier, mes semaines précédentes et les séances qui suivent). '
+    + 'Regarde son déroulé (courbe_activite : courbe de FC et d\'allure, temps par zone, kilomètres, et sa situation) et ses tours, compare avec ce qui était prévu, mon ressenti et ma forme, '
+    + 'dis ce qu\'elle change pour la suite de mon plan, puis enregistre ton avis pour l\'app.';
 }
 const brouillonsAvis = {};
 function htmlAvisCoach(idActivite, a, s) {

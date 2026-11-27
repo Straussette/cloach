@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-27.1">
+<meta name="app-version" content="2026-11-27.2">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -288,6 +288,9 @@
   .corriger .trois { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
   .cycle { margin:4px 0 12px; }
   .cycle.invitation { border:1px dashed var(--border); border-radius:12px; padding:10px 12px; }
+  .relance { border-left:4px solid var(--accent); }
+  .relance p { margin:4px 0 10px; }
+  .invitation-calendrier { display:flex; gap:8px; align-items:flex-start; justify-content:space-between; margin:4px 0 12px; padding:8px 10px; border:1px dashed var(--border); border-radius:10px; font-size:.88rem; }
   .bande-cycle { position:relative; display:flex; gap:2px; height:12px; border-radius:4px; overflow:visible; margin:8px 0 6px; }
   .bande-cycle .phase { display:block; min-width:3px; border-radius:2px; opacity:.55; }
   .bande-cycle .phase.actuelle { opacity:1; }
@@ -417,6 +420,7 @@
   <!-- Calendrier -->
   <section data-vue="jour">
     <div class="carte" id="carteGuide" hidden></div>
+    <div id="relanceJour"></div>
     <div class="carte">
       <div class="nav-semaine">
         <button class="fleche" type="button" id="semainePrecedente" aria-label="Semaine précédente">‹</button>
@@ -1154,6 +1158,8 @@ const QUESTIONS = {
     ? 'Analyse mon profil par terrain à vélo (profil_terrain avec sport velo, dehors et home trainer) : comment je roule à plat, en montée et en descente (puissance, W/kg, VAM, vitesse, FC, cadence), comment je gère mes montées et ce qui évolue. Dis-moi mon point faible au regard de mes objectifs vélo, propose une ou deux séances ciblées, puis enregistre ton diagnostic pour l\'app (sport velo).'
     : null) || 'Analyse mon profil par terrain : comment je cours à plat, en montée et en descente (puissance, FC, cadence, foulée, VAP), comment je gère mes montées et ce qui évolue. Dis-moi mon terrain le plus faible au regard de mon objectif, propose une ou deux séances ciblées par terrain, puis enregistre ton diagnostic pour l\'app.',
   bilan: () => 'Fais le bilan de ma semaine : séances prévues et faites, charge, forme, points positifs, points d\'attention, et ce que je dois ajuster.',
+  suite: () => `Mon plan d'entraînement se termine le ${finPlan() || 'bientôt'} : construis les 3 semaines suivantes dans la continuité, d'après ce que j'ai vraiment fait, mes ressentis, ma forme, mon cycle et mon calendrier (courses, indisponibilités), puis enregistre-le.`,
+  premier: () => 'Construis mon premier plan d\'entraînement : regarde mon profil, mon historique et ma forme, pose-moi les questions qui te manquent (objectif, disponibilités, contraintes), puis enregistre 3 semaines de plan.',
   plan: () => (etat.plan ? 'Réajuste mon plan d\'entraînement' : 'Construis mon plan d\'entraînement')
     + ' des 3 prochaines semaines d\'après mon profil, ce que j\'ai fait récemment et ma forme, puis enregistre-le.'
     + ($('#demandePlan').value.trim() ? ' Ma demande : ' + $('#demandePlan').value.trim() : ''),
@@ -1578,6 +1584,7 @@ function htmlAvis() {
 
 function afficherJour() {
   $('#btnRecuperer').hidden = !(session() && sourceActive());
+  $('#relanceJour').innerHTML = htmlRelancePlan();
   const ajd = jourISO();
   const lundi = lundiDe(jourChoisi);
   const dimanche = decaler(lundi, 6);
@@ -1858,6 +1865,8 @@ function afficherPlan() {
   const total = w.seances.reduce((n, s) => n + (Number(s.duree) || 0), 0);
   $('#enTetePlan').innerHTML = `<div class="semaine-h"><h2>Mon plan</h2><span>créé le ${esc(dateLisible(p.cree, false))}</span></div>
     ${htmlCycle()}
+    ${htmlRelancePlan('cycle invitation relance')}
+    ${htmlInvitationCalendrier()}
     <div class="semaines-plan">${p.semaines.map((x, i) => `<button type="button" class="puce ${i === semainePlan ? 'actif' : ''}" data-semaine-plan="${i}">Semaine ${i + 1}</button>`).join('')}</div>
     ${p.resume || (p.conseils || []).length ? `<details class="logique"><summary>Logique du plan et conseils</summary>
       ${p.resume ? `<p class="petit">${esc(p.resume)}</p>` : ''}
@@ -3857,6 +3866,48 @@ window.addEventListener('resize', () => { clearTimeout(minuteurRedim); minuteurR
 /* ---------- Guide de démarrage ---------- */
 // Les étapes se cochent d'elles-mêmes d'après l'état ; le guide disparaît quand tout est fait, ou à la demande.
 // Seules « Brancher Claude » et « écran d'accueil » ne se détectent pas toujours : l'utilisateur peut les cocher.
+/* ---------- Relances : plan qui se termine, pas de plan, calendrier ---------- */
+// Dernier jour du plan (dernière séance), ou null
+function finPlan() {
+  const jours = (etat.plan?.semaines || []).flatMap((w) => (w.seances || []).map((x) => x.jour)).filter(Boolean);
+  return jours.length ? jours.reduce((m, j) => (j > m ? j : m)) : null;
+}
+// Carte de relance : plan terminé ou qui se termine dans moins d'une semaine, ou pas encore de plan
+function htmlRelancePlan(classe = 'carte relance') {
+  if (!session()) return '';
+  const ajd = jourISO();
+  const lien = (question, texte) => `<a class="btn" target="_blank" rel="noopener" href="${esc(lienClaude(question))}">${texte}</a>`;
+  if (!etat.plan) {
+    // La carte « Bien démarrer » s'en charge quand elle est affichée
+    if (!(lireLocal(CLE_GUIDE) || {}).masque && etapesGuide().some((e) => !e.fait)) return '';
+    return `<div class="${classe}"><b>🗓️ Pas encore de plan</b>
+      <p class="muted petit">Ton coach construit 3 semaines sur mesure d'après ton profil, ton historique et ta forme. Il te posera les questions qui lui manquent.</p>
+      ${lien(QUESTIONS.premier(), '🗣️ Demander mon premier plan à Claude')}</div>`;
+  }
+  const fin = finPlan();
+  if (!fin) return '';
+  const jours = Math.round((versDate(fin) - versDate(ajd)) / 864e5);
+  if (jours > 6 || jours < -30) return '';
+  const quand = jours < 0 ? `est terminé depuis le ${dateLisible(fin, false)}`
+    : jours === 0 ? 'se termine aujourd\'hui' : `se termine ${jours === 1 ? 'demain' : `${dateLisible(fin)}`}`;
+  return `<div class="${classe}"><b>🗓️ Ton plan ${esc(quand)}</b>
+    <p class="muted petit">Demande la suite à ton coach : il repart de ce que tu as vraiment fait, de ta forme et de ton calendrier.</p>
+    ${lien(QUESTIONS.suite(), '🗣️ Demander la suite à Claude')}</div>`;
+}
+// Invitation à remplir le calendrier quand il n'y a ni course B ou C ni indisponibilité à venir (masquable)
+const CLE_INVITATION_CALENDRIER = 'cloach-invitation-calendrier';
+function htmlInvitationCalendrier() {
+  if (!session() || !etat.plan || lireLocal(CLE_INVITATION_CALENDRIER)) return '';
+  const ajd = jourISO();
+  if (evenements().some((e) => e.type !== 'A' && (e.fin || e.date) >= ajd)) return '';
+  return `<div class="invitation-calendrier"><span>📅 D'autres courses, des vacances, une semaine chargée ? <a href="#" data-voir-calendrier>Ajoute-les à ton calendrier</a> : ton coach construira le plan autour.</span>
+    <button type="button" class="btn discret" data-masquer-invitation aria-label="Masquer cette invitation">✕</button></div>`;
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-voir-calendrier]')) { e.preventDefault(); voirDansProfil('carteCalendrier'); }
+  if (e.target.closest('[data-masquer-invitation]')) { ecrireLocal(CLE_INVITATION_CALENDRIER, true); afficherPlan(); }
+});
+
 const CLE_GUIDE = 'cloach-guide';
 const appInstallee = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 function voirDansProfil(id) {

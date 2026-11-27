@@ -1,6 +1,7 @@
 // Vérification de l'app dans un vrai navigateur (Playwright + Chromium), sans réseau :
 // Supabase et le serveur sont simulés, l'état du compte est riche (plan, cycle, calendrier, mémoire, avis…).
-// On parcourt les quatre onglets, on ouvre les cartes repliables et on vérifie :
+// On parcourt les quatre onglets, on ouvre les cartes repliables et les fenêtres, on remplit les formulaires,
+// on joue des cas particuliers (plan qui se termine, pas de plan, déconnecté, nouveau compte) et on vérifie :
 //  - aucune erreur JavaScript ni console.error ;
 //  - chaque bouton ou lien qui ouvre Claude a bien une adresse (le bug du 27/11 : liens morts) ;
 //  - les éléments principaux de chaque onglet sont affichés ;
@@ -90,51 +91,64 @@ function serveur() {
   });
 }
 
-async function verifier(navigateur, base, theme) {
-  const erreurs = [];
+// Ouvre l'app dans un onglet neuf, avec un état de compte donné (null = nouveau compte) et une session ou non
+async function ouvrir(navigateur, base, { theme = 'light', etat = ETAT, session = true, local = {} } = {}) {
+  const erreurs = [], verifs = [];
   const page = await navigateur.newPage({ viewport: { width: 390, height: 844 }, colorScheme: theme });
-  page.on('pageerror', (e) => erreurs.push(`erreur JS : ${e.message}${process.env.PILE ? "\n" + e.stack : ""}`));
+  page.on('pageerror', (e) => erreurs.push(`erreur JS : ${e.message}${process.env.PILE ? '\n' + e.stack : ''}`));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) erreurs.push(`console.error : ${m.text()}`); });
+  page.on('dialog', (d) => d.accept(d.type() === 'prompt' ? 'SUPPRIMER' : undefined));
   await page.route('**/*', (r) => {
     const u = r.request().url();
     if (u.startsWith(base)) return r.continue();
-    if (u.includes('/rest/v1/donnees')) return r.fulfill({ json: r.request().method() === 'GET' ? [{ data: ETAT }] : [] });
-    if (u.includes('/rest/v1/activites')) return r.fulfill({ json: ACTIVITES });
+    if (u.includes('/rest/v1/donnees')) return r.fulfill({ json: r.request().method() === 'GET' && etat ? [{ data: etat }] : [] });
+    if (u.includes('/rest/v1/activites')) return r.fulfill({ json: etat ? ACTIVITES : [] });
     if (u.includes('/rest/v1/')) return r.fulfill({ json: [] });
+    if (u.includes('/auth/v1/')) return r.fulfill({ json: {} });
     // Réponses du serveur dans leur vraie forme (voir zones.repartition(), garmin.py)
     if (u.includes('/garmin/repartition')) return r.fulfill({ json: REPARTITION });
     if (u.includes('/garmin/records')) return r.fulfill({ json: { records: [] } });
     if (u.includes('/importer')) return r.fulfill({ json: { nombre: 0 } });
-    if (u.includes('/garmin/') || u.includes('/strava/')) return r.fulfill({ json: { connecte: true } });
+    if (u.includes('/garmin/') || u.includes('/strava/')) return r.fulfill({ json: { connecte: !!etat } });
     if (u.startsWith('https://cloach.pstrauss.org')) return r.fulfill({ body: '' });
     return r.abort();
   });
-  await page.addInitScript((etat) => {
-    localStorage.setItem('cloach-session', JSON.stringify({ access_token: 'a.b.c', refresh_token: 'x', expires_at: Date.now() / 1000 + 3600, user: { id: 'u', email: 'test@exemple.fr' } }));
-    localStorage.setItem('cloach-etat', JSON.stringify(etat));
+  await page.addInitScript(({ etat, session, local }) => {
+    if (session) localStorage.setItem('cloach-session', JSON.stringify({ access_token: 'a.b.c', refresh_token: 'x', expires_at: Date.now() / 1000 + 3600, user: { id: 'u', email: 'test@exemple.fr' } }));
+    if (etat) localStorage.setItem('cloach-etat', JSON.stringify(etat));
     localStorage.setItem('cloach-dernier-import', String(Date.now()));
-  }, ETAT);
+    for (const [k, v] of Object.entries(local)) localStorage.setItem(k, v);
+  }, { etat, session, local });
   await page.goto(base + '/index.html');
   await page.waitForTimeout(1500);
 
-  const verifs = [];
-  const attendu = async (nom, condition) => {
+  const nom = (n) => `${theme} : ${n}`;
+  const attendu = async (n, condition) => {
     let ok = false;
     try { ok = await condition; } catch { ok = false; }
-    if (!ok) verifs.push(`${theme} : ${nom}`);
+    if (!ok) verifs.push(nom(n));
   };
   const liensClaude = async (ou) => {
     const morts = await page.$$eval(`${ou} [data-question], ${ou} a[target="_blank"]`, (as) => as
       .filter((a) => a.offsetParent !== null || a.closest('details'))
       .filter((a) => !/^https?:\/\//.test(a.getAttribute('href') || ''))
       .map((a) => a.textContent.trim().slice(0, 40) || a.outerHTML.slice(0, 60)));
-    for (const m of morts) verifs.push(`${theme} : lien sans adresse dans ${ou} : « ${m} »`);
+    for (const m of morts) verifs.push(nom(`lien sans adresse dans ${ou} : « ${m} »`));
   };
+  const lienVersClaude = (selecteur) => page.$eval(selecteur, (a) => /^https:\/\/claude\.ai\//.test(a.href));
   const largeur = async (onglet) => {
     const trop = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    if (trop > 1) verifs.push(`${theme} : défilement horizontal de ${trop} px dans l'onglet ${onglet}`);
+    if (trop > 1) verifs.push(nom(`défilement horizontal de ${trop} px dans l'onglet ${onglet}`));
   };
+  const onglet = async (o) => { await page.click(`[data-onglet="${o}"]`); await page.waitForTimeout(400); };
+  const fermer = async () => { await page.close(); return [...erreurs.map(nom), ...verifs]; };
+  return { page, verifs, nom, attendu, liensClaude, lienVersClaude, largeur, onglet, fermer };
+}
 
+// Parcours complet avec un compte bien rempli : quatre onglets, cartes, fenêtres, formulaires
+async function parcoursComplet(navigateur, base, theme) {
+  const t = await ouvrir(navigateur, base, { theme });
+  const { page, attendu, liensClaude, lienVersClaude, largeur, onglet } = t;
   try {
     // Calendrier
     await attendu('bandeau de 7 jours', page.$$eval('#bandeau button', (b) => b.length === 7));
@@ -145,48 +159,150 @@ async function verifier(navigateur, base, theme) {
       await demande.click();
       await page.fill('#carteJour .demande-avis textarea', 'Question test');
       await attendu('question en plus dans le lien de l\'avis', page.$eval('#carteJour .demande-avis [data-question-avis]', (a) => decodeURIComponent(a.href).includes('Question test')));
-    } else verifs.push(`${theme} : pas de « Demander l'avis du coach » sous la sortie du jour`);
+    } else t.verifs.push(t.nom('pas de « Demander l\'avis du coach » sous la sortie du jour'));
     await liensClaude('[data-vue="jour"]');
     await largeur('Calendrier');
-    // Semaine précédente puis suivante
     await page.click('#semainePrecedente'); await page.waitForTimeout(200);
     await page.click('#semaineSuivante'); await page.waitForTimeout(200);
 
+    // Fenêtre « Séance faite » (bouton d'état d'une séance), puis validation
+    const btnSeance = page.locator('[data-vue="jour"] [data-seance]').first();
+    if (await btnSeance.count()) {
+      await btnSeance.click(); await page.waitForTimeout(400);
+      await attendu('fenêtre « Séance faite » ouverte', page.$eval('#dlgSeance', (d) => d.open));
+      await page.fill('#s-commentaire', 'Commentaire test');
+      await page.click('#btnSeanceValider'); await page.waitForTimeout(500);
+      await attendu('fenêtre « Séance faite » refermée après validation', page.$eval('#dlgSeance', (d) => !d.open));
+    } else t.verifs.push(t.nom('aucun bouton d\'état de séance dans le Calendrier'));
+
+    // Fenêtre « Ajouter une séance sans montre » (journal), puis enregistrement
+    const avant = await page.evaluate(() => etat.journal.length);
+    await page.click('#btnAjoutJournal'); await page.waitForTimeout(300);
+    await attendu('fenêtre du journal ouverte', page.$eval('#dlgJournal', (d) => d.open));
+    await page.fill('#j-duree', '35');
+    await page.fill('#j-notes', 'Séance sans montre');
+    await page.click('#formJournal button[type="submit"]'); await page.waitForTimeout(500);
+    await attendu('séance sans montre ajoutée au journal', page.evaluate((n) => etat.journal.length === n + 1, avant));
+    await attendu('fenêtre du journal refermée', page.$eval('#dlgJournal', (d) => !d.open));
+
     // Plan
-    await page.click('[data-onglet="plan"]'); await page.waitForTimeout(400);
+    await onglet('plan');
     await attendu('en-tête du plan', page.$eval('#enTetePlan', (e) => e.textContent.includes('Mon plan')));
     await attendu('bande du cycle', page.$('#enTetePlan .bande-cycle'));
-    await attendu('séances de la semaine', page.$$eval('#semaines .seance, #semaines [data-seance], #semaines li, #semaines details', (s) => s.length > 0));
-    await attendu('bouton « réajuster » avec un lien vers Claude', page.$eval('#btnPlan', (a) => /^https:\/\/claude\.ai/.test(a.href)));
-    for (const s of await page.$$('#semaines .compacte, #semaines summary')) { await s.click().catch(() => {}); }
+    await attendu('séances de la semaine', page.$$eval('#semaines .seance', (s) => s.length > 0));
+    await attendu('bouton « réajuster » avec un lien vers Claude', lienVersClaude('#btnPlan'));
+    await page.fill('#demandePlan', 'plus de vélo');
+    await attendu('demande facultative ajoutée au lien du plan', page.$eval('#btnPlan', (a) => decodeURIComponent(a.href).includes('plus de vélo')));
+    const lignes = page.locator('#semaines .compacte');
+    for (let i = 0; i < await lignes.count(); i++) { await lignes.nth(i).click().catch(() => {}); }
+    const semaines = page.locator('[data-semaine-plan]');
+    for (let i = 0; i < await semaines.count(); i++) { await semaines.nth(i).click(); await page.waitForTimeout(150); }
     await liensClaude('[data-vue="plan"]');
     await largeur('Plan');
 
-    // Stats : ouvrir toutes les cartes repliables
-    await page.click('[data-onglet="stats"]'); await page.waitForTimeout(600);
+    // Stats : ouvrir toutes les cartes repliables, puis changer de période et de sport
+    await onglet('stats');
     await attendu('tuiles des stats', page.$$eval('#tuiles > *', (t) => t.length >= 4));
-    for (const d of await page.$$('[data-vue="stats"] details.repli:not([hidden]) > summary')) { await d.click(); await page.waitForTimeout(250); }
+    const cartes = page.locator('[data-vue="stats"] details.repli:not([hidden]) > summary');
+    for (let i = 0; i < await cartes.count(); i++) { await cartes.nth(i).click(); await page.waitForTimeout(250); }
+    const filtres = page.locator('#filtrePeriode button, #filtreSport button');
+    for (let i = 0; i < await filtres.count(); i++) { await filtres.nth(i).click().catch(() => {}); await page.waitForTimeout(120); }
     await liensClaude('[data-vue="stats"]');
     await largeur('Stats');
 
-    // Profil
-    await page.click('[data-onglet="profil"]'); await page.waitForTimeout(400);
+    // Profil : calendrier (ajout d'une indisponibilité, retrait), mémoire
+    await onglet('profil');
     await attendu('carte « Mon calendrier »', page.$eval('#evenements', (e) => e.textContent.includes('Semi')));
+    await page.click('#ajoutEvenement summary');
+    await page.selectOption('#e-type', 'indispo');
+    await page.fill('#e-nom', 'Déplacement test');
+    await page.fill('#e-date', jour(10)); await page.fill('#e-fin', jour(12));
+    await page.click('#formEvenement button[type="submit"]'); await page.waitForTimeout(400);
+    await attendu('indisponibilité ajoutée au calendrier', page.evaluate(() => etat.evenements.some((e) => e.nom === 'Déplacement test' && e.fin)));
+    await page.click('[data-retirer-evt="e2"]'); await page.waitForTimeout(400);
+    await attendu('événement retiré du calendrier', page.evaluate(() => !etat.evenements.some((e) => e.id === 'e2')));
     await attendu('carte mémoire', page.$eval('#carteMemoire', (e) => !e.hidden));
     await liensClaude('[data-vue="profil"]');
     await largeur('Profil');
 
-    // Retour au Calendrier : les liens Claude sont toujours bons après un réaffichage complet
+    // Réaffichage complet : les liens Claude restent bons partout
     await page.evaluate(() => toutAfficher());
-    await page.click('[data-onglet="jour"]'); await page.waitForTimeout(300);
+    await onglet('jour');
     await liensClaude('body');
-
   } catch (e) {
-    verifs.push(`${theme} : arrêt du test : ${e.message.split('\n')[0]}`);
+    t.verifs.push(t.nom(`arrêt du test : ${e.message.split('\n')[0]}`));
   }
+  return t.fermer();
+}
 
-  await page.close();
-  return [...erreurs.map((e) => `${theme} : ${e}`), ...verifs];
+// Cas particuliers : plan qui se termine, pas de plan, invitation au calendrier, déconnecté, nouveau compte
+async function casParticuliers(navigateur, base) {
+  let problemes = [];
+  const cas = async (nomCas, options, verifier) => {
+    const t = await ouvrir(navigateur, base, options);
+    try { await verifier(t); } catch (e) { t.verifs.push(t.nom(`arrêt du test : ${e.message.split('\n')[0]}`)); }
+    problemes = problemes.concat((await t.fermer()).map((p) => `${nomCas} · ${p}`));
+  };
+
+  // Plan qui se termine dans 2 jours
+  const planCourt = { ...ETAT, plan: { ...ETAT.plan, semaines: [{ debut: jour(-12), seances: [seance('f1', jour(-1), 'course', 'Footing'), seance('f2', jour(2), 'trail', 'Sortie longue')] }] } };
+  await cas('plan qui se termine', { etat: planCourt }, async ({ page, attendu, lienVersClaude, onglet, liensClaude }) => {
+    await attendu('relance « ton plan se termine » dans le Calendrier', page.$eval('#relanceJour', (e) => e.textContent.includes('se termine')));
+    await attendu('lien « Demander la suite » vers Claude', lienVersClaude('#relanceJour a'));
+    await onglet('plan');
+    await attendu('relance dans l\'onglet Plan', page.$eval('#enTetePlan', (e) => e.textContent.includes('se termine')));
+    await liensClaude('body');
+  });
+
+  // Plan terminé depuis 5 jours
+  const planFini = { ...ETAT, plan: { ...ETAT.plan, semaines: [{ debut: jour(-20), seances: [seance('g1', jour(-5), 'course', 'Footing')] }] } };
+  await cas('plan terminé', { etat: planFini }, async ({ page, attendu }) => {
+    await attendu('relance « ton plan est terminé »', page.$eval('#relanceJour', (e) => e.textContent.includes('terminé')));
+  });
+
+  // Plan long : pas de relance
+  await cas('plan en cours', { etat: ETAT }, async ({ page, attendu }) => {
+    await attendu('pas de relance tant que le plan dure', page.$eval('#relanceJour', (e) => e.textContent.trim() === ''));
+  });
+
+  // Pas de plan, guide masqué : relance « premier plan »
+  const sansPlan = { ...ETAT, plan: null, cycle: null };
+  await cas('sans plan', { etat: sansPlan, local: { 'cloach-guide': JSON.stringify({ masque: true }) } }, async ({ page, attendu, lienVersClaude, onglet, liensClaude }) => {
+    await attendu('relance « premier plan » dans le Calendrier', page.$eval('#relanceJour', (e) => e.textContent.includes('premier plan')));
+    await attendu('lien « premier plan » vers Claude', lienVersClaude('#relanceJour a'));
+    await onglet('plan');
+    await liensClaude('body');
+  });
+
+  // Calendrier vide de courses B/C et d'indisponibilités : invitation, masquable
+  const sansCalendrier = { ...ETAT, evenements: [] };
+  await cas('invitation au calendrier', { etat: sansCalendrier }, async ({ page, attendu, onglet }) => {
+    await onglet('plan');
+    await attendu('invitation à remplir le calendrier', page.$('#enTetePlan .invitation-calendrier'));
+    await page.click('[data-masquer-invitation]'); await page.waitForTimeout(200);
+    await attendu('invitation masquée après ✕', page.$eval('#enTetePlan', (e) => !e.querySelector('.invitation-calendrier')));
+    await page.evaluate(() => afficherPlan());
+    await attendu('invitation toujours masquée après réaffichage', page.$eval('#enTetePlan', (e) => !e.querySelector('.invitation-calendrier')));
+  });
+  await cas('calendrier rempli', { etat: ETAT }, async ({ page, attendu, onglet }) => {
+    await onglet('plan');
+    await attendu('pas d\'invitation quand le calendrier a des courses', page.$eval('#enTetePlan', (e) => !e.querySelector('.invitation-calendrier')));
+  });
+
+  // Déconnecté : formulaire de connexion, aucun lien mort
+  await cas('déconnecté', { etat: null, session: false }, async ({ page, attendu, onglet, liensClaude, largeur }) => {
+    for (const o of ['plan', 'stats', 'profil']) { await onglet(o); await largeur(o); }
+    await attendu('formulaire de connexion', page.$('#blocCompte input[type="password"], #blocCompte input[type="email"]'));
+    await liensClaude('body');
+  });
+
+  // Nouveau compte : connecté, rien sur le serveur : carte « Bien démarrer »
+  await cas('nouveau compte', { etat: null }, async ({ page, attendu, onglet, liensClaude }) => {
+    await attendu('carte « Bien démarrer »', page.$eval('#carteGuide', (e) => !e.hidden));
+    for (const o of ['plan', 'stats', 'profil', 'jour']) await onglet(o);
+    await liensClaude('body');
+  });
+  return problemes;
 }
 
 (async () => {
@@ -196,9 +312,10 @@ async function verifier(navigateur, base, theme) {
   let problemes = [];
   try {
     for (const theme of ['light', 'dark']) {
-      try { problemes = problemes.concat(await verifier(navigateur, base, theme)); }
+      try { problemes = problemes.concat(await parcoursComplet(navigateur, base, theme)); }
       catch (e) { problemes.push(`${theme} : arrêt du test : ${e.message.split('\n')[0]}`); }
     }
+    problemes = problemes.concat(await casParticuliers(navigateur, base));
   } finally {
     await navigateur.close();
     s.close();
@@ -208,5 +325,5 @@ async function verifier(navigateur, base, theme) {
     console.error(`✗ App : ${uniques.length} problème(s)\n  - ` + uniques.join('\n  - '));
     process.exit(1);
   }
-  console.log('✓ App : quatre onglets, cartes ouvertes, liens Claude, clair et sombre, sans erreur');
+  console.log('✓ App : parcours complet en clair et en sombre (onglets, cartes, fenêtres, formulaires, liens Claude), relances, invitation, déconnecté, nouveau compte');
 })();

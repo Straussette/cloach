@@ -149,6 +149,37 @@ verifier("Polar : colonnes identiques à Strava", sortie and set(sortie) == set(
 verifier("Polar : routes /polar/* déclarées", any("/polar/" in getattr(r, "path", "") for r in serveur.mcp._custom_starlette_routes)
          if hasattr(serveur.mcp, "_custom_starlette_routes") else True)
 
+# ---------- Résultats d'outils : des constats, jamais d'ordre adressé à Claude ----------
+# Claude prend un ordre glissé dans un résultat d'outil pour une tentative de manipulation (cas de l'avis de séance
+# de Jérôme, 27/11 : « appelle mes_zones, puis reprends cette courbe »). Les ordres vont dans CONSIGNES.
+import ast  # noqa: E402
+
+ORDRES = re.compile(r"\b(appelle|rappelle|reprends|réenregistre|structure-les|détaille-les|construis-le|demande-le|"
+                    r"enregistre-le|enregistre-la|note avec|utilise l'outil|corrige le plan)\b", re.IGNORECASE)
+
+
+def chaines_renvoyees(fichier: str) -> list[tuple[int, str]]:
+    """Chaînes du code, hors docstrings, consignes, prompts et descriptions de champs (lus comme instructions)."""
+    arbre = ast.parse(open(fichier).read())
+    exclues: set[int] = set()
+    for n in ast.walk(arbre):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)) and n.body \
+                and isinstance(n.body[0], ast.Expr) and isinstance(getattr(n.body[0], "value", None), ast.Constant):
+            exclues.add(id(n.body[0].value))
+        if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id in ("CONSIGNES", "METHODE") for t in n.targets):
+            exclues |= {id(x) for x in ast.walk(n)}
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and any("prompt" in ast.unparse(d) for d in n.decorator_list):
+            exclues |= {id(x) for x in ast.walk(n)}
+        if isinstance(n, ast.keyword) and n.arg in ("description", "message"):
+            exclues |= {id(x) for x in ast.walk(n.value)}
+    return [(n.lineno, n.value) for n in ast.walk(arbre)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in exclues and ORDRES.search(n.value)]
+
+
+for nom in ("serveur.py", "garmin.py", "courbe.py", "zones.py", "puissance.py", "polar.py", "strava.py"):
+    for ligne, texte in chaines_renvoyees(os.path.join(DOSSIER, nom)):
+        ECHECS.append(f"ordre adressé à Claude dans un résultat d'outil ({nom}:{ligne}) : « {texte[:80]} »")
+
 # ---------- Zones ----------
 verifier("zone d'une FC", zones.zone_de(150, [130, 145, 160, 170]) == 2)
 

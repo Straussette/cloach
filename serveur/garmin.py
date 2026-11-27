@@ -346,7 +346,7 @@ class Garmins:
         resultat = courbe.resumer(series, velo, bornes)
         resultat["sport"] = "velo" if velo else "pied"
         if not bornes:
-            resultat["zones"] = "Zones pas encore calculées : appelle mes_zones, puis reprends cette courbe."
+            resultat["zones"] = "pas encore calculées (temps par zone indisponible)"
         return resultat
 
     # ---------- Zones personnelles (zones.py) et DFA α1 (dfa.py) ----------

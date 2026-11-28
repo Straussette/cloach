@@ -50,6 +50,8 @@ const ETAT = {
         seance(`b${k}`, decale(lundi, 7 * k + 2), 'renfo', 'Renfo', { etat: k === 0 ? 'fait' : '', exercices: [{ nom: 'Squat', series: 3, repetitions: '10', repos_s: 60 }] }),
         seance(`c${k}`, decale(lundi, 7 * k + 4), 'velo', 'Home trainer', { etapes: [{ type: 'effort', duree_s: 1200, cible: { type: 'ftp', min: 70, max: 80 } }] }),
         seance(`d${k}`, decale(lundi, 7 * k + 6), 'trail', 'Sortie longue', { duree: 120 }),
+        // Une séance aujourd'hui, quel que soit le jour de la semaine (le test ne dépend pas de la date)
+        ...(k === 0 ? [seance('auj', jour(0), 'course', 'Footing du jour')] : []),
       ],
     })),
   },
@@ -162,6 +164,13 @@ async function parcoursComplet(navigateur, base, theme) {
       await demande.click();
       await page.fill('#carteJour .demande-avis textarea', 'Question test');
       await attendu('question en plus dans le lien de l\'avis', page.$eval('#carteJour .demande-avis [data-question-avis]', (a) => decodeURIComponent(a.href).includes('Question test')));
+      await attendu('question de l\'avis courte (sans consignes ni identifiants)', page.$eval('#carteJour .demande-avis [data-question-avis]', (a) => {
+        const q = decodeURIComponent(a.href);
+        return q.length < 400 && !/contexte_du_jour|courbe_activite|\d{6,}/.test(q.replace(/^https:\/\/claude\.ai\/new\?q=/, ''));
+      }));
+      await page.evaluate(() => { window.open = () => null; document.querySelector('#carteJour .demande-avis [data-question-avis]').addEventListener('click', (e) => e.preventDefault(), { once: true }); });
+      await page.click('#carteJour .demande-avis [data-question-avis]'); await page.waitForTimeout(400);
+      await attendu('demande d\'avis enregistrée pour Claude (activité, question)', page.evaluate(() => etat.demandeCoach?.type === 'avis_seance' && !!etat.demandeCoach.activite && etat.demandeCoach.question === 'Question test'));
     } else t.verifs.push(t.nom('pas de « Demander l\'avis du coach » sous la sortie du jour'));
     await liensClaude('[data-vue="jour"]');
     await largeur('Calendrier');

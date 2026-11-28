@@ -231,6 +231,15 @@ verifier("courbe : durée de montée de FC proche de 45 s", all(30 <= e["montee_
 plat = courbe.resumer({**serie, "fc": [140 + (1 if int(t) % 2 else -1) for t in T]}, False)
 verifier("courbe : aucun effort sur une FC stable", plat["efforts"] == [])
 
+# ---------- Demande d'avis envoyée par l'app ----------
+from datetime import datetime as _dt  # noqa: E402
+
+maintenant = _dt.now().isoformat()
+d_app = serveur._demande_app({**etat_s, "demandeCoach": {"type": "avis_seance", "date": maintenant, "activite": "100", "seance": "s1", "question": "Jambes lourdes ?"}})
+verifier("demande de l'app : renvoyée avec la séance prévue", (d_app or {}).get("activite") == "100" and (d_app.get("seance_prevue") or {}).get("titre") == "Footing")
+verifier("demande de l'app : ignorée une fois traitée", serveur._demande_app({**etat_s, "demandeCoach": {"type": "avis_seance", "date": maintenant, "traitee": True}}) is None)
+verifier("demande de l'app : ignorée si ancienne", serveur._demande_app({**etat_s, "demandeCoach": {"type": "avis_seance", "date": "2020-01-01T00:00:00"}}) is None)
+
 # ---------- Zones ----------
 verifier("zone d'une FC", zones.zone_de(150, [130, 145, 160, 170]) == 2)
 

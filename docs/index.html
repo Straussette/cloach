@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icones/icone-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="2026-11-27.8">
+<meta name="app-version" content="2026-11-28.1">
 <title>Cloach</title>
 <style>
   /* ---------- Couleurs (clair / sombre) ---------- */
@@ -1151,7 +1151,7 @@ async function modifier(changer) {
 /* ---------- Questions à Claude ---------- */
 // Ouvre Claude avec la question déjà écrite ; le connecteur Cloach fait le reste
 function lienClaude(question) {
-  return 'https://claude.ai/new?q=' + encodeURIComponent(question + ' (Utilise le connecteur Cloach.)');
+  return 'https://claude.ai/new?q=' + encodeURIComponent(question + ' (avec Cloach)');
 }
 const QUESTIONS = {
   verifier: () => 'Vérifie si ma séance prévue aujourd\'hui reste pertinente : regarde ma forme du jour (sommeil, VFC, Body Battery, FC de repos) et ma charge récente. Dis-moi s\'il faut la garder, l\'alléger, la remplacer ou me reposer, puis enregistre ton avis.',
@@ -1422,14 +1422,23 @@ function realiseDuJour(jour) {
 // Rappel, sous une séance faite, de l'activité Garmin liée et du commentaire
 // Avis du coach après une séance : écrit par Claude (outil avis_seance) dans etat.avisSeances,
 // sous la clé de l'activité Garmin, ou « seance:<id> » pour une séance faite sans activité
+// Question courte et lisible : les identifiants (activité, séance) partent dans etat.demandeCoach au moment du clic,
+// et la façon de faire l'avis est dans les consignes du serveur (contexte_du_jour renvoie la demande à Claude)
 function questionAvis(a, s) {
   const prevue = s || toutesSeances().find((x) => x.activite && x.activite === a?.id);
-  const quoi = a ? `ma séance du ${dateLisible(a.jour)} « ${a.nom || ''} » (activité Garmin ${a.id})` : `ma séance du ${dateLisible(s.jour)} « ${s.titre} » (séance ${s.id})`;
-  return `Donne-moi ton avis de coach sur ${quoi}${a && prevue ? `, prévue comme « ${prevue.titre} » (séance ${prevue.id})` : ''}. `
-    + 'Commence par mon contexte (contexte_du_jour) : juge-la dans ma préparation, pas isolément (mon objectif et sa date, la phase du cycle, mon calendrier, mes semaines précédentes et les séances qui suivent). '
-    + 'Regarde son déroulé (courbe_activite : courbe de FC et d\'allure, temps par zone, kilomètres, et sa situation) et ses tours, compare avec ce qui était prévu, mon ressenti et ma forme, '
-    + 'dis ce qu\'elle change pour la suite de mon plan, puis enregistre ton avis pour l\'app.';
+  const jour = (a || s).jour;
+  const nom = prevue?.titre || a?.nom || '';
+  return `Donne-moi ton avis de coach sur ma séance du ${dateLisible(jour)}${nom ? ` (${nom})` : ''}.`;
 }
+// Clic sur « Ouvrir Claude » : la demande est enregistrée (le lien s'ouvre sans attendre l'écriture)
+document.addEventListener('click', (e) => {
+  const lien = e.target.closest('[data-question-avis]');
+  if (!lien || !session()) return;
+  const question = lien.closest('.demande-avis')?.querySelector('textarea')?.value.trim() || '';
+  const demande = { type: 'avis_seance', date: new Date().toISOString(), activite: lien.dataset.avisActivite || null,
+    seance: lien.dataset.avisSeance || null, question: question.slice(0, 1000) };
+  modifier(() => { etat.demandeCoach = demande; });
+});
 const brouillonsAvis = {};
 function htmlAvisCoach(idActivite, a, s) {
   const avis = etat.avisSeances?.[idActivite || `seance:${s?.id}`];
@@ -1437,10 +1446,10 @@ function htmlAvisCoach(idActivite, a, s) {
   // Champ facultatif : l'athlète ajoute sa propre question ou son ressenti, ajouté à la question avant d'ouvrir Claude
   // Le texte tapé survit aux réaffichages du Calendrier (brouillonsAvis, par question)
   const brouillon = brouillonsAvis[question] || '';
-  const complete = question + (brouillon.trim() ? `\n\nEn plus, ma question ou mon ressenti : ${brouillon.trim()}` : '');
+  const complete = question + (brouillon.trim() ? `\n\nEn plus : ${brouillon.trim()}` : '');
   const demande = (titre) => `<details class="demande-avis" ${brouillon ? 'open' : ''}><summary class="lien-avis">${titre}</summary>
     <textarea maxlength="1000" aria-label="Ta question en plus" placeholder="Ta question en plus (facultatif) : jambes lourdes, allure trop dure, douleur au genou…">${esc(brouillon)}</textarea>
-    <a class="btn secondaire" href="${esc(lienClaude(complete))}" data-question-avis="${esc(question)}" target="_blank" rel="noopener">Ouvrir Claude ›</a></details>`;
+    <a class="btn secondaire" href="${esc(lienClaude(complete))}" data-question-avis="${esc(question)}" data-avis-activite="${esc(a?.id || idActivite || '')}" data-avis-seance="${esc((s || toutesSeances().find((x) => x.activite && x.activite === (a?.id || idActivite)))?.id || '')}" target="_blank" rel="noopener">Ouvrir Claude ›</a></details>`;
   if (avis) return `<div class="avis-coach"><b>Avis du coach · ${esc(dateLisible(avis.date, false))}</b>${esc(avis.texte)}</div>${demande('🗣️ Reparler de cette séance avec le coach')}`;
   return demande('🗣️ Demander l\'avis du coach');
 }
@@ -1450,7 +1459,7 @@ document.addEventListener('input', (e) => {
   const lien = zone.parentElement.querySelector('[data-question-avis]');
   const ajout = zone.value.trim();
   brouillonsAvis[lien.dataset.questionAvis] = zone.value;
-  lien.href = lienClaude(lien.dataset.questionAvis + (ajout ? `\n\nEn plus, ma question ou mon ressenti : ${ajout}` : ''));
+  lien.href = lienClaude(lien.dataset.questionAvis + (ajout ? `\n\nEn plus : ${ajout}` : ''));
 });
 
 function htmlLienGarmin(s) {
